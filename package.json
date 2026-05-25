@@ -1,0 +1,16 @@
+{
+  "name": "koder-by-codex",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "koder": "./bin/koder.mjs"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/koder.mjs && node --check src/app.mjs"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

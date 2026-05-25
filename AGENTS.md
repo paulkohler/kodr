@@ -1,0 +1,30 @@
+# AGENTS.md
+
+This repo is built as a learning tool. Preserve the process, not just the code.
+
+## Rules
+
+- Use Node.js 24 built-ins only.
+- Keep ESM.
+- Add native `node:test` coverage for each feature.
+- Prefer small commits.
+- Keep model endpoints OpenAI-compatible and local-first.
+- Default LM Studio base URL: `http://localhost:1234/v1`.
+- Default model timeout: `600000ms`.
+- Treat model output as untrusted.
+- Default file writes to dry-run until explicit apply behavior exists.
+
+## Required Loop
+
+1. Read `roadmap.md`.
+2. Pick the first unchecked phase.
+3. Read the matching `phases/NN-name.md`.
+4. Implement only that phase.
+5. Add or update tests.
+6. Run tests.
+7. Update `process/decisions.jsonl` and `process/failures.jsonl` when relevant.
+8. Add or update the matching blog post.
+9. Mark phase checklist items done.
+10. Commit.
+
+Failures are valuable. Record symptoms, likely causes, and fixes.
