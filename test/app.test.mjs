@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer } from 'node:http';
 import { describe, it } from 'node:test';
 import { CliError, main, parseArgs, usage, VERSION } from '../src/app.mjs';
+import { startFakeModelServer } from './fake-model-server.mjs';
 
 describe('parseArgs', () => {
 	it('starts with LM Studio-friendly defaults', () => {
@@ -50,56 +50,8 @@ describe('usage', () => {
 
 describe('probe', () => {
 	it('calls OpenAI-compatible endpoints and writes run artifacts', async () => {
-		const requests = [];
-		const server = createServer(async (request, response) => {
-			const body = await readRequestBody(request);
-			requests.push({
-				authorization: request.headers.authorization,
-				body,
-				method: request.method,
-				url: request.url,
-			});
+		const server = await startFakeModelServer();
 
-			response.setHeader('content-type', 'application/json');
-
-			if (request.method === 'GET' && request.url === '/v1/models') {
-				response.end(
-					JSON.stringify({
-						data: [
-							{
-								id: 'fake-local-model',
-								object: 'model',
-							},
-						],
-						object: 'list',
-					}),
-				);
-				return;
-			}
-
-			if (request.method === 'POST' && request.url === '/v1/chat/completions') {
-				response.end(
-					JSON.stringify({
-						choices: [
-							{
-								message: {
-									content: 'koder-probe-ok',
-									role: 'assistant',
-								},
-							},
-						],
-						id: 'chatcmpl_fake',
-						object: 'chat.completion',
-					}),
-				);
-				return;
-			}
-
-			response.statusCode = 404;
-			response.end(JSON.stringify({ error: 'not found' }));
-		});
-
-		await listen(server);
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'koder-probe-'));
 			const stdout = captureStream();
@@ -107,7 +59,7 @@ describe('probe', () => {
 				[
 					'probe',
 					'--base-url',
-					serverBaseUrl(server),
+					server.baseUrl,
 					'--api-key',
 					'secret-test-key',
 					'--timeout-ms',
@@ -132,15 +84,27 @@ describe('probe', () => {
 			assert.equal(output.model, 'fake-local-model');
 
 			assert.deepEqual(
-				requests.map((request) => `${request.method} ${request.url}`),
+				server.recordings.map((recording) => {
+					return `${recording.method} ${recording.url}`;
+				}),
 				['GET /v1/models', 'POST /v1/chat/completions'],
 			);
-			assert.equal(requests[0].authorization, 'Bearer secret-test-key');
-			assert.equal(requests[1].authorization, 'Bearer secret-test-key');
+			assert.equal(
+				server.recordings[0].requestHeaders.authorization,
+				'[redacted]',
+			);
+			assert.equal(
+				server.recordings[1].requestHeaders.authorization,
+				'[redacted]',
+			);
 
-			const chatRequest = JSON.parse(requests[1].body);
+			const chatRequest = server.recordings[1].requestBody;
 			assert.equal(chatRequest.model, 'fake-local-model');
 			assert.equal(chatRequest.messages[0].role, 'user');
+			assert.equal(
+				server.recordings[1].responseBody.choices[0].message.content,
+				'koder-probe-ok',
+			);
 
 			const artifact = JSON.parse(
 				await readFile(join(output.runDir, 'result.json'), 'utf8'),
@@ -153,30 +117,28 @@ describe('probe', () => {
 			);
 			assert.equal(chatResponse.status, 200);
 		} finally {
-			await close(server);
+			await server.close();
 		}
 	});
 
 	it('fails when the model server returns invalid JSON', async () => {
-		const server = createServer((request, response) => {
-			response.setHeader('content-type', 'application/json');
-			response.end('not json');
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: 'not json',
+					method: 'GET',
+					url: '/v1/models',
+				},
+			],
 		});
 
-		await listen(server);
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'koder-probe-bad-json-'));
 
 			await assert.rejects(
 				() =>
 					main(
-						[
-							'probe',
-							'--base-url',
-							serverBaseUrl(server),
-							'--timeout-ms',
-							'1000',
-						],
+						['probe', '--base-url', server.baseUrl, '--timeout-ms', '1000'],
 						{
 							cwd,
 							env: {},
@@ -187,7 +149,7 @@ describe('probe', () => {
 				/invalid JSON/u,
 			);
 		} finally {
-			await close(server);
+			await server.close();
 		}
 	});
 });
@@ -199,42 +161,4 @@ function captureStream() {
 			this.text += chunk;
 		},
 	};
-}
-
-function listen(server) {
-	return new Promise((resolve) => {
-		server.listen(0, '127.0.0.1', resolve);
-	});
-}
-
-function close(server) {
-	return new Promise((resolve, reject) => {
-		server.close((error) => {
-			if (error) {
-				reject(error);
-				return;
-			}
-			resolve();
-		});
-	});
-}
-
-function serverBaseUrl(server) {
-	const address = server.address();
-	return `http://${address.address}:${address.port}/v1`;
-}
-
-function readRequestBody(request) {
-	return new Promise((resolve, reject) => {
-		let body = '';
-
-		request.setEncoding('utf8');
-		request.on('data', (chunk) => {
-			body += chunk;
-		});
-		request.on('end', () => {
-			resolve(body);
-		});
-		request.on('error', reject);
-	});
 }

@@ -6,12 +6,12 @@ Test local-model client behavior without requiring LM Studio during test runs.
 
 ## Build Steps
 
-- [ ] Add native HTTP fake server test helper.
-- [ ] Implement `/v1/models`.
-- [ ] Implement `/v1/chat/completions`.
-- [ ] Add configurable response queue.
-- [ ] Add request/response recorder.
-- [ ] Redact `authorization` headers in recordings.
+- [x] Add native HTTP fake server test helper.
+- [x] Implement `/v1/models`.
+- [x] Implement `/v1/chat/completions`.
+- [x] Add configurable response queue.
+- [x] Add request/response recorder.
+- [x] Redact `authorization` headers in recordings.
 
 ## Recorder Shape
 
@@ -30,6 +30,6 @@ Test local-model client behavior without requiring LM Studio during test runs.
 
 ## Done Criteria
 
-- [ ] Tests can assert recorded request bodies.
-- [ ] Tests can assert recorded response bodies.
-- [ ] Blog post explains why recorder evidence matters.
+- [x] Tests can assert recorded request bodies.
+- [x] Tests can assert recorded response bodies.
+- [x] Blog post explains why recorder evidence matters.
