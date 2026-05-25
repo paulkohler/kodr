@@ -7,6 +7,7 @@ The repo is also a learning artifact. Code, tests, decisions, failures, and blog
 ## Constraints
 
 - Node.js 24 or newer.
+- Biome is expected to be installed globally for formatting and uses the repo `biome.jsonc`.
 - ESM only.
 - No runtime dependencies.
 - Built-in Node modules only.
@@ -18,6 +19,7 @@ The repo is also a learning artifact. Code, tests, decisions, failures, and blog
 
 ```sh
 npm test
+npm run format
 ./koder --help
 ```
 

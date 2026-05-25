@@ -1,1 +1,2 @@
 {"phase":"00","status":"none-yet","note":"Record failures here as JSON lines with symptom, cause, and fix."}
+{"phase":"tooling","symptom":"`npm run format` failed because Biome treated the quoted `**/*.mjs` glob as a literal missing path.","likely_cause":"Biome path handling did not expand the shell glob in the npm script as intended.","fix":"Format the JavaScript source directories directly with `biome format --write bin src test`."}

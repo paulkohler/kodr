@@ -21,10 +21,11 @@ This repo is built as a learning tool. Preserve the process, not just the code.
 3. Read the matching `phases/NN-name.md`.
 4. Implement only that phase.
 5. Add or update tests.
-6. Run tests.
-7. Update `process/decisions.jsonl` and `process/failures.jsonl` when relevant.
-8. Add or update the matching blog post.
-9. Mark phase checklist items done.
-10. Commit.
+6. Run `npm run format`.
+7. Run tests.
+8. Update `process/decisions.jsonl` and `process/failures.jsonl` when relevant.
+9. Add or update the matching blog post.
+10. Mark phase checklist items done.
+11. Commit.
 
 Failures are valuable. Record symptoms, likely causes, and fixes.
