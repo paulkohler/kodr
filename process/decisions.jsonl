@@ -1,2 +1,3 @@
 {"phase":"00","decision":"Use a roadmap plus one phase file per build phase","reason":"The repo is a learning tool, so progress must be readable without scanning git history."}
 {"phase":"01","decision":"Use a minimal executable CLI before model integration","reason":"A tested command surface gives later local-model work a stable entrypoint."}
+{"phase":"02","decision":"Add a dedicated probe command before general prompt runs","reason":"Connectivity, model selection, timeout behavior, and response artifact capture need to be proven independently before higher-level run workflows."}
