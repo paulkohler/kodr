@@ -29,6 +29,15 @@ describe('csv expense analyzer', () => {
 		assert.equal(rows[2][1], 'Notebook "work"');
 	});
 
+	it('rejects non-string CSV input', () => {
+		assert.throws(
+			() => parseCsv(123),
+			(error) =>
+				error instanceof TypeError &&
+				error.message === 'parseCsv expects a string input',
+		);
+	});
+
 	it('validates required columns and fields', () => {
 		assert.throws(
 			() => rowsToExpenses([['date'], ['2026-05-01']]),

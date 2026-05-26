@@ -1,6 +1,6 @@
 # CSV Expense Analyzer Example
 
-A small CSV reporting tool used as a Kodr example app.
+A Kodr-generated CSV reporting tool used as a sample app for parser, validation, aggregation, and CLI workflows.
 
 ## Usage
 

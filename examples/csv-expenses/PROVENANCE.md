@@ -34,9 +34,9 @@ This example is intended to be a Kodr sample.
   - Result: applied a syntactically valid test edit.
   - Verification: failed because the fixture again used backslash-style quotes.
 
-## Stabilization
+## Historical Stabilization
 
-The current example is a Kodr sample with a recorded generation chain, not a manual-only fixture. A small human stabilization restored the doubled-quote CSV fixture after repeated full-file repair slices regressed it. That failure should inform a later patch-oriented repair mode so tiny test fixes do not require wholesale file regeneration.
+Before Phase 28, this example still included a small human stabilization that restored the doubled-quote CSV fixture after repeated full-file repair slices regressed it. That failure directly led to patch-oriented repairs. The canonical example now has a successful Kodr patch chain recorded below.
 
 ## Regeneration Attempt
 
@@ -60,3 +60,30 @@ The current example is a Kodr sample with a recorded generation chain, not a man
   - Verification: failed because the patch duplicated helper functions and did not complete the repair list.
 
 The canonical CSV regeneration is deferred to Phase 28 so it can use patch proposals deliberately, and likely a scratchpad/task discipline if repair complexity continues to grow.
+
+## Canonical Regeneration
+
+Phase 28 kept the passing baseline, then used successful Kodr patch runs to make the canonical example traceable without accepting another broad full-file rewrite.
+
+- Combined parser/test edge-case patch returned an invalid proposal.
+  - Prompt: `prompts/028-csv-add-parser-edge-case.md`
+  - Artifact: `.koder/runs/2026-05-26T20-13-25.567Z`
+  - Result: failed safely with `Proposal patches must have string path, search, and replace`.
+  - Follow-up: split source and test changes into separate patch prompts.
+- Source-only parser input validation patch initially failed on whitespace drift.
+  - Prompt: `prompts/028-csv-parse-input-source-patch.md`
+  - Artifact: `.koder/runs/2026-05-26T20-17-09.743Z`
+  - Result: failed safely because the patch search did not match current text.
+  - Follow-up: add conservative whitespace-tolerant matching for unique patch windows.
+- Exact source patch succeeded.
+  - Prompt: `prompts/028-csv-exact-source-patch.md`
+  - Artifact: `.koder/runs/2026-05-26T20-20-16.528Z`
+  - Result: added `parseCsv` non-string input validation and passed example tests.
+- Exact test patch succeeded.
+  - Prompt: `prompts/028-csv-exact-test-patch.md`
+  - Artifact: `.koder/runs/2026-05-26T20-23-00.653Z`
+  - Result: added native `node:test` coverage for non-string input validation and passed example tests.
+- Wrapper/docs/sample patch succeeded.
+  - Prompt: `prompts/028-csv-exact-wrapper-patch.md`
+  - Artifact: `.koder/runs/2026-05-26T20-24-51.777Z`
+  - Result: refreshed the README language and sample CSV through Kodr patches, then passed example tests.

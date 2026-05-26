@@ -202,6 +202,33 @@ describe('safe writes', () => {
 		);
 	});
 
+	it('matches whitespace-drifted patch searches only when unambiguous', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-fuzzy-patch-'));
+		await writeFile(
+			join(cwd, 'app.mjs'),
+			'export function run() {\n\tconst rows = [];\n}\n',
+			'utf8',
+		);
+
+		await preparePatches(
+			cwd,
+			[
+				{
+					path: 'app.mjs',
+					replace:
+						"export function run() {\n\tif (typeof input !== 'string') {\n\t\tthrow new TypeError('input');\n\t}\n\n\tconst rows =[];\n",
+					search: 'export function run() {\n\tconst rows =[];\n',
+				},
+			],
+			{ apply: true },
+		);
+
+		assert.match(
+			await readFile(join(cwd, 'app.mjs'), 'utf8'),
+			/throw new TypeError/u,
+		);
+	});
+
 	it('can combine full-file writes and patches', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-changes-'));
 		await writeFile(join(cwd, 'README.md'), 'hello\n', 'utf8');

@@ -21,6 +21,10 @@ export function analyzeExpenseCsv(csv) {
 }
 
 export function parseCsv(csv) {
+	if (typeof csv !== 'string') {
+		throw new TypeError('parseCsv expects a string input');
+	}
+
 	const rows = [];
 	let field = '';
 	let row = [];

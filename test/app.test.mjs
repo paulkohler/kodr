@@ -857,6 +857,63 @@ describe('run', () => {
 		}
 	});
 
+	it('records invalid proposals as failed run artifacts', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						patches: [
+							{
+								path: 'README.md',
+								search: 'hello\n',
+							},
+						],
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-invalid-'));
+			await writeFile(join(cwd, 'README.md'), 'hello\n', 'utf8');
+
+			const result = await main(
+				['run', '-p', 'Patch README', '--base-url', server.baseUrl, '--yes'],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.ok, false);
+			assert.equal(await readFile(join(cwd, 'README.md'), 'utf8'), 'hello\n');
+
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.ok, false);
+			assert.match(summary.proposalError.message, /Proposal patches/u);
+			assert.equal(
+				await readFile(join(result.result.runDir, 'response.md'), 'utf8'),
+				JSON.stringify({
+					patches: [
+						{
+							path: 'README.md',
+							search: 'hello\n',
+						},
+					],
+				}),
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('runs verification from a jailed test cwd', async () => {
 		const server = await startFakeModelServer({
 			responses: [

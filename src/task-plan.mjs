@@ -82,6 +82,10 @@ export function updateTasksFromRun(plan, result) {
 		}
 	}
 
+	if (result.proposalError) {
+		next = updateTask(next, 'verify', 'failed', 'Proposal validation failed.');
+	}
+
 	if (result.writeError) {
 		for (const task of next.tasks.filter((item) => item.path)) {
 			next = updateTask(next, task.id, 'failed', result.writeError.message);

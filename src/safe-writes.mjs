@@ -265,17 +265,30 @@ function countOccurrences(value, search) {
 }
 
 function normalizePatch(content, patch) {
-	if (!patch.search.includes('\\')) {
-		return patch;
-	}
-
 	if (countOccurrences(content, patch.search) !== 0) {
 		return patch;
 	}
 
 	const search = unescapePatchString(patch.search);
+	if (search !== patch.search && countOccurrences(content, search) === 1) {
+		return {
+			...patch,
+			replace: unescapePatchString(patch.replace),
+			search,
+		};
+	}
+
 	if (search === patch.search || countOccurrences(content, search) !== 1) {
-		return patch;
+		const fuzzySearch = findWhitespaceTolerantSearch(content, search);
+		if (!fuzzySearch) {
+			return patch;
+		}
+
+		return {
+			...patch,
+			replace: unescapePatchString(patch.replace),
+			search: fuzzySearch,
+		};
 	}
 
 	return {
@@ -283,6 +296,45 @@ function normalizePatch(content, patch) {
 		replace: unescapePatchString(patch.replace),
 		search,
 	};
+}
+
+function findWhitespaceTolerantSearch(content, search) {
+	const searchLines = splitLines(search);
+	if (searchLines.length === 0 || searchLines.length > 20) {
+		return '';
+	}
+
+	const normalizedSearch = normalizeHorizontalWhitespace(search);
+	const contentLines = splitLines(content);
+	const matches = [];
+
+	for (
+		let index = 0;
+		index <= contentLines.length - searchLines.length;
+		index += 1
+	) {
+		const candidate = contentLines
+			.slice(index, index + searchLines.length)
+			.join('');
+		if (normalizeHorizontalWhitespace(candidate) === normalizedSearch) {
+			matches.push(candidate);
+		}
+	}
+
+	return matches.length === 1 ? matches[0] : '';
+}
+
+function splitLines(value) {
+	const lines = value.match(/.*(?:\n|$)/gu) || [];
+	return lines.filter((line) => line !== '');
+}
+
+function normalizeHorizontalWhitespace(value) {
+	return value
+		.split('\n')
+		.map((line) => line.replaceAll(/[ \t]+/gu, ''))
+		.join('\n')
+		.replaceAll(/\n+$/gu, '');
 }
 
 function unescapePatchString(value) {

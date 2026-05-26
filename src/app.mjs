@@ -400,7 +400,55 @@ async function runPrompt(options, io) {
 		responseCount: completion.responses.length,
 		workspaceFileCount: context.files.length,
 	};
-	const proposal = extractProposal(completion.text);
+	let proposal = null;
+	let proposalError = null;
+	try {
+		proposal = extractProposal(completion.text);
+	} catch (error) {
+		proposalError = {
+			message: error.message,
+			name: error.name,
+		};
+	}
+
+	if (proposalError) {
+		let taskPlan = createTaskPlan(prompt);
+		summary.applied = false;
+		summary.ok = false;
+		summary.proposalError = proposalError;
+		summary.proposalFound = false;
+		summary.tested = false;
+		summary.writeCount = 0;
+		taskPlan = updateTasksFromRun(taskPlan, summary);
+		summary.taskCounts = taskCounts(taskPlan);
+
+		const writeResult = {
+			applied: false,
+			error: proposalError,
+			writes: [],
+		};
+
+		await writeText(responsePath, completion.text);
+		await writeJson(join(runDir, 'raw-response.json'), {
+			responses: completion.responses,
+		});
+		await writeJson(join(runDir, 'summary.json'), summary);
+		await writeJson(join(runDir, 'tasks.json'), taskPlan);
+		await writeJson(join(runDir, 'writes.json'), writeResult);
+		await writeJson(join(runDir, 'tests.json'), null);
+
+		return {
+			...summary,
+			proposal: null,
+			response: completion.text,
+			responsePath,
+			runDir,
+			testResult: null,
+			taskPlan,
+			writeResult,
+		};
+	}
+
 	let taskPlan = createTaskPlan(
 		prompt,
 		proposal ? proposalPaths(proposal) : [],
