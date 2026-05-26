@@ -6,7 +6,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 01 CLI Skeleton
 - [x] 02 LM Studio Probe
 - [x] 03 Fake Model Server And Recorder
-- [ ] 04 Prompt Runs And Artifacts
+- [x] 04 Prompt Runs And Artifacts
 - [ ] 05 Defensive JSON Extraction
 - [ ] 06 Context Packing
 - [ ] 07 Safe Writes And Diffs

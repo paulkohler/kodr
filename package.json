@@ -8,8 +8,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check bin/koder.mjs && node --check src/app.mjs",
-    "format": "biome format --write bin src test"
+    "check": "node --check bin/koder.mjs && node --check src/*.mjs && node --check test/*.mjs && node --check test-support/*.mjs",
+    "format": "biome format --write bin src test test-support"
   },
   "engines": {
     "node": ">=24"

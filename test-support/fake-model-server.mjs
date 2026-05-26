@@ -66,6 +66,7 @@ function defaultResponse(method, url, modelId) {
 							content: 'koder-probe-ok',
 							role: 'assistant',
 						},
+						finish_reason: 'stop',
 					},
 				],
 				id: 'chatcmpl_fake',

@@ -6,20 +6,20 @@ Make a single prompt run repeatable and inspectable.
 
 ## Build Steps
 
-- [ ] Extract shared OpenAI-compatible client code from `koder probe`.
-- [ ] Extract shared run artifact writing.
-- [ ] Add `koder run -p "task"`.
-- [ ] Add `--prompt-file`.
-- [ ] Add `--out`.
-- [ ] Save `prompt.md`, `response.md`, `summary.json`, and raw response JSON.
-- [ ] Implement continuation stitching for `finish_reason: "length"`.
+- [x] Extract shared OpenAI-compatible client code from `koder probe`.
+- [x] Extract shared run artifact writing.
+- [x] Add `koder run -p "task"`.
+- [x] Add `--prompt-file`.
+- [x] Add `--out`.
+- [x] Save `prompt.md`, `response.md`, `summary.json`, and raw response JSON.
+- [x] Implement continuation stitching for `finish_reason: "length"`.
 
 ## Done Criteria
 
-- [ ] Fake model tests cover normal and continuation responses.
-- [ ] Run artifacts are deterministic enough to compare across models.
-- [ ] Probe behavior still uses the shared client and passes existing tests.
-- [ ] Blog post documents the artifact layout.
+- [x] Fake model tests cover normal and continuation responses.
+- [x] Run artifacts are deterministic enough to compare across models.
+- [x] Probe behavior still uses the shared client and passes existing tests.
+- [x] Blog post documents the artifact layout.
 
 ## Notes
 

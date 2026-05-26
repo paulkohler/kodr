@@ -1,5 +1,13 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createRunArtifacts, writeJson, writeText } from './artifacts.mjs';
+import {
+	createChatCompletion,
+	firstAssistantMessage,
+	firstFinishReason,
+	firstModelId,
+	listModels,
+} from './model-client.mjs';
 
 export const VERSION = '0.0.0';
 
@@ -21,7 +29,10 @@ export function parseArgs(argv, env = {}) {
 		help: false,
 		json: false,
 		model: env.MODEL_ID || '',
+		out: '',
 		apiKey: env.OPENAI_API_KEY || '',
+		prompt: '',
+		promptFile: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		version: false,
 	};
@@ -50,6 +61,10 @@ export function parseArgs(argv, env = {}) {
 			arg === '--base-url' ||
 			arg === '--model' ||
 			arg === '--api-key' ||
+			arg === '--out' ||
+			arg === '-p' ||
+			arg === '--prompt' ||
+			arg === '--prompt-file' ||
 			arg === '--timeout-ms'
 		) {
 			const value = argv[index + 1];
@@ -93,6 +108,8 @@ Usage:
   koder --help
   koder --version
   koder probe [--json]
+  koder run -p "task" [--json]
+  koder run --prompt-file prompt.md [--out .koder/runs/name]
 
 Local-model defaults:
   --base-url URL       Default: ${DEFAULT_BASE_URL}
@@ -101,7 +118,6 @@ Local-model defaults:
   --timeout-ms N       Default: ${DEFAULT_TIMEOUT_MS}
 
 The first build phases will add:
-  koder run -p "task"
   koder run --workflow
 `;
 }
@@ -132,6 +148,19 @@ export async function main(argv, io) {
 		return { ok: true, command: 'probe', result };
 	}
 
+	if (options.command === 'run') {
+		const result = await runPrompt(options, io);
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+		} else {
+			io.stdout.write(`Run ok\n`);
+			io.stdout.write(`Run: ${result.runDir}\n`);
+			io.stdout.write(`Model: ${result.model}\n`);
+			io.stdout.write(`Response: ${result.responsePath}\n`);
+		}
+		return { ok: true, command: 'run', result };
+	}
+
 	throw new CliError(`Command not implemented yet: ${options.command}`);
 }
 
@@ -142,21 +171,21 @@ function assignValue(options, flag, value) {
 		options.model = value;
 	} else if (flag === '--api-key') {
 		options.apiKey = value;
+	} else if (flag === '--out') {
+		options.out = value;
+	} else if (flag === '-p' || flag === '--prompt') {
+		options.prompt = value;
+	} else if (flag === '--prompt-file') {
+		options.promptFile = value;
 	} else if (flag === '--timeout-ms') {
 		options.timeoutMs = Number(value);
 	}
 }
 
 async function probe(options, io) {
-	const runDir = join(io.cwd, '.koder', 'runs', timestamp());
-	await mkdir(runDir, { recursive: true });
+	const runDir = await createRunArtifacts(io.cwd);
 
-	const modelsUrl = `${options.baseUrl}/models`;
-	const modelsResponse = await requestJson(modelsUrl, {
-		apiKey: options.apiKey,
-		method: 'GET',
-		timeoutMs: options.timeoutMs,
-	});
+	const modelsResponse = await listModels(options);
 
 	await writeJson(join(runDir, 'models-response.json'), modelsResponse);
 
@@ -183,15 +212,7 @@ async function probe(options, io) {
 		url: `${options.baseUrl}/chat/completions`,
 	});
 
-	const chatResponse = await requestJson(
-		`${options.baseUrl}/chat/completions`,
-		{
-			apiKey: options.apiKey,
-			body: chatBody,
-			method: 'POST',
-			timeoutMs: options.timeoutMs,
-		},
-	);
+	const chatResponse = await createChatCompletion(options, chatBody);
 
 	await writeJson(join(runDir, 'chat-response.json'), chatResponse);
 
@@ -214,75 +235,113 @@ async function probe(options, io) {
 	return result;
 }
 
-async function requestJson(url, options) {
-	const headers = {
-		accept: 'application/json',
-	};
+async function runPrompt(options, io) {
+	const prompt = await loadPrompt(options, io.cwd);
+	const runDir = await createRunArtifacts(io.cwd, options.out);
+	const modelsResponse = await listModels(options);
+	const model = options.model || firstModelId(modelsResponse.body);
 
-	if (options.body) {
-		headers['content-type'] = 'application/json';
-	}
-
-	if (options.apiKey) {
-		headers.authorization = `Bearer ${options.apiKey}`;
-	}
-
-	let response;
-	try {
-		response = await fetch(url, {
-			body: options.body ? JSON.stringify(options.body) : undefined,
-			headers,
-			method: options.method,
-			signal: AbortSignal.timeout(options.timeoutMs),
-		});
-	} catch (error) {
-		throw new CliError(`${options.method} ${url} failed: ${error.message}`);
-	}
-
-	const text = await response.text();
-	const parsed = parseJson(text, `${options.method} ${url}`);
-
-	if (!response.ok) {
+	if (!model) {
 		throw new CliError(
-			`${options.method} ${url} returned HTTP ${response.status}`,
+			'No model was provided and GET /models did not return a usable model id',
 		);
 	}
 
+	const completion = await completeWithContinuations(options, model, prompt);
+	const responsePath = join(runDir, 'response.md');
+	const summary = {
+		artifacts: {
+			prompt: 'prompt.md',
+			rawResponse: 'raw-response.json',
+			response: 'response.md',
+			summary: 'summary.json',
+		},
+		baseUrl: options.baseUrl,
+		finishReasons: completion.finishReasons,
+		model,
+		ok: true,
+		promptChars: prompt.length,
+		responseChars: completion.text.length,
+		responseCount: completion.responses.length,
+	};
+
+	await writeText(join(runDir, 'prompt.md'), prompt);
+	await writeText(responsePath, completion.text);
+	await writeJson(join(runDir, 'raw-response.json'), {
+		responses: completion.responses,
+	});
+	await writeJson(join(runDir, 'summary.json'), summary);
+
 	return {
-		body: parsed,
-		status: response.status,
-		url,
+		...summary,
+		response: completion.text,
+		responsePath,
+		runDir,
 	};
 }
 
-function parseJson(text, label) {
-	try {
-		return JSON.parse(text);
-	} catch {
-		throw new CliError(`${label} returned invalid JSON`);
-	}
-}
-
-function firstModelId(body) {
-	if (!body || !Array.isArray(body.data)) {
-		return '';
+async function loadPrompt(options, cwd) {
+	if (options.prompt && options.promptFile) {
+		throw new CliError('Use either -p/--prompt or --prompt-file, not both');
 	}
 
-	const model = body.data.find(
-		(item) => item && typeof item.id === 'string' && item.id.length > 0,
-	);
-	return model ? model.id : '';
+	if (options.prompt) {
+		return options.prompt;
+	}
+
+	if (options.promptFile) {
+		return readFile(join(cwd, options.promptFile), 'utf8');
+	}
+
+	throw new CliError('koder run requires -p/--prompt or --prompt-file');
 }
 
-function firstAssistantMessage(body) {
-	const content = body?.choices?.[0]?.message?.content;
-	return typeof content === 'string' ? content : '';
-}
+async function completeWithContinuations(options, model, prompt) {
+	const responses = [];
+	const finishReasons = [];
+	const chunks = [];
+	const messages = [
+		{
+			content: prompt,
+			role: 'user',
+		},
+	];
 
-async function writeJson(path, value) {
-	await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-}
+	for (let index = 0; index < 8; index += 1) {
+		const chatResponse = await createChatCompletion(options, {
+			messages,
+			model,
+			temperature: 0,
+		});
+		const content = firstAssistantMessage(chatResponse.body);
+		if (!content) {
+			throw new CliError(
+				'POST /chat/completions did not return a usable assistant message',
+			);
+		}
 
-function timestamp() {
-	return new Date().toISOString().replaceAll(':', '-');
+		const finishReason = firstFinishReason(chatResponse.body);
+		responses.push(chatResponse.body);
+		finishReasons.push(finishReason);
+		chunks.push(content);
+
+		if (finishReason !== 'length') {
+			return {
+				finishReasons,
+				responses,
+				text: chunks.join(''),
+			};
+		}
+
+		messages.push({
+			content,
+			role: 'assistant',
+		});
+		messages.push({
+			content: 'Continue from exactly where you stopped.',
+			role: 'user',
+		});
+	}
+
+	throw new CliError('Continuation limit reached before the model stopped');
 }

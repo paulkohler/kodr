@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { startFakeModelServer } from './fake-model-server.mjs';
+import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
 
 describe('startFakeModelServer', () => {
 	it('serves default OpenAI-compatible model and chat responses', async () => {
