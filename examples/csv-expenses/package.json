@@ -1,0 +1,13 @@
+{
+	"name": "csv-expenses-example",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "node --test",
+		"report": "node src/cli.mjs data/sample.csv"
+	},
+	"engines": {
+		"node": ">=24"
+	}
+}

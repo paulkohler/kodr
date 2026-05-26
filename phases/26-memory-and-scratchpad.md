@@ -1,4 +1,4 @@
-# Phase 25: Memory And Scratchpad
+# Phase 26: Memory And Scratchpad
 
 ## Goal
 

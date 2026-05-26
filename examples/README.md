@@ -23,3 +23,7 @@ The second trial is the Markdown blog generator because it adds structured parsi
 ## Third Trial
 
 The third trial is the Notes API because it adds HTTP routing, JSON validation, persistence, status codes, and integration tests with real requests.
+
+## Fourth Trial
+
+The fourth trial is the CSV expense analyzer because it adds quoted text parsing, validation, aggregation, and command-line reporting.
