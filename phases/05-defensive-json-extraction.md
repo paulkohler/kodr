@@ -24,4 +24,4 @@ Parse useful JSON from imperfect local-model text.
 
 ## Notes
 
-Phase 05 should consume text produced by Phase 04 artifacts, especially `response.md` and raw model output captured during smoke runs. Do not connect extraction to file writes, dry-run behavior, or proposal application yet; that belongs in Phase 09.
+Phase 05 should consume text produced by Phase 04 artifacts, especially `response.md` and raw model output captured during smoke runs. Do not connect extraction to file writes, dry-run behavior, or proposal application yet; that belongs in Phase 10.

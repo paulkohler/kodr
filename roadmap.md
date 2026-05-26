@@ -9,15 +9,16 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 04 Prompt Runs And Artifacts
 - [ ] 05 Defensive JSON Extraction
 - [ ] 06 Context Packing
-- [ ] 07 Safe Writes And Diffs
-- [ ] 08 Verification Runner
-- [ ] 09 Proposal Flow
-- [ ] 10 Bounded ReAct Tools
-- [ ] 11 Workflow Mode
-- [ ] 12 One-Shot Healing
-- [ ] 13 Continuous Cycles
-- [ ] 14 Local Bin Install
-- [ ] 15 Replay And Model Comparison
+- [ ] 07 Markdown Skills
+- [ ] 08 Safe Writes And Diffs
+- [ ] 09 Verification Runner
+- [ ] 10 Proposal Flow
+- [ ] 11 Bounded ReAct Tools
+- [ ] 12 Workflow Mode
+- [ ] 13 One-Shot Healing
+- [ ] 14 Continuous Cycles
+- [ ] 15 Local Bin Install
+- [ ] 16 Replay And Model Comparison
 
 ## Phase Contract
 
