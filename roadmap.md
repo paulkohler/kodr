@@ -26,7 +26,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 21 Markdown Blog Example
 - [x] 22 Permission Policy
 - [x] 23 Notes API Example
-- [ ] 24 MCP Client
+- [x] 24 MCP Client
 - [ ] 25 Memory And Scratchpad
 - [ ] 26 Subagents
 - [ ] 27 Loop Budgets

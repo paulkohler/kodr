@@ -229,4 +229,41 @@ describe('bounded tools', () => {
 			/Network access is denied/u,
 		);
 	});
+
+	it('keeps built-in tools working while exposing MCP-style providers', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-mcp-'));
+		await writeFile(join(cwd, 'a.txt'), 'alpha', 'utf8');
+		const runner = new ToolRunner(cwd, {
+			mcpProviders: [
+				{
+					callTool(name, input) {
+						return { name, text: input.text.toUpperCase() };
+					},
+					listTools() {
+						return [
+							{
+								description: 'Uppercase text',
+								name: 'uppercase',
+							},
+						];
+					},
+					name: 'fake',
+				},
+			],
+			maxCalls: 4,
+		});
+
+		assert.equal(await runner.call('read_file', { path: 'a.txt' }), 'alpha');
+		assert.deepEqual(
+			(await runner.call('list_mcp_tools')).map((tool) => tool.toolName),
+			['mcp:fake:uppercase'],
+		);
+		assert.deepEqual(
+			await runner.call('mcp:fake:uppercase', { text: 'hello' }),
+			{
+				name: 'uppercase',
+				text: 'HELLO',
+			},
+		);
+	});
 });

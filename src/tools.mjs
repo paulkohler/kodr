@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { listContextFiles } from './context-packer.mjs';
 import { createHooks, HookBlockedError } from './hooks.mjs';
+import { createMcpClient } from './mcp-client.mjs';
 import { createPermissionPolicy } from './permission-policy.mjs';
 import { jailedPath, prepareWrites } from './safe-writes.mjs';
 import { createTaskPlan, updateTask } from './task-plan.mjs';
@@ -26,6 +27,7 @@ export class ToolRunner {
 		this.taskPlan = options.taskPlan || createTaskPlan(options.task || '');
 		this.hooks = createHooks(options.hooks);
 		this.policy = createPermissionPolicy(options.policy);
+		this.mcp = createMcpClient(options.mcpProviders || options.mcp || []);
 	}
 
 	async call(name, input = {}) {
@@ -71,6 +73,14 @@ export class ToolRunner {
 	}
 
 	async runTool(name, input = {}) {
+		if (name.startsWith('mcp:')) {
+			return this.mcp.callTool(name, input);
+		}
+
+		if (name === 'list_mcp_tools') {
+			return this.mcp.listTools();
+		}
+
 		if (name === 'list_files') {
 			return listContextFiles(this.cwd);
 		}
