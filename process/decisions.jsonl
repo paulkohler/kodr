@@ -19,3 +19,4 @@
 {"phase":"12","decision":"Model workflow coordination as deterministic stages with batch-aware path review first","reason":"Before adding multi-agent model calls, the repository needs a testable contract for stage order and reviewer rejection of unplanned file paths."}
 {"phase":"13","decision":"Limit automatic healing to one repair attempt","reason":"A single repair can address obvious verification failures without creating an unbounded autonomous loop."}
 {"phase":"14","decision":"Represent continuous work as bounded cycles with explicit stop markers","reason":"Repeated local model runs must have visible limits and fresh context per cycle to remain inspectable."}
+{"phase":"15","decision":"Install Kodr locally with a small shell shim rather than a package dependency","reason":"The repo remains dependency-light while making local command ergonomics practical from any working directory."}
