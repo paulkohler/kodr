@@ -240,6 +240,7 @@ describe('run', () => {
 				prompt: 'prompt.md',
 				rawResponse: 'raw-response.json',
 				response: 'response.md',
+				scratchpad: 'scratchpad.md',
 				summary: 'summary.json',
 				tasks: 'tasks.json',
 				tests: 'tests.json',
@@ -685,6 +686,65 @@ describe('run', () => {
 				'completed',
 			);
 			assert.equal(result.result.taskCounts.completed, 4);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('loads memory scopes into run context and records scratchpad artifacts', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'ok\n',
+								path: 'note.txt',
+							},
+						],
+						scratchpad: 'Next run should keep the repair scoped to one file.',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-run-memory-'));
+			await writeFile(join(cwd, 'KODR_MEMORY.md'), 'Prefer patches.\n', 'utf8');
+			await mkdir(join(cwd, '.koder', 'memory'), { recursive: true });
+			await writeFile(
+				join(cwd, '.koder', 'memory', 'user.md'),
+				'Keep examples small.\n',
+				'utf8',
+			);
+
+			const result = await main(
+				['run', '-p', 'Use memory.', '--base-url', server.baseUrl],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			const chatRequest = server.recordings[1].requestBody;
+			assert.match(chatRequest.messages[0].content, /Project memory/u);
+			assert.match(chatRequest.messages[0].content, /Prefer patches/u);
+			assert.match(chatRequest.messages[0].content, /Private user memory/u);
+			assert.match(chatRequest.messages[0].content, /Keep examples small/u);
+			assert.equal(
+				await readFile(join(result.result.runDir, 'scratchpad.md'), 'utf8'),
+				'Next run should keep the repair scoped to one file.',
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.artifacts.scratchpad, 'scratchpad.md');
 		} finally {
 			await server.close();
 		}

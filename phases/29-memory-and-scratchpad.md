@@ -6,6 +6,8 @@ Separate project memory, private user memory, and run scratchpads so persistence
 
 ## Done Criteria
 
-- [ ] Define memory scopes.
-- [ ] Add scratchpad artifacts.
-- [ ] Keep private memory out of committed project files by default.
+- [x] Define memory scopes.
+- [x] Add scratchpad artifacts.
+- [x] Keep private memory out of committed project files by default.
+- [x] Blog post documents persistence boundaries.
+- [x] Tests pass.

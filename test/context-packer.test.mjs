@@ -48,6 +48,44 @@ describe('context packing', () => {
 		);
 		assert.doesNotMatch(renderContextMarkdown(context), /binary/u);
 	});
+
+	it('renders memory scopes without listing private memory as a workspace file', async () => {
+		const cwd = await mkWorkspace({
+			'.koder/memory/user.md': 'Use concise replies.',
+			'KODR_MEMORY.md': 'Project prefers patches.',
+			'src/app.mjs': 'export {};',
+		});
+
+		const context = await buildWorkspaceContext(cwd, {
+			memory: {
+				project: {
+					content: 'Project prefers patches.',
+					includedBytes: 24,
+					path: 'KODR_MEMORY.md',
+					truncated: false,
+				},
+				user: {
+					content: 'Use concise replies.',
+					includedBytes: 20,
+					path: '.koder/memory/user.md',
+					truncated: false,
+				},
+			},
+		});
+
+		assert.deepEqual(await listContextFiles(cwd), [
+			'KODR_MEMORY.md',
+			'src/app.mjs',
+		]);
+		assert.deepEqual(
+			context.files.map((file) => file.path),
+			['src/app.mjs'],
+		);
+		assert.match(context.systemPrompt, /Project memory/u);
+		assert.match(context.systemPrompt, /Private user memory/u);
+		assert.match(renderContextMarkdown(context), /<project-memory/u);
+		assert.match(renderContextMarkdown(context), /<private-user-memory/u);
+	});
 });
 
 async function mkWorkspace(files) {

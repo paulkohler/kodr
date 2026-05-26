@@ -14,6 +14,7 @@ import {
 	firstModelId,
 	listModels,
 } from './model-client.mjs';
+import { loadMemory } from './memory.mjs';
 import { jailedPath, prepareChanges } from './safe-writes.mjs';
 import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
 import {
@@ -230,7 +231,8 @@ export async function main(argv, io) {
 		}
 
 		if (options.showContext) {
-			const context = await buildWorkspaceContext(io.cwd);
+			const memory = await loadMemory(io.cwd);
+			const context = await buildWorkspaceContext(io.cwd, { memory });
 			io.stdout.write(renderContextMarkdown(context));
 			return { ok: true, command: 'run', context };
 		}
@@ -341,7 +343,8 @@ async function runPrompt(options, io) {
 	const prompt = await loadPrompt(options, io.cwd);
 	const runDir = await createRunArtifacts(io.cwd, options.out);
 	const skills = await loadSkills(io.cwd, options.skills);
-	const context = await buildWorkspaceContext(io.cwd, { skills });
+	const memory = await loadMemory(io.cwd);
+	const context = await buildWorkspaceContext(io.cwd, { memory, skills });
 	const responsePath = join(runDir, 'response.md');
 	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
 	await writeText(join(runDir, 'prompt.md'), prompt);
@@ -386,6 +389,7 @@ async function runPrompt(options, io) {
 			prompt: 'prompt.md',
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
+			scratchpad: 'scratchpad.md',
 			summary: 'summary.json',
 			tasks: 'tasks.json',
 			tests: 'tests.json',
@@ -429,6 +433,7 @@ async function runPrompt(options, io) {
 		};
 
 		await writeText(responsePath, completion.text);
+		await writeText(join(runDir, 'scratchpad.md'), '');
 		await writeJson(join(runDir, 'raw-response.json'), {
 			responses: completion.responses,
 		});
@@ -449,6 +454,7 @@ async function runPrompt(options, io) {
 		};
 	}
 
+	const scratchpad = proposal?.scratchpad || '';
 	let taskPlan = createTaskPlan(
 		prompt,
 		proposal ? proposalPaths(proposal) : [],
@@ -498,6 +504,7 @@ async function runPrompt(options, io) {
 	summary.taskCounts = taskCounts(taskPlan);
 
 	await writeText(responsePath, completion.text);
+	await writeText(join(runDir, 'scratchpad.md'), scratchpad);
 	await writeJson(join(runDir, 'raw-response.json'), {
 		responses: completion.responses,
 	});
@@ -512,6 +519,7 @@ async function runPrompt(options, io) {
 		response: completion.text,
 		responsePath,
 		runDir,
+		scratchpad,
 		testResult,
 		taskPlan,
 		writeResult,
@@ -531,6 +539,7 @@ async function writeRunFailure(runDir, details) {
 			prompt: 'prompt.md',
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
+			scratchpad: 'scratchpad.md',
 			summary: 'summary.json',
 			tasks: 'tasks.json',
 			tests: 'tests.json',
@@ -548,6 +557,7 @@ async function writeRunFailure(runDir, details) {
 	};
 
 	await writeText(details.responsePath, '');
+	await writeText(join(runDir, 'scratchpad.md'), '');
 	await writeJson(join(runDir, 'error.json'), error);
 	await writeJson(join(runDir, 'raw-response.json'), { responses: [] });
 	await writeJson(join(runDir, 'summary.json'), summary);
@@ -590,7 +600,9 @@ function extractProposal(text) {
 		const value = extractJson(text);
 		if (
 			!value ||
-			(!Array.isArray(value.files) && !Array.isArray(value.patches))
+			(!Array.isArray(value.files) &&
+				!Array.isArray(value.patches) &&
+				typeof value.scratchpad !== 'string')
 		) {
 			return null;
 		}
@@ -615,6 +627,7 @@ function extractProposal(text) {
 					path: file.path,
 				};
 			}),
+			scratchpad: typeof value.scratchpad === 'string' ? value.scratchpad : '',
 			patches: patches.map((patch) => {
 				if (
 					!patch ||
