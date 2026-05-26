@@ -2,6 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createRunArtifacts, writeJson, writeText } from './artifacts.mjs';
 import {
+	buildWorkspaceContext,
+	listContextFiles,
+	renderContextMarkdown,
+} from './context-packer.mjs';
+import {
 	createChatCompletion,
 	firstAssistantMessage,
 	firstFinishReason,
@@ -33,6 +38,8 @@ export function parseArgs(argv, env = {}) {
 		apiKey: env.OPENAI_API_KEY || '',
 		prompt: '',
 		promptFile: '',
+		showContext: false,
+		showFiles: false,
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		version: false,
 	};
@@ -54,6 +61,16 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--json') {
 			options.json = true;
+			continue;
+		}
+
+		if (arg === '--show-context') {
+			options.showContext = true;
+			continue;
+		}
+
+		if (arg === '--show-files') {
+			options.showFiles = true;
 			continue;
 		}
 
@@ -110,6 +127,8 @@ Usage:
   koder probe [--json]
   koder run -p "task" [--json]
   koder run --prompt-file prompt.md [--out .koder/runs/name]
+  koder run --show-files
+  koder run --show-context
 
 Local-model defaults:
   --base-url URL       Default: ${DEFAULT_BASE_URL}
@@ -149,6 +168,18 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'run') {
+		if (options.showFiles) {
+			const files = await listContextFiles(io.cwd);
+			io.stdout.write(`${files.join('\n')}\n`);
+			return { ok: true, command: 'run', files };
+		}
+
+		if (options.showContext) {
+			const context = await buildWorkspaceContext(io.cwd);
+			io.stdout.write(renderContextMarkdown(context));
+			return { ok: true, command: 'run', context };
+		}
+
 		const result = await runPrompt(options, io);
 		if (options.json) {
 			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -238,6 +269,7 @@ async function probe(options, io) {
 async function runPrompt(options, io) {
 	const prompt = await loadPrompt(options, io.cwd);
 	const runDir = await createRunArtifacts(io.cwd, options.out);
+	const context = await buildWorkspaceContext(io.cwd);
 	const modelsResponse = await listModels(options);
 	const model = options.model || firstModelId(modelsResponse.body);
 
@@ -247,10 +279,16 @@ async function runPrompt(options, io) {
 		);
 	}
 
-	const completion = await completeWithContinuations(options, model, prompt);
+	const completion = await completeWithContinuations(
+		options,
+		model,
+		prompt,
+		context.systemPrompt,
+	);
 	const responsePath = join(runDir, 'response.md');
 	const summary = {
 		artifacts: {
+			context: 'context.md',
 			prompt: 'prompt.md',
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
@@ -263,8 +301,10 @@ async function runPrompt(options, io) {
 		promptChars: prompt.length,
 		responseChars: completion.text.length,
 		responseCount: completion.responses.length,
+		workspaceFileCount: context.files.length,
 	};
 
+	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
 	await writeText(join(runDir, 'prompt.md'), prompt);
 	await writeText(responsePath, completion.text);
 	await writeJson(join(runDir, 'raw-response.json'), {
@@ -296,11 +336,15 @@ async function loadPrompt(options, cwd) {
 	throw new CliError('koder run requires -p/--prompt or --prompt-file');
 }
 
-async function completeWithContinuations(options, model, prompt) {
+async function completeWithContinuations(options, model, prompt, systemPrompt) {
 	const responses = [];
 	const finishReasons = [];
 	const chunks = [];
 	const messages = [
+		{
+			content: systemPrompt,
+			role: 'system',
+		},
 		{
 			content: prompt,
 			role: 'user',

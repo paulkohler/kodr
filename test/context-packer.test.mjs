@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+import {
+	buildWorkspaceContext,
+	listContextFiles,
+	renderContextMarkdown,
+} from '../src/context-packer.mjs';
+
+describe('context packing', () => {
+	it('walks files deterministically and ignores generated directories', async () => {
+		const cwd = await mkWorkspace({
+			'.koder/hidden.txt': 'hidden',
+			'a.txt': 'a',
+			'b.txt': 'b',
+			'node_modules/pkg/index.js': 'ignored',
+			'src/app.mjs': 'export {};',
+		});
+
+		assert.deepEqual(await listContextFiles(cwd), [
+			'a.txt',
+			'b.txt',
+			'src/app.mjs',
+		]);
+	});
+
+	it('filters binary files and includes AGENTS.md as instruction context', async () => {
+		const cwd = await mkWorkspace({
+			'AGENTS.md': 'Always prefer small commits.',
+			'binary.dat': Buffer.from([0, 1, 2, 3]),
+			'index.js': 'console.log("ok");',
+		});
+
+		const context = await buildWorkspaceContext(cwd);
+
+		assert.equal(context.agents.path, 'AGENTS.md');
+		assert.match(
+			context.systemPrompt,
+			/Repository instructions from AGENTS\.md/u,
+		);
+		assert.match(context.systemPrompt, /Always prefer small commits/u);
+		assert.deepEqual(
+			context.files.map((file) => file.path),
+			['index.js'],
+		);
+		assert.doesNotMatch(renderContextMarkdown(context), /binary/u);
+	});
+});
+
+async function mkWorkspace(files) {
+	const cwd = await mkdtemp(join(tmpdir(), 'koder-context-'));
+
+	for (const [path, content] of Object.entries(files)) {
+		const absolute = join(cwd, path);
+		await mkdir(join(absolute, '..'), { recursive: true });
+		await writeFile(absolute, content);
+	}
+
+	return cwd;
+}

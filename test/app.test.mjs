@@ -233,6 +233,7 @@ describe('run', () => {
 			assert.equal(summary.responseCount, 1);
 			assert.equal(summary.promptChars, 'Summarize the repo.'.length);
 			assert.deepEqual(summary.artifacts, {
+				context: 'context.md',
 				prompt: 'prompt.md',
 				rawResponse: 'raw-response.json',
 				response: 'response.md',
@@ -246,7 +247,9 @@ describe('run', () => {
 			assert.equal(raw.responses[0].id, 'chatcmpl_run');
 
 			const chatRequest = server.recordings[1].requestBody;
-			assert.equal(chatRequest.messages[0].content, 'Summarize the repo.');
+			assert.equal(chatRequest.messages[0].role, 'system');
+			assert.match(chatRequest.messages[0].content, /You are Kodr/u);
+			assert.equal(chatRequest.messages[1].content, 'Summarize the repo.');
 			assert.equal(chatRequest.model, 'fake-local-model');
 		} finally {
 			await server.close();
@@ -338,10 +341,10 @@ describe('run', () => {
 			);
 
 			const continuationRequest = server.recordings[2].requestBody;
-			assert.equal(continuationRequest.messages[1].role, 'assistant');
-			assert.equal(continuationRequest.messages[1].content, 'First half ');
+			assert.equal(continuationRequest.messages[2].role, 'assistant');
+			assert.equal(continuationRequest.messages[2].content, 'First half ');
 			assert.equal(
-				continuationRequest.messages[2].content,
+				continuationRequest.messages[3].content,
 				'Continue from exactly where you stopped.',
 			);
 		} finally {
@@ -362,6 +365,62 @@ describe('run', () => {
 				}),
 			/either/u,
 		);
+	});
+
+	it('prints packed context without calling the model', async () => {
+		const server = await startFakeModelServer();
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-show-context-'));
+			await writeFile(join(cwd, 'AGENTS.md'), 'Use local models.', 'utf8');
+			await writeFile(join(cwd, 'a.txt'), 'alpha', 'utf8');
+			const stdout = captureStream();
+
+			const result = await main(
+				['run', '--show-context', '--base-url', server.baseUrl],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout,
+				},
+			);
+
+			assert.equal(result.ok, true);
+			assert.match(stdout.text, /## AGENTS\.md/u);
+			assert.match(stdout.text, /Use local models/u);
+			assert.match(stdout.text, /## a\.txt/u);
+			assert.equal(server.recordings.length, 0);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('prints deterministic context file paths without calling the model', async () => {
+		const server = await startFakeModelServer();
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-show-files-'));
+			await writeFile(join(cwd, 'b.txt'), 'b', 'utf8');
+			await writeFile(join(cwd, 'a.txt'), 'a', 'utf8');
+			const stdout = captureStream();
+
+			const result = await main(
+				['run', '--show-files', '--base-url', server.baseUrl],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout,
+				},
+			);
+
+			assert.equal(result.ok, true);
+			assert.deepEqual(stdout.text.trim().split('\n'), ['a.txt', 'b.txt']);
+			assert.equal(server.recordings.length, 0);
+		} finally {
+			await server.close();
+		}
 	});
 });
 
