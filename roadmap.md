@@ -11,7 +11,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 06 Context Packing
 - [x] 07 Markdown Skills
 - [x] 08 Safe Writes And Diffs
-- [ ] 09 Verification Runner
+- [x] 09 Verification Runner
 - [ ] 10 Proposal Flow
 - [ ] 11 Bounded ReAct Tools
 - [ ] 12 Workflow Mode
