@@ -7,6 +7,7 @@ import {
 	discoverSkills,
 	loadSkills,
 	parseSkillMarkdown,
+	renderLoadedSkills,
 	renderSkillIndex,
 } from '../src/skills.mjs';
 
@@ -65,6 +66,26 @@ describe('Markdown skills', () => {
 		assert.equal(result.loaded[0].body, 'Use B.');
 		assert.match(renderSkillIndex(result.index), /alpha/u);
 		assert.match(renderSkillIndex(result.index), /beta/u);
+	});
+
+	it('caps skill bodies and marks loaded skills as untrusted blocks', async () => {
+		const cwd = await mkWorkspace({
+			'a/SKILL.md':
+				'---\nname: alpha\ndescription: Alpha skill\n---\n1234567890',
+			'b/SKILL.md': '---\nname: beta\ndescription: Beta skill\n---\nignored',
+		});
+
+		const result = await loadSkills(cwd, ['a/SKILL.md'], {
+			perSkillBytes: 8,
+			totalSkillBytes: 8,
+		});
+
+		assert.equal(result.index.length, 1);
+		assert.equal(result.loaded[0].truncated, true);
+		assert.equal(result.loaded[0].includedBytes, 8);
+		assert.match(renderLoadedSkills(result.loaded), /<skill name="a"/u);
+		assert.match(renderLoadedSkills(result.loaded), /truncated="true"/u);
+		assert.match(renderLoadedSkills(result.loaded), /<\/skill>/u);
 	});
 });
 

@@ -54,6 +54,7 @@ describe('verification runner', () => {
 
 		assert.equal(result.ok, true);
 		assert.equal(result.exitCode, 0);
+		assert.match(result.trustBoundary, /trusted workspace code/u);
 		assert.match(
 			await readFile(join(cwd, '.koder', 'last-test.md'), 'utf8'),
 			/node --check ok\.mjs/u,

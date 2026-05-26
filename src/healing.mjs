@@ -17,13 +17,16 @@ export async function oneShotHeal(cwd, failedTest, repairText, options = {}) {
 	const lastTest = await readLastTest(cwd);
 	const repairPrompt = renderRepairPrompt(context.systemPrompt, lastTest);
 	const proposal = extractJson(repairText);
-	const writes = await prepareWrites(cwd, proposal.files, { apply: true });
-	const verification = await runVerification(cwd, options.testCommand, {
-		timeoutMs: options.timeoutMs || 60000,
-	});
+	const apply = options.apply === true || options.yes === true;
+	const writes = await prepareWrites(cwd, proposal.files, { apply });
+	const verification = apply
+		? await runVerification(cwd, options.testCommand, {
+				timeoutMs: options.timeoutMs || 60000,
+			})
+		: null;
 
 	return {
-		healed: verification.ok,
+		healed: verification ? verification.ok : false,
 		repairPrompt,
 		verification,
 		writes,

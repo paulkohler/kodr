@@ -66,6 +66,8 @@ export async function jailedPath(cwd, path) {
 		throw new SafeWriteError(`Path escapes workspace: ${path}`);
 	}
 
+	await rejectEscapingExistingTarget(root, absolute, path);
+
 	return {
 		absolute,
 		path,
@@ -104,6 +106,26 @@ async function rejectSymlinkParents(cwd, path) {
 			}
 			throw error;
 		}
+	}
+}
+
+async function rejectEscapingExistingTarget(root, absolute, path) {
+	try {
+		const stat = await lstat(absolute);
+		if (stat.isSymbolicLink()) {
+			throw new SafeWriteError(`Symlink target is not allowed: ${path}`);
+		}
+	} catch (error) {
+		if (error.code === 'ENOENT') {
+			return;
+		}
+		throw error;
+	}
+
+	const target = await realpath(absolute);
+	const targetRelative = relative(root, target);
+	if (targetRelative.startsWith('..') || isAbsolute(targetRelative)) {
+		throw new SafeWriteError(`Path escapes workspace: ${path}`);
 	}
 }
 

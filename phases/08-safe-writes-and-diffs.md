@@ -2,7 +2,7 @@
 
 ## Goal
 
-Turn model proposals into controlled filesystem transactions.
+Turn model proposals into controlled filesystem writes with dry-run diffs and backups.
 
 ## Build Steps
 

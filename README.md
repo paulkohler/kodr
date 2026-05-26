@@ -26,3 +26,9 @@ npm run format
 ## Process
 
 Use [roadmap.md](./roadmap.md) as the phase index. Each phase has a spec under [phases/](./phases). Public learning notes live under [blog/](./blog). Small append-only records live under [process/](./process).
+
+## Security Boundaries
+
+Kodr treats model output, workspace files, `AGENTS.md`, `SKILL.md`, replay artifacts, and fetched network content as untrusted input. File reads and writes are jailed to the workspace, model-proposed writes stay dry-run until `--yes`, and Markdown skills are byte-capped before entering the system prompt.
+
+Verification commands are allowlisted and run without a shell, but `npm test` and `npm run test` still execute trusted workspace package scripts. Safe writes create backups for existing files before applying changes; they are controlled writes with backups, not full rollback transactions.

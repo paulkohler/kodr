@@ -1,6 +1,9 @@
-import { readFile } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { listContextFiles } from './context-packer.mjs';
+
+export const DEFAULT_SKILL_BYTES = 12000;
+export const DEFAULT_TOTAL_SKILL_BYTES = 40000;
 
 export class SkillError extends Error {
 	constructor(message) {
@@ -9,16 +12,27 @@ export class SkillError extends Error {
 	}
 }
 
-export async function discoverSkills(cwd) {
+export async function discoverSkills(cwd, options = {}) {
+	const perSkillBytes = options.perSkillBytes || DEFAULT_SKILL_BYTES;
+	const totalSkillBytes = options.totalSkillBytes || DEFAULT_TOTAL_SKILL_BYTES;
 	const files = await listContextFiles(cwd);
 	const skillPaths = files.filter(
 		(file) => file.endsWith('/SKILL.md') || file === 'SKILL.md',
 	);
 	const skills = [];
+	let usedBytes = 0;
 
 	for (const path of skillPaths) {
-		const raw = await readFile(`${cwd}/${path}`, 'utf8');
-		const parsed = parseSkillMarkdown(path, raw);
+		if (usedBytes >= totalSkillBytes) {
+			break;
+		}
+
+		const maxBytes = Math.min(perSkillBytes, totalSkillBytes - usedBytes);
+		const loaded = await readSkillPrefix(`${cwd}/${path}`, maxBytes);
+		const parsed = parseSkillMarkdown(path, loaded.raw);
+		parsed.includedBytes = loaded.includedBytes;
+		parsed.truncated = loaded.truncated;
+		usedBytes += loaded.includedBytes;
 		skills.push(parsed);
 	}
 
@@ -33,13 +47,15 @@ export function parseSkillMarkdown(path, raw) {
 		body: parsed.body,
 		description: parsed.frontmatter.description || '',
 		frontmatter: parsed.frontmatter,
+		includedBytes: Buffer.byteLength(raw),
 		name: parsed.frontmatter.name || fallbackName,
 		path,
+		truncated: false,
 	};
 }
 
-export async function loadSkills(cwd, requests) {
-	const skills = await discoverSkills(cwd);
+export async function loadSkills(cwd, requests, options = {}) {
+	const skills = await discoverSkills(cwd, options);
 	const loaded = [];
 
 	for (const request of requests) {
@@ -84,9 +100,31 @@ export function renderLoadedSkills(skills) {
 
 	return skills
 		.map((skill) => {
-			return `## Skill: ${skill.name}\nPath: ${skill.path}\n\n${skill.body}`;
+			const truncated = skill.truncated ? ' truncated="true"' : '';
+			return `<skill name="${escapeAttribute(skill.name)}" path="${escapeAttribute(skill.path)}"${truncated}>\n${skill.body}\n</skill>`;
 		})
 		.join('\n\n');
+}
+
+async function readSkillPrefix(path, maxBytes) {
+	const file = await open(path, 'r');
+	try {
+		const buffer = Buffer.alloc(maxBytes + 1);
+		const { bytesRead } = await file.read(buffer, 0, maxBytes + 1, 0);
+		const truncated = bytesRead > maxBytes;
+		const prefix = buffer.subarray(0, Math.min(bytesRead, maxBytes));
+		return {
+			includedBytes: prefix.length,
+			raw: prefix.toString('utf8'),
+			truncated,
+		};
+	} finally {
+		await file.close();
+	}
+}
+
+function escapeAttribute(value) {
+	return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
 }
 
 function parseFrontmatter(raw) {

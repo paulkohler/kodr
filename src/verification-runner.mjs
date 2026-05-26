@@ -70,6 +70,8 @@ export async function runVerification(cwd, command, options = {}) {
 		stdout: result.stdout,
 		timedOut: result.timedOut,
 		startedAt,
+		trustBoundary:
+			'Verification commands are allowlisted and run without a shell, but npm scripts execute trusted workspace code.',
 	};
 
 	await writeLastTest(cwd, summary);
@@ -80,6 +82,7 @@ function spawnCommand(cwd, parsed, timeoutMs) {
 	return new Promise((resolve) => {
 		const child = spawn(parsed.bin, parsed.args, {
 			cwd,
+			detached: true,
 			shell: false,
 		});
 		let stdout = '';
@@ -87,7 +90,7 @@ function spawnCommand(cwd, parsed, timeoutMs) {
 		let timedOut = false;
 		const timer = setTimeout(() => {
 			timedOut = true;
-			child.kill('SIGTERM');
+			killProcessGroup(child);
 		}, timeoutMs);
 
 		child.stdout.setEncoding('utf8');
@@ -107,7 +110,24 @@ function spawnCommand(cwd, parsed, timeoutMs) {
 				timedOut,
 			});
 		});
+		child.on('error', (error) => {
+			clearTimeout(timer);
+			resolve({
+				exitCode: 1,
+				stderr: error.message,
+				stdout,
+				timedOut,
+			});
+		});
 	});
+}
+
+function killProcessGroup(child) {
+	try {
+		process.kill(-child.pid, 'SIGTERM');
+	} catch {
+		child.kill('SIGTERM');
+	}
 }
 
 function isSafeRelativeFile(path) {

@@ -1,8 +1,12 @@
+import { lookup } from 'node:dns/promises';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isIP } from 'node:net';
 import { listContextFiles } from './context-packer.mjs';
-import { prepareWrites } from './safe-writes.mjs';
+import { jailedPath, prepareWrites } from './safe-writes.mjs';
 import { runVerification } from './verification-runner.mjs';
+
+const DEFAULT_FETCH_TIMEOUT_MS = 10000;
+const DEFAULT_FETCH_MAX_BYTES = 20000;
 
 export class ToolError extends Error {
 	constructor(message) {
@@ -36,7 +40,8 @@ export class ToolRunner {
 		}
 
 		if (name === 'read_file') {
-			return readFile(join(this.cwd, input.path), 'utf8');
+			const jailed = await jailedPath(this.cwd, input.path);
+			return readFile(jailed.absolute, 'utf8');
 		}
 
 		if (name === 'write_file') {
@@ -59,26 +64,40 @@ export class ToolRunner {
 		}
 
 		if (name === 'fetch_url') {
-			return fetchUrl(input.url);
+			return fetchUrl(input.url, {
+				maxBytes: input.maxBytes,
+				timeoutMs: input.timeoutMs,
+			});
 		}
 
 		throw new ToolError(`Unknown tool: ${name}`);
 	}
 }
 
-async function fetchUrl(url) {
+export async function fetchUrl(url, options = {}) {
 	const parsed = new URL(url);
 	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
 		throw new ToolError(`Unsupported URL protocol: ${parsed.protocol}`);
+	}
+
+	if (parsed.username || parsed.password) {
+		throw new ToolError('URL credentials are not allowed');
 	}
 
 	if (isBlockedHost(parsed.hostname)) {
 		throw new ToolError(`Blocked local or private URL: ${url}`);
 	}
 
-	const response = await fetch(url);
+	await rejectResolvedPrivateHosts(parsed.hostname, url, options.lookupHost);
+
+	const timeoutMs = options.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS;
+	const maxBytes = options.maxBytes || DEFAULT_FETCH_MAX_BYTES;
+	const fetchImpl = options.fetchImpl || fetch;
+	const response = await fetchImpl(url, {
+		signal: AbortSignal.timeout(timeoutMs),
+	});
 	return {
-		body: await response.text(),
+		body: await readCappedText(response, maxBytes),
 		status: response.status,
 		url,
 	};
@@ -90,11 +109,47 @@ function isBlockedHost(hostname) {
 		return true;
 	}
 
-	if (lower === '127.0.0.1' || lower === '0.0.0.0' || lower === '::1') {
+	if (
+		lower === '127.0.0.1' ||
+		lower === '0.0.0.0' ||
+		lower === '::1' ||
+		lower === '[::1]'
+	) {
 		return true;
 	}
 
-	if (/^10\./u.test(lower) || /^192\.168\./u.test(lower)) {
+	return isBlockedAddress(lower);
+}
+
+async function rejectResolvedPrivateHosts(hostname, url, lookupHost = lookup) {
+	if (isIP(hostname)) {
+		return;
+	}
+
+	const addresses = await lookupHost(hostname, {
+		all: true,
+		verbatim: true,
+	});
+
+	for (const address of addresses) {
+		if (isBlockedAddress(address.address)) {
+			throw new ToolError(`Blocked local or private URL: ${url}`);
+		}
+	}
+}
+
+function isBlockedAddress(address) {
+	const lower = address.toLowerCase();
+
+	if (/^127\./u.test(lower) || lower === '0.0.0.0' || lower === '::1') {
+		return true;
+	}
+
+	if (
+		/^10\./u.test(lower) ||
+		/^192\.168\./u.test(lower) ||
+		/^169\.254\./u.test(lower)
+	) {
 		return true;
 	}
 
@@ -104,5 +159,46 @@ function isBlockedHost(hostname) {
 		return second >= 16 && second <= 31;
 	}
 
+	if (
+		lower.startsWith('fc') ||
+		lower.startsWith('fd') ||
+		lower.startsWith('fe80:')
+	) {
+		return true;
+	}
+
 	return false;
+}
+
+async function readCappedText(response, maxBytes) {
+	const reader = response.body?.getReader();
+	if (!reader) {
+		return '';
+	}
+
+	const chunks = [];
+	let used = 0;
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) {
+			return Buffer.concat(chunks).toString('utf8');
+		}
+
+		const bytesLeft = maxBytes - used;
+		if (bytesLeft <= 0) {
+			await reader.cancel();
+			throw new ToolError(`fetch_url response exceeded ${maxBytes} bytes`);
+		}
+
+		const chunk = Buffer.from(value);
+		if (chunk.length > bytesLeft) {
+			chunks.push(chunk.subarray(0, bytesLeft));
+			await reader.cancel();
+			throw new ToolError(`fetch_url response exceeded ${maxBytes} bytes`);
+		}
+
+		chunks.push(chunk);
+		used += chunk.length;
+	}
 }

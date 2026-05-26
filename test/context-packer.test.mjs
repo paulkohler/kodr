@@ -40,6 +40,7 @@ describe('context packing', () => {
 			context.systemPrompt,
 			/Repository instructions from AGENTS\.md/u,
 		);
+		assert.match(context.systemPrompt, /<workspace-instructions/u);
 		assert.match(context.systemPrompt, /Always prefer small commits/u);
 		assert.deepEqual(
 			context.files.map((file) => file.path),

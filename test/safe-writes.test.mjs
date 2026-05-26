@@ -32,6 +32,33 @@ describe('safe writes', () => {
 		);
 	});
 
+	it('rejects existing symlink file targets', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-link-file-'));
+		const outside = await mkdtemp(join(tmpdir(), 'koder-outside-file-'));
+		await writeFile(join(outside, 'secret.txt'), 'secret', 'utf8');
+		await symlink(join(outside, 'secret.txt'), join(cwd, 'linked.txt'));
+
+		await assert.rejects(
+			() => jailedPath(cwd, 'linked.txt'),
+			/Symlink target/u,
+		);
+		await assert.rejects(
+			() =>
+				prepareWrites(
+					cwd,
+					[
+						{
+							content: 'changed',
+							path: 'linked.txt',
+						},
+					],
+					{ apply: true },
+				),
+			/Symlink target/u,
+		);
+		assert.equal(await readFile(join(outside, 'secret.txt'), 'utf8'), 'secret');
+	});
+
 	it('supports dry-run diffs without modifying files', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-dry-'));
 		await writeFile(join(cwd, 'README.md'), 'old\n', 'utf8');

@@ -369,6 +369,24 @@ describe('run', () => {
 		);
 	});
 
+	it('rejects prompt-file paths outside the workspace', async () => {
+		const parent = await mkdtemp(join(tmpdir(), 'koder-run-prompt-escape-'));
+		const cwd = join(parent, 'workspace');
+		await mkdir(cwd, { recursive: true });
+		await writeFile(join(parent, 'prompt.md'), 'outside', 'utf8');
+
+		await assert.rejects(
+			() =>
+				main(['run', '--prompt-file', '../prompt.md'], {
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				}),
+			/Parent path segments/u,
+		);
+	});
+
 	it('prints packed context without calling the model', async () => {
 		const server = await startFakeModelServer();
 
@@ -631,6 +649,23 @@ describe('replay', () => {
 
 		assert.equal(result.ok, true);
 		assert.equal(JSON.parse(stdout.text).response, 'response');
+	});
+
+	it('rejects replay paths outside the workspace', async () => {
+		const parent = await mkdtemp(join(tmpdir(), 'koder-replay-escape-'));
+		const cwd = join(parent, 'workspace');
+		await mkdir(cwd, { recursive: true });
+
+		await assert.rejects(
+			() =>
+				main(['replay', '../run'], {
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				}),
+			/Parent path segments/u,
+		);
 	});
 });
 

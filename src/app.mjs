@@ -14,7 +14,7 @@ import {
 	firstModelId,
 	listModels,
 } from './model-client.mjs';
-import { prepareWrites } from './safe-writes.mjs';
+import { jailedPath, prepareWrites } from './safe-writes.mjs';
 import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
 import { runVerification } from './verification-runner.mjs';
 import { replayRun } from './replay.mjs';
@@ -171,9 +171,9 @@ Local-model defaults:
   --api-key KEY        Default: OPENAI_API_KEY
   --timeout-ms N       Default: ${DEFAULT_TIMEOUT_MS}
 
-The first build phases will add:
-  koder run --workflow
-`;
+Implemented library primitives:
+  workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
+	`;
 }
 
 export async function main(argv, io) {
@@ -237,7 +237,8 @@ export async function main(argv, io) {
 		if (!options.replayDir) {
 			throw new CliError('koder replay requires a run directory');
 		}
-		const result = await replayRun(join(io.cwd, options.replayDir));
+		const replayDir = await jailedPath(io.cwd, options.replayDir);
+		const result = await replayRun(replayDir.absolute);
 		io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 		return { ok: true, command: 'replay', result };
 	}
@@ -410,7 +411,8 @@ async function loadPrompt(options, cwd) {
 	}
 
 	if (options.promptFile) {
-		return readFile(join(cwd, options.promptFile), 'utf8');
+		const promptPath = await jailedPath(cwd, options.promptFile);
+		return readFile(promptPath.absolute, 'utf8');
 	}
 
 	throw new CliError('koder run requires -p/--prompt or --prompt-file');

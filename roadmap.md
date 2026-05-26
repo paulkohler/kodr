@@ -19,6 +19,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 14 Continuous Cycles
 - [x] 15 Local Bin Install
 - [x] 16 Replay And Model Comparison
+- [x] 17 Integration Hardening
 
 ## Phase Contract
 

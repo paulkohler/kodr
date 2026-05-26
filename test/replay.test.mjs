@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { compareModels, replayRun } from '../src/replay.mjs';
+import { compareModels, ReplayError, replayRun } from '../src/replay.mjs';
 
 describe('replay and model comparison', () => {
 	it('replays run artifacts without model calls', async () => {
@@ -23,6 +23,28 @@ describe('replay and model comparison', () => {
 		assert.equal(replay.response, 'response');
 		assert.equal(replay.summary.ok, true);
 		assert.equal(replay.raw.responses[0].id, '1');
+	});
+
+	it('reports missing and corrupt replay artifacts clearly', async () => {
+		const runDir = await mkdtemp(join(tmpdir(), 'koder-replay-bad-'));
+		await writeFile(join(runDir, 'prompt.md'), 'prompt', 'utf8');
+		await writeFile(join(runDir, 'response.md'), 'response', 'utf8');
+		await writeFile(join(runDir, 'summary.json'), '{nope', 'utf8');
+
+		await assert.rejects(
+			() => replayRun(runDir),
+			(error) =>
+				error instanceof ReplayError &&
+				error.message === 'Replay artifact is invalid JSON: summary.json',
+		);
+
+		await writeFile(join(runDir, 'summary.json'), '{"ok":true}', 'utf8');
+		await assert.rejects(
+			() => replayRun(runDir),
+			(error) =>
+				error instanceof ReplayError &&
+				error.message === 'Replay artifact is missing: raw-response.json',
+		);
 	});
 
 	it('compares at least two fake models and records metadata', async () => {
