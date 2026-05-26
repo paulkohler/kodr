@@ -28,7 +28,7 @@ This repo is built as a learning tool. Preserve the process, not just the code.
 10. Add or update the matching blog post.
 11. Mark phase checklist items done.
 12. Commit.
-13. Review the work and upcoming phases for bugs, plan drift, or better sequencing.
+13. Review the work and upcoming phases for bugs, plan drift, or better sequencing. Use the cycle-review subagent when transcript context is available to identify user directions that may belong in `AGENTS.md`.
 14. Commit any review-driven process or roadmap adjustments before moving on.
 
 Failures are valuable. Record symptoms, likely causes, and fixes.

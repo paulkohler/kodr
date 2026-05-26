@@ -32,7 +32,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 27 Patch-Oriented Repairs
 - [x] 28 CSV Expense Regeneration
 - [x] 29 Memory And Scratchpad
-- [ ] 30 Subagents
+- [x] 30 Subagents
 - [ ] 31 Loop Budgets
 
 ## Phase Contract

@@ -17,6 +17,7 @@ import {
 import { loadMemory } from './memory.mjs';
 import { jailedPath, prepareChanges } from './safe-writes.mjs';
 import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
+import { createCycleReviewRequest, runSubagent } from './subagents.mjs';
 import {
 	createTaskPlan,
 	taskCounts,
@@ -59,6 +60,7 @@ export function parseArgs(argv, env = {}) {
 		testCommand: '',
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
+		transcriptFile: '',
 		version: false,
 		yes: false,
 	};
@@ -125,7 +127,8 @@ export function parseArgs(argv, env = {}) {
 			arg === '--skill' ||
 			arg === '--test' ||
 			arg === '--test-cwd' ||
-			arg === '--timeout-ms'
+			arg === '--timeout-ms' ||
+			arg === '--transcript-file'
 		) {
 			const value = argv[index + 1];
 			if (!value || value.startsWith('--')) {
@@ -178,6 +181,7 @@ Usage:
   koder run --show-files
   koder run --show-context
   koder run --show-skills
+  koder cycle-review --transcript-file chat.md [--json]
   koder replay <run-dir>
 
 Local-model defaults:
@@ -259,6 +263,50 @@ export async function main(argv, io) {
 		return { ok: true, command: 'replay', result };
 	}
 
+	if (options.command === 'cycle-review') {
+		if (!options.transcriptFile) {
+			throw new CliError('koder cycle-review requires --transcript-file');
+		}
+		const runDir = await createRunArtifacts(io.cwd, options.out);
+		const transcriptPath = await jailedPath(io.cwd, options.transcriptFile);
+		const transcript = await readFile(transcriptPath.absolute, 'utf8');
+		const review = await runSubagent(
+			io.cwd,
+			runDir,
+			createCycleReviewRequest({
+				transcript,
+				transcriptPath: options.transcriptFile,
+			}),
+		);
+		const result = {
+			ok: review.result.ok,
+			runDir,
+			subagent: {
+				artifactDir: review.artifactDir,
+				id: review.request.id,
+				kind: review.request.kind,
+			},
+			result: review.result,
+		};
+		await writeJson(join(runDir, 'summary.json'), {
+			artifacts: {
+				subagentRequest: 'subagents/cycle-review/request.json',
+				subagentResult: 'subagents/cycle-review/result.json',
+				summary: 'summary.json',
+			},
+			ok: result.ok,
+			subagent: result.subagent,
+		});
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+		} else {
+			io.stdout.write(`Cycle review ok\n`);
+			io.stdout.write(`Run: ${runDir}\n`);
+			io.stdout.write(`Findings: ${review.result.findings.length}\n`);
+		}
+		return { ok: result.ok, command: 'cycle-review', result };
+	}
+
 	throw new CliError(`Command not implemented yet: ${options.command}`);
 }
 
@@ -283,6 +331,8 @@ function assignValue(options, flag, value) {
 		options.testCwd = value;
 	} else if (flag === '--timeout-ms') {
 		options.timeoutMs = Number(value);
+	} else if (flag === '--transcript-file') {
+		options.transcriptFile = value;
 	}
 }
 

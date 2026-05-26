@@ -43,6 +43,20 @@ describe('parseArgs', () => {
 		assert.equal(options.json, true);
 	});
 
+	it('parses cycle review flags', () => {
+		const options = parseArgs([
+			'cycle-review',
+			'--transcript-file',
+			'chat.md',
+			'--out',
+			'cycle-run',
+		]);
+
+		assert.equal(options.command, 'cycle-review');
+		assert.equal(options.transcriptFile, 'chat.md');
+		assert.equal(options.out, 'cycle-run');
+	});
+
 	it('rejects unknown options', () => {
 		assert.throws(() => parseArgs(['--wat']), CliError);
 	});
@@ -1168,6 +1182,76 @@ describe('replay', () => {
 					stdout: captureStream(),
 				}),
 			/Parent path segments/u,
+		);
+	});
+});
+
+describe('cycle-review', () => {
+	it('runs the cycle review subagent and writes artifacts', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-cycle-review-'));
+		await writeFile(join(cwd, 'AGENTS.md'), '- Run tests.\n', 'utf8');
+		await writeFile(
+			join(cwd, 'chat.md'),
+			'User: Make sure examples are Kodr samples before moving on.\n',
+			'utf8',
+		);
+		const stdout = captureStream();
+
+		const result = await main(
+			[
+				'cycle-review',
+				'--transcript-file',
+				'chat.md',
+				'--out',
+				'cycle-review-run',
+				'--json',
+			],
+			{
+				cwd,
+				env: {},
+				stderr: captureStream(),
+				stdout,
+			},
+		);
+
+		assert.equal(result.ok, true);
+		assert.equal(result.result.result.findings.length, 1);
+		assert.match(stdout.text, /Kodr samples/u);
+		assert.match(
+			await readFile(
+				join(
+					cwd,
+					'cycle-review-run',
+					'subagents',
+					'cycle-review',
+					'result.json',
+				),
+				'utf8',
+			),
+			/Kodr samples/u,
+		);
+
+		const summary = JSON.parse(
+			await readFile(join(cwd, 'cycle-review-run', 'summary.json'), 'utf8'),
+		);
+		assert.equal(
+			summary.artifacts.subagentResult,
+			'subagents/cycle-review/result.json',
+		);
+	});
+
+	it('rejects missing transcript file', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-cycle-review-missing-'));
+
+		await assert.rejects(
+			() =>
+				main(['cycle-review'], {
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				}),
+			/requires --transcript-file/u,
 		);
 	});
 });
