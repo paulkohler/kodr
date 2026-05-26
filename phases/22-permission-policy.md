@@ -6,6 +6,6 @@ Make path, command, network, and apply permissions configurable without weakenin
 
 ## Done Criteria
 
-- [ ] Preserve dry-run and workspace jail defaults.
-- [ ] Add tests for denied paths, commands, network targets, and apply behavior.
-- [ ] Document the policy boundary.
+- [x] Preserve dry-run and workspace jail defaults.
+- [x] Add tests for denied paths, commands, network targets, and apply behavior.
+- [x] Document the policy boundary.

@@ -193,4 +193,40 @@ describe('bounded tools', () => {
 			/Writes are disabled by hook/u,
 		);
 	});
+
+	it('enforces permission policy before tool effects', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-policy-'));
+		await writeFile(join(cwd, 'README.md'), 'readme', 'utf8');
+		const runner = new ToolRunner(cwd, {
+			policy: {
+				allowApply: false,
+				allowNetwork: false,
+				allowedCommands: ['node --test'],
+				allowedReadPaths: ['src'],
+				allowedWritePaths: ['notes'],
+			},
+		});
+
+		await assert.rejects(
+			() => runner.call('read_file', { path: 'README.md' }),
+			/outside allowed read/u,
+		);
+		await assert.rejects(
+			() =>
+				runner.call('write_file', {
+					apply: true,
+					content: 'x',
+					path: 'notes/a.txt',
+				}),
+			/Applying writes is denied/u,
+		);
+		await assert.rejects(
+			() => runner.call('run_command', { command: 'npm test' }),
+			/Command is denied/u,
+		);
+		await assert.rejects(
+			() => runner.call('fetch_url', { url: 'https://example.com' }),
+			/Network access is denied/u,
+		);
+	});
 });

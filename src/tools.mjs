@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { listContextFiles } from './context-packer.mjs';
 import { createHooks, HookBlockedError } from './hooks.mjs';
+import { createPermissionPolicy } from './permission-policy.mjs';
 import { jailedPath, prepareWrites } from './safe-writes.mjs';
 import { createTaskPlan, updateTask } from './task-plan.mjs';
 import { runVerification } from './verification-runner.mjs';
@@ -24,6 +25,7 @@ export class ToolRunner {
 		this.seen = new Set();
 		this.taskPlan = options.taskPlan || createTaskPlan(options.task || '');
 		this.hooks = createHooks(options.hooks);
+		this.policy = createPermissionPolicy(options.policy);
 	}
 
 	async call(name, input = {}) {
@@ -74,11 +76,13 @@ export class ToolRunner {
 		}
 
 		if (name === 'read_file') {
+			this.policy.checkRead(input.path);
 			const jailed = await jailedPath(this.cwd, input.path);
 			return readFile(jailed.absolute, 'utf8');
 		}
 
 		if (name === 'write_file') {
+			this.policy.checkWrite(input.path, { apply: input.apply === true });
 			return prepareWrites(
 				this.cwd,
 				[
@@ -92,12 +96,14 @@ export class ToolRunner {
 		}
 
 		if (name === 'run_command') {
+			this.policy.checkCommand(input.command);
 			return runVerification(this.cwd, input.command, {
 				timeoutMs: input.timeoutMs,
 			});
 		}
 
 		if (name === 'fetch_url') {
+			this.policy.checkNetwork(input.url);
 			return fetchUrl(input.url, {
 				maxBytes: input.maxBytes,
 				timeoutMs: input.timeoutMs,
