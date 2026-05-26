@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -418,6 +418,82 @@ describe('run', () => {
 			assert.equal(result.ok, true);
 			assert.deepEqual(stdout.text.trim().split('\n'), ['a.txt', 'b.txt']);
 			assert.equal(server.recordings.length, 0);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('prints discovered Markdown skills without calling the model', async () => {
+		const server = await startFakeModelServer();
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-show-skills-'));
+			await mkdir(join(cwd, 'skills', 'edit'), { recursive: true });
+			await writeFile(
+				join(cwd, 'skills', 'edit', 'SKILL.md'),
+				'---\nname: editor\ndescription: Edit files\n---\nUse patches.',
+				'utf8',
+			);
+			const stdout = captureStream();
+
+			const result = await main(
+				['run', '--show-skills', '--base-url', server.baseUrl],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout,
+				},
+			);
+
+			assert.equal(result.ok, true);
+			assert.match(stdout.text, /editor/u);
+			assert.match(stdout.text, /skills\/edit\/SKILL\.md/u);
+			assert.equal(server.recordings.length, 0);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('loads requested Markdown skills into the system prompt', async () => {
+		const server = await startFakeModelServer();
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-load-skill-'));
+			await mkdir(join(cwd, 'skills', 'review'), { recursive: true });
+			await writeFile(
+				join(cwd, 'skills', 'review', 'SKILL.md'),
+				'---\nname: reviewer\ndescription: Review code\n---\nAlways inspect tests.',
+				'utf8',
+			);
+
+			await main(
+				[
+					'run',
+					'-p',
+					'Check the change.',
+					'--skill',
+					'reviewer',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			const chatRequest = server.recordings[1].requestBody;
+			assert.match(
+				chatRequest.messages[0].content,
+				/Available Markdown skills/u,
+			);
+			assert.match(chatRequest.messages[0].content, /Loaded Markdown skills/u);
+			assert.match(chatRequest.messages[0].content, /Always inspect tests/u);
 		} finally {
 			await server.close();
 		}

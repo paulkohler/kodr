@@ -13,6 +13,7 @@ import {
 	firstModelId,
 	listModels,
 } from './model-client.mjs';
+import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
 
 export const VERSION = '0.0.0';
 
@@ -40,6 +41,8 @@ export function parseArgs(argv, env = {}) {
 		promptFile: '',
 		showContext: false,
 		showFiles: false,
+		showSkills: false,
+		skills: [],
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		version: false,
 	};
@@ -74,6 +77,11 @@ export function parseArgs(argv, env = {}) {
 			continue;
 		}
 
+		if (arg === '--show-skills') {
+			options.showSkills = true;
+			continue;
+		}
+
 		if (
 			arg === '--base-url' ||
 			arg === '--model' ||
@@ -82,6 +90,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '-p' ||
 			arg === '--prompt' ||
 			arg === '--prompt-file' ||
+			arg === '--skill' ||
 			arg === '--timeout-ms'
 		) {
 			const value = argv[index + 1];
@@ -129,6 +138,7 @@ Usage:
   koder run --prompt-file prompt.md [--out .koder/runs/name]
   koder run --show-files
   koder run --show-context
+  koder run --show-skills
 
 Local-model defaults:
   --base-url URL       Default: ${DEFAULT_BASE_URL}
@@ -168,6 +178,12 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'run') {
+		if (options.showSkills) {
+			const skills = await discoverSkills(io.cwd);
+			io.stdout.write(renderSkillIndex(skills));
+			return { ok: true, command: 'run', skills };
+		}
+
 		if (options.showFiles) {
 			const files = await listContextFiles(io.cwd);
 			io.stdout.write(`${files.join('\n')}\n`);
@@ -208,6 +224,8 @@ function assignValue(options, flag, value) {
 		options.prompt = value;
 	} else if (flag === '--prompt-file') {
 		options.promptFile = value;
+	} else if (flag === '--skill') {
+		options.skills.push(value);
 	} else if (flag === '--timeout-ms') {
 		options.timeoutMs = Number(value);
 	}
@@ -269,7 +287,8 @@ async function probe(options, io) {
 async function runPrompt(options, io) {
 	const prompt = await loadPrompt(options, io.cwd);
 	const runDir = await createRunArtifacts(io.cwd, options.out);
-	const context = await buildWorkspaceContext(io.cwd);
+	const skills = await loadSkills(io.cwd, options.skills);
+	const context = await buildWorkspaceContext(io.cwd, { skills });
 	const modelsResponse = await listModels(options);
 	const model = options.model || firstModelId(modelsResponse.body);
 

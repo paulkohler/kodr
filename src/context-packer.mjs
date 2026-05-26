@@ -51,7 +51,18 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 	return {
 		agents,
 		files: packedFiles,
-		systemPrompt: renderSystemPrompt({ agents, files: packedFiles }),
+		skills: options.skills || {
+			index: [],
+			loaded: [],
+		},
+		systemPrompt: renderSystemPrompt({
+			agents,
+			files: packedFiles,
+			skills: options.skills || {
+				index: [],
+				loaded: [],
+			},
+		}),
 		totalBytes: usedBytes,
 	};
 }
@@ -89,6 +100,29 @@ function renderSystemPrompt(context) {
 
 	if (context.files.length > 0) {
 		parts.push(`Workspace context:\n${renderContextMarkdown(context)}`);
+	}
+
+	if (context.skills.index.length > 0) {
+		parts.push(
+			`Available Markdown skills:\n${context.skills.index
+				.map((skill) => {
+					const description = skill.description
+						? ` - ${skill.description}`
+						: '';
+					return `- ${skill.name} (${skill.path})${description}`;
+				})
+				.join('\n')}`,
+		);
+	}
+
+	if (context.skills.loaded.length > 0) {
+		parts.push(
+			`Loaded Markdown skills:\n${context.skills.loaded
+				.map((skill) => {
+					return `## Skill: ${skill.name}\nPath: ${skill.path}\n\n${skill.body}`;
+				})
+				.join('\n\n')}`,
+		);
 	}
 
 	return parts.join('\n\n');
