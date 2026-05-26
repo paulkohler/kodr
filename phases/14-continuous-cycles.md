@@ -6,13 +6,13 @@ Repeat bounded runs for local model experiments.
 
 ## Build Steps
 
-- [ ] Add `--cycles N`.
-- [ ] Create per-cycle artifact directories.
-- [ ] Repack context per cycle.
-- [ ] Stop on explicit markers such as `DONE`, `NO_CHANGES`, or `KODER_STOP`.
+- [x] Add `--cycles N`.
+- [x] Create per-cycle artifact directories.
+- [x] Repack context per cycle.
+- [x] Stop on explicit markers such as `DONE`, `NO_CHANGES`, or `KODER_STOP`.
 
 ## Done Criteria
 
-- [ ] Tests cover multiple cycles.
-- [ ] Tests cover early stop.
-- [ ] Blog post explains bounded autonomy.
+- [x] Tests cover multiple cycles.
+- [x] Tests cover early stop.
+- [x] Blog post explains bounded autonomy.

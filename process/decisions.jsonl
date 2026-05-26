@@ -18,3 +18,4 @@
 {"phase":"11","decision":"Add bounded tool primitives before workflow orchestration","reason":"Tools need budget, duplicate-call, filesystem, command, and network limits before any model loop can call them repeatedly."}
 {"phase":"12","decision":"Model workflow coordination as deterministic stages with batch-aware path review first","reason":"Before adding multi-agent model calls, the repository needs a testable contract for stage order and reviewer rejection of unplanned file paths."}
 {"phase":"13","decision":"Limit automatic healing to one repair attempt","reason":"A single repair can address obvious verification failures without creating an unbounded autonomous loop."}
+{"phase":"14","decision":"Represent continuous work as bounded cycles with explicit stop markers","reason":"Repeated local model runs must have visible limits and fresh context per cycle to remain inspectable."}

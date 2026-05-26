@@ -16,7 +16,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 11 Bounded ReAct Tools
 - [x] 12 Workflow Mode
 - [x] 13 One-Shot Healing
-- [ ] 14 Continuous Cycles
+- [x] 14 Continuous Cycles
 - [ ] 15 Local Bin Install
 - [ ] 16 Replay And Model Comparison
 
