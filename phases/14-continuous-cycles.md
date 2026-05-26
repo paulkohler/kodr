@@ -6,7 +6,7 @@ Repeat bounded runs for local model experiments.
 
 ## Build Steps
 
-- [x] Add `--cycles N`.
+- [x] Add a bounded cycle primitive.
 - [x] Create per-cycle artifact directories.
 - [x] Repack context per cycle.
 - [x] Stop on explicit markers such as `DONE`, `NO_CHANGES`, or `KODER_STOP`.

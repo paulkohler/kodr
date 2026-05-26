@@ -4,7 +4,7 @@ Phase 10 connects model output to the first complete local coding loop.
 
 ## Decision
 
-Treat model responses as possible proposals, extract `{ "files": [...] }` JSON defensively, and send proposed writes through the safe-write transaction module.
+Treat model responses as possible proposals, extract `{ "files": [...] }` JSON defensively, and send proposed writes through the controlled safe-write module.
 
 ## Flow
 

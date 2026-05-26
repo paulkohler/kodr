@@ -14,7 +14,7 @@ Add a `ToolRunner` that owns budget tracking and duplicate-call detection before
 - `run_command`
 - `fetch_url`
 
-`fetch_url` blocks local and private network targets. `run_command` reuses the verification allowlist, and `write_file` reuses safe-write transactions.
+`fetch_url` blocks local and private network targets. `run_command` reuses the verification allowlist, and `write_file` reuses controlled safe writes.
 
 ## Why Limits First
 

@@ -1,6 +1,6 @@
 # Phase 14: Continuous Cycles
 
-Phase 14 adds bounded repeated cycles for local model experiments.
+Phase 14 adds a bounded repeated-cycle primitive for local model experiments.
 
 ## Decision
 

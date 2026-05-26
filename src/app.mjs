@@ -173,7 +173,7 @@ Local-model defaults:
 
 Implemented library primitives:
   workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
-	`;
+`;
 }
 
 export async function main(argv, io) {
