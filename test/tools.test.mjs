@@ -108,4 +108,33 @@ describe('bounded tools', () => {
 			/Duplicate/u,
 		);
 	});
+
+	it('exposes bounded task management tools', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-tasks-'));
+		const runner = new ToolRunner(cwd, {
+			maxCalls: 3,
+			task: 'build example',
+		});
+
+		const initial = await runner.call('list_tasks');
+		assert.equal(
+			initial.tasks.find((task) => task.id === 'verify').status,
+			'pending',
+		);
+
+		const updated = await runner.call('update_task', {
+			id: 'verify',
+			note: 'Example tests passed.',
+			status: 'completed',
+		});
+
+		assert.equal(
+			updated.tasks.find((task) => task.id === 'verify').status,
+			'completed',
+		);
+		assert.equal(
+			updated.tasks.find((task) => task.id === 'verify').note,
+			'Example tests passed.',
+		);
+	});
 });

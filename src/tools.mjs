@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { listContextFiles } from './context-packer.mjs';
 import { jailedPath, prepareWrites } from './safe-writes.mjs';
+import { createTaskPlan, updateTask } from './task-plan.mjs';
 import { runVerification } from './verification-runner.mjs';
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10000;
@@ -20,6 +21,7 @@ export class ToolRunner {
 		this.cwd = cwd;
 		this.remainingCalls = options.maxCalls || 20;
 		this.seen = new Set();
+		this.taskPlan = options.taskPlan || createTaskPlan(options.task || '');
 	}
 
 	async call(name, input = {}) {
@@ -68,6 +70,20 @@ export class ToolRunner {
 				maxBytes: input.maxBytes,
 				timeoutMs: input.timeoutMs,
 			});
+		}
+
+		if (name === 'list_tasks') {
+			return this.taskPlan;
+		}
+
+		if (name === 'update_task') {
+			this.taskPlan = updateTask(
+				this.taskPlan,
+				input.id,
+				input.status,
+				input.note || '',
+			);
+			return this.taskPlan;
 		}
 
 		throw new ToolError(`Unknown tool: ${name}`);

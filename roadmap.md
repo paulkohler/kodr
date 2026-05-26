@@ -21,6 +21,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 16 Replay And Model Comparison
 - [x] 17 Integration Hardening
 - [x] 18 Example Apps
+- [x] 19 Task Planning
 
 ## Phase Contract
 

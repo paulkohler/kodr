@@ -241,6 +241,7 @@ describe('run', () => {
 				rawResponse: 'raw-response.json',
 				response: 'response.md',
 				summary: 'summary.json',
+				tasks: 'tasks.json',
 				tests: 'tests.json',
 				writes: 'writes.json',
 			});
@@ -567,6 +568,15 @@ describe('run', () => {
 			);
 			assert.equal(writes.applied, false);
 			assert.match(writes.writes[0].diff, /new readme/u);
+
+			const tasks = JSON.parse(
+				await readFile(join(result.result.runDir, 'tasks.json'), 'utf8'),
+			);
+			assert.equal(
+				tasks.tasks.find((task) => task.id === 'edit-readme-md').status,
+				'completed',
+			);
+			assert.equal(result.result.taskCounts.completed, 4);
 		} finally {
 			await server.close();
 		}

@@ -16,6 +16,11 @@ import {
 } from './model-client.mjs';
 import { jailedPath, prepareWrites } from './safe-writes.mjs';
 import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
+import {
+	createTaskPlan,
+	taskCounts,
+	updateTasksFromRun,
+} from './task-plan.mjs';
 import { runVerification } from './verification-runner.mjs';
 import { replayRun } from './replay.mjs';
 
@@ -353,6 +358,7 @@ async function runPrompt(options, io) {
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
 			summary: 'summary.json',
+			tasks: 'tasks.json',
 			tests: 'tests.json',
 			writes: 'writes.json',
 		},
@@ -366,6 +372,10 @@ async function runPrompt(options, io) {
 		workspaceFileCount: context.files.length,
 	};
 	const proposal = extractProposal(completion.text);
+	let taskPlan = createTaskPlan(
+		prompt,
+		proposal ? proposal.files.map((file) => file.path) : [],
+	);
 	const writeResult = proposal
 		? await prepareWrites(io.cwd, proposal.files, { apply: options.yes })
 		: {
@@ -388,6 +398,8 @@ async function runPrompt(options, io) {
 	summary.proposalFound = proposal !== null;
 	summary.tested = testResult !== null;
 	summary.writeCount = writeResult.writes.length;
+	taskPlan = updateTasksFromRun(taskPlan, summary);
+	summary.taskCounts = taskCounts(taskPlan);
 
 	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
 	await writeText(join(runDir, 'prompt.md'), prompt);
@@ -396,6 +408,7 @@ async function runPrompt(options, io) {
 		responses: completion.responses,
 	});
 	await writeJson(join(runDir, 'summary.json'), summary);
+	await writeJson(join(runDir, 'tasks.json'), taskPlan);
 	await writeJson(join(runDir, 'writes.json'), writeResult);
 	await writeJson(join(runDir, 'tests.json'), testResult);
 
@@ -406,6 +419,7 @@ async function runPrompt(options, io) {
 		responsePath,
 		runDir,
 		testResult,
+		taskPlan,
 		writeResult,
 	};
 }

@@ -1,3 +1,5 @@
+import { createTaskPlan } from './task-plan.mjs';
+
 export const WORKFLOW_STAGES = [
 	'Planner',
 	'Coder',
@@ -9,13 +11,16 @@ export const WORKFLOW_STAGES = [
 ];
 
 export function createWorkflowPlan(task, proposedFiles = []) {
+	const proposedPaths = proposedFiles.map((file) => file.path);
+
 	return {
-		proposedPaths: proposedFiles.map((file) => file.path),
+		proposedPaths,
 		stages: WORKFLOW_STAGES.map((name) => ({
 			name,
 			status: 'pending',
 		})),
 		task,
+		tasks: createTaskPlan(task, proposedPaths).tasks,
 	};
 }
 

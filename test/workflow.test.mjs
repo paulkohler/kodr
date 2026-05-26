@@ -16,6 +16,16 @@ describe('workflow mode', () => {
 			WORKFLOW_STAGES,
 		);
 		assert.deepEqual(plan.proposedPaths, ['README.md']);
+		assert.deepEqual(
+			plan.tasks.map((task) => task.id),
+			[
+				'understand-request',
+				'inspect-context',
+				'edit-readme-md',
+				'verify',
+				'document',
+			],
+		);
 	});
 
 	it('approves proposals that only touch reviewed paths', () => {
