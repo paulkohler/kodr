@@ -1,4 +1,4 @@
-# Phase 27: Subagents
+# Phase 28: Subagents
 
 ## Goal
 

@@ -2,6 +2,8 @@
 
 These examples are small target apps for exercising Kodr against different project shapes.
 
+Each example should be treated as a Kodr sample, not just a hand-written fixture. If one-shot generation fails or produces an incomplete app, the next step is to update the harness or split the work into smaller Kodr prompts, then record the run artifacts in the example provenance.
+
 ## Candidates
 
 - CLI todo app: commands for adding, listing, completing, and deleting todos with JSON file persistence.

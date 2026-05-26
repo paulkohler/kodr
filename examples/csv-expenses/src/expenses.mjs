@@ -76,7 +76,7 @@ export function rowsToExpenses(rows) {
 	const headers = rows[0].map((header) => header.trim());
 	for (const header of REQUIRED_HEADERS) {
 		if (!headers.includes(header)) {
-			throw new Error(`Missing required CSV column: ${header}`);
+			throw new Error(`Row 1 is missing required CSV column '${header}'`);
 		}
 	}
 
@@ -118,16 +118,20 @@ function validateExpense(record, rowNumber) {
 	const amount = Number(record.amount);
 
 	if (!/^\d{4}-\d{2}-\d{2}$/u.test(date)) {
-		throw new Error(`Row ${rowNumber} has invalid date: ${record.date}`);
+		throw new Error(`Row ${rowNumber} has invalid date '${date}'`);
 	}
 	if (!description) {
-		throw new Error(`Row ${rowNumber} has empty description`);
+		const rawDesc = record.description;
+		throw new Error(
+			`Row ${rowNumber} has empty description (value: "${rawDesc}")`,
+		);
 	}
 	if (!category) {
-		throw new Error(`Row ${rowNumber} has empty category`);
+		const rawCat = record.category;
+		throw new Error(`Row ${rowNumber} has empty category (value: "${rawCat}")`);
 	}
 	if (!Number.isFinite(amount)) {
-		throw new Error(`Row ${rowNumber} has invalid amount: ${record.amount}`);
+		throw new Error(`Row ${rowNumber} has invalid amount '${record.amount}'`);
 	}
 
 	return {

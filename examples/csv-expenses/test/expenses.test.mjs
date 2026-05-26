@@ -32,7 +32,7 @@ describe('csv expense analyzer', () => {
 	it('validates required columns and fields', () => {
 		assert.throws(
 			() => rowsToExpenses([['date'], ['2026-05-01']]),
-			/Missing required CSV column/u,
+			/Row 1 is missing required CSV column 'description'/u,
 		);
 		assert.throws(
 			() =>

@@ -54,6 +54,7 @@ export function parseArgs(argv, env = {}) {
 		showFiles: false,
 		showSkills: false,
 		skills: [],
+		stream: false,
 		testCommand: '',
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -104,6 +105,11 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--show-skills') {
 			options.showSkills = true;
+			continue;
+		}
+
+		if (arg === '--stream') {
+			options.stream = true;
 			continue;
 		}
 
@@ -167,6 +173,7 @@ Usage:
   koder run --prompt-file prompt.md [--out .koder/runs/name]
   koder run -p "task" --dry-run
   koder run -p "task" --yes [--test "npm test"] [--test-cwd path]
+  koder run -p "task" --stream
   koder run --show-files
   koder run --show-context
   koder run --show-skills
@@ -232,7 +239,7 @@ export async function main(argv, io) {
 		if (options.json) {
 			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 		} else {
-			io.stdout.write(`Run ok\n`);
+			io.stdout.write(`${result.ok ? 'Run ok' : 'Run failed'}\n`);
 			io.stdout.write(`Run: ${result.runDir}\n`);
 			io.stdout.write(`Model: ${result.model}\n`);
 			io.stdout.write(`Response: ${result.responsePath}\n`);

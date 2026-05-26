@@ -28,9 +28,11 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 23 Notes API Example
 - [x] 24 MCP Client
 - [x] 25 CSV Expense Example
-- [ ] 26 Memory And Scratchpad
-- [ ] 27 Subagents
-- [ ] 28 Loop Budgets
+- [x] 26 Example Provenance
+- [ ] 27 Memory And Scratchpad
+- [ ] 28 Subagents
+- [ ] 29 Loop Budgets
+- [ ] 30 Patch-Oriented Repairs
 
 ## Phase Contract
 

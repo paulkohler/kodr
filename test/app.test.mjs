@@ -358,6 +358,58 @@ describe('run', () => {
 		}
 	});
 
+	it('can read streaming chat completions', async () => {
+		const streamBody = [
+			'data: {"id":"stream-1","choices":[{"delta":{"content":"streamed "},"finish_reason":null}]}',
+			'',
+			'data: {"id":"stream-1","choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}',
+			'',
+			'data: [DONE]',
+			'',
+		].join('\n');
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: streamBody,
+					headers: {
+						'content-type': 'text/event-stream',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-run-stream-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Stream a response.',
+					'--base-url',
+					server.baseUrl,
+					'--stream',
+					'--timeout-ms',
+					'1000',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.result.response, 'streamed answer');
+			assert.deepEqual(result.result.finishReasons, ['stop']);
+			assert.equal(server.recordings[1].requestBody.stream, true);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('writes failure artifacts when model completion fails', async () => {
 		const server = await startFakeModelServer({
 			responses: [
@@ -773,6 +825,7 @@ describe('run', () => {
 
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'koder-test-fails-'));
+			const stdout = captureStream();
 			const result = await main(
 				[
 					'run',
@@ -790,13 +843,14 @@ describe('run', () => {
 					cwd,
 					env: {},
 					stderr: captureStream(),
-					stdout: captureStream(),
+					stdout,
 				},
 			);
 
 			assert.equal(result.ok, false);
 			assert.equal(result.result.ok, false);
 			assert.equal(result.result.testResult.ok, false);
+			assert.match(stdout.text, /^Run failed/u);
 		} finally {
 			await server.close();
 		}
