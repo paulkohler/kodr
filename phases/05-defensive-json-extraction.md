@@ -6,21 +6,21 @@ Parse useful JSON from imperfect local-model text.
 
 ## Build Steps
 
-- [ ] Add pure extractor module with no model calls or filesystem writes.
-- [ ] Add brace-walk JSON extractor.
-- [ ] Strip markdown fences.
-- [ ] Repair raw newlines in JSON strings.
-- [ ] Repair escaped backticks.
-- [ ] Add failure fixtures from `response.md` or raw model output artifacts.
-- [ ] Keep proposal application out of this phase.
+- [x] Add pure extractor module with no model calls or filesystem writes.
+- [x] Add brace-walk JSON extractor.
+- [x] Strip markdown fences.
+- [x] Repair raw newlines in JSON strings.
+- [x] Repair escaped backticks.
+- [x] Add failure fixtures from `response.md` or raw model output artifacts.
+- [x] Keep proposal application out of this phase.
 
 ## Done Criteria
 
-- [ ] Tests cover prose-wrapped JSON.
-- [ ] Tests cover braces inside strings.
-- [ ] Tests cover malformed local-model string control characters.
-- [ ] Tests cover fixture text captured from prompt-run artifacts.
-- [ ] Blog post documents observed parser failures.
+- [x] Tests cover prose-wrapped JSON.
+- [x] Tests cover braces inside strings.
+- [x] Tests cover malformed local-model string control characters.
+- [x] Tests cover fixture text captured from prompt-run artifacts.
+- [x] Blog post documents observed parser failures.
 
 ## Notes
 

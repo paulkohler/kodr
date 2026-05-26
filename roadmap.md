@@ -7,7 +7,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 02 LM Studio Probe
 - [x] 03 Fake Model Server And Recorder
 - [x] 04 Prompt Runs And Artifacts
-- [ ] 05 Defensive JSON Extraction
+- [x] 05 Defensive JSON Extraction
 - [ ] 06 Context Packing
 - [ ] 07 Markdown Skills
 - [ ] 08 Safe Writes And Diffs
