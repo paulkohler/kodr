@@ -15,6 +15,27 @@ export class SafeWriteError extends Error {
 	}
 }
 
+export async function prepareChanges(cwd, proposal, options = {}) {
+	const files = proposal.files || [];
+	const patches = proposal.patches || [];
+	const apply = options.apply === true;
+	const timestamp =
+		options.timestamp || new Date().toISOString().replaceAll(':', '-');
+	const fileResult = await prepareWrites(cwd, files, {
+		apply,
+		timestamp,
+	});
+	const patchResult = await preparePatches(cwd, patches, {
+		apply,
+		timestamp,
+	});
+
+	return {
+		applied: apply,
+		writes: [...fileResult.writes, ...patchResult.writes],
+	};
+}
+
 export async function prepareWrites(cwd, files, options = {}) {
 	const apply = options.apply === true;
 	const timestamp =
@@ -44,6 +65,53 @@ export async function prepareWrites(cwd, files, options = {}) {
 				await copyFile(jailed.absolute, backupPath);
 			}
 			await writeFile(jailed.absolute, file.content, 'utf8');
+		}
+	}
+
+	return {
+		applied: apply,
+		writes,
+	};
+}
+
+export async function preparePatches(cwd, patches, options = {}) {
+	const apply = options.apply === true;
+	const timestamp =
+		options.timestamp || new Date().toISOString().replaceAll(':', '-');
+	const writes = [];
+
+	for (const patch of patches) {
+		const jailed = await jailedPath(cwd, patch.path);
+		const before = await readExisting(jailed.absolute);
+		if (!before.exists) {
+			throw new SafeWriteError(`Patch target does not exist: ${patch.path}`);
+		}
+
+		const normalized = normalizePatch(before.content, patch);
+		const occurrences = countOccurrences(before.content, normalized.search);
+		if (occurrences !== 1) {
+			throw new SafeWriteError(
+				`Patch search must match exactly once in ${patch.path}; found ${occurrences}`,
+			);
+		}
+
+		const after = before.content.replace(normalized.search, normalized.replace);
+		const backupPath = apply
+			? join(cwd, '.koder', 'backups', timestamp, patch.path)
+			: '';
+
+		writes.push({
+			backupPath,
+			diff: makeDiff(patch.path, before, after),
+			path: patch.path,
+			status: 'patch',
+		});
+
+		if (apply) {
+			await mkdir(dirname(jailed.absolute), { recursive: true });
+			await mkdir(dirname(backupPath), { recursive: true });
+			await copyFile(jailed.absolute, backupPath);
+			await writeFile(jailed.absolute, after, 'utf8');
 		}
 	}
 
@@ -177,4 +245,50 @@ function makeDiff(path, before, after) {
 	}
 
 	return `${lines.join('\n')}\n`;
+}
+
+function countOccurrences(value, search) {
+	if (search === '') {
+		return 0;
+	}
+
+	let count = 0;
+	let offset = 0;
+	while (true) {
+		const index = value.indexOf(search, offset);
+		if (index === -1) {
+			return count;
+		}
+		count += 1;
+		offset = index + search.length;
+	}
+}
+
+function normalizePatch(content, patch) {
+	if (!patch.search.includes('\\')) {
+		return patch;
+	}
+
+	if (countOccurrences(content, patch.search) !== 0) {
+		return patch;
+	}
+
+	const search = unescapePatchString(patch.search);
+	if (search === patch.search || countOccurrences(content, search) !== 1) {
+		return patch;
+	}
+
+	return {
+		...patch,
+		replace: unescapePatchString(patch.replace),
+		search,
+	};
+}
+
+function unescapePatchString(value) {
+	return value
+		.replaceAll('\\n', '\n')
+		.replaceAll('\\t', '\t')
+		.replaceAll('\\"', '"')
+		.replaceAll('\\\\', '\\');
 }

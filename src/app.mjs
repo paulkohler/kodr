@@ -14,7 +14,7 @@ import {
 	firstModelId,
 	listModels,
 } from './model-client.mjs';
-import { jailedPath, prepareWrites } from './safe-writes.mjs';
+import { jailedPath, prepareChanges } from './safe-writes.mjs';
 import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
 import {
 	createTaskPlan,
@@ -403,16 +403,32 @@ async function runPrompt(options, io) {
 	const proposal = extractProposal(completion.text);
 	let taskPlan = createTaskPlan(
 		prompt,
-		proposal ? proposal.files.map((file) => file.path) : [],
+		proposal ? proposalPaths(proposal) : [],
 	);
-	const writeResult = proposal
-		? await prepareWrites(io.cwd, proposal.files, { apply: options.yes })
-		: {
+	let writeResult = {
+		applied: false,
+		writes: [],
+	};
+	let writeError = null;
+	if (proposal) {
+		try {
+			writeResult = await prepareChanges(io.cwd, proposal, {
+				apply: options.yes,
+			});
+		} catch (error) {
+			writeError = {
+				message: error.message,
+				name: error.name,
+			};
+			writeResult = {
 				applied: false,
+				error: writeError,
 				writes: [],
 			};
+		}
+	}
 	const testResult =
-		options.testCommand && options.yes
+		options.testCommand && options.yes && !writeError
 			? await runVerification(
 					await verificationCwd(io.cwd, options),
 					options.testCommand,
@@ -423,9 +439,12 @@ async function runPrompt(options, io) {
 			: null;
 
 	summary.applied = writeResult.applied;
-	summary.ok = testResult ? testResult.ok : true;
+	summary.ok = writeError ? false : testResult ? testResult.ok : true;
 	summary.proposalFound = proposal !== null;
 	summary.tested = testResult !== null;
+	if (writeError) {
+		summary.writeError = writeError;
+	}
 	summary.writeCount = writeResult.writes.length;
 	taskPlan = updateTasksFromRun(taskPlan, summary);
 	summary.taskCounts = taskCounts(taskPlan);
@@ -521,12 +540,18 @@ async function loadPrompt(options, cwd) {
 function extractProposal(text) {
 	try {
 		const value = extractJson(text);
-		if (!value || !Array.isArray(value.files)) {
+		if (
+			!value ||
+			(!Array.isArray(value.files) && !Array.isArray(value.patches))
+		) {
 			return null;
 		}
 
+		const files = Array.isArray(value.files) ? value.files : [];
+		const patches = Array.isArray(value.patches) ? value.patches : [];
+
 		return {
-			files: value.files.map((file) => {
+			files: files.map((file) => {
 				if (
 					!file ||
 					typeof file.path !== 'string' ||
@@ -542,6 +567,24 @@ function extractProposal(text) {
 					path: file.path,
 				};
 			}),
+			patches: patches.map((patch) => {
+				if (
+					!patch ||
+					typeof patch.path !== 'string' ||
+					typeof patch.search !== 'string' ||
+					typeof patch.replace !== 'string'
+				) {
+					throw new CliError(
+						'Proposal patches must have string path, search, and replace',
+					);
+				}
+
+				return {
+					path: patch.path,
+					replace: patch.replace,
+					search: patch.search,
+				};
+			}),
 		};
 	} catch (error) {
 		if (error instanceof JsonExtractionError) {
@@ -549,6 +592,13 @@ function extractProposal(text) {
 		}
 		throw error;
 	}
+}
+
+function proposalPaths(proposal) {
+	return [
+		...proposal.files.map((file) => file.path),
+		...proposal.patches.map((patch) => patch.path),
+	];
 }
 
 async function completeWithContinuations(options, model, prompt, systemPrompt) {

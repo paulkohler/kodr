@@ -37,3 +37,26 @@ This example is intended to be a Kodr sample.
 ## Stabilization
 
 The current example is a Kodr sample with a recorded generation chain, not a manual-only fixture. A small human stabilization restored the doubled-quote CSV fixture after repeated full-file repair slices regressed it. That failure should inform a later patch-oriented repair mode so tiny test fixes do not require wholesale file regeneration.
+
+## Regeneration Attempt
+
+- Core regeneration slice rewrote the implementation but failed verification.
+  - Prompt: `prompts/027-csv-regenerate-core.md`
+  - Artifact: `.koder/runs/2026-05-26T19-38-09.042Z`
+  - Result: applied a full-file rewrite.
+  - Verification: failed because required exports and behavior were missing.
+- Core full-file repair was stopped after it continued the same broad-rewrite path.
+  - Prompt: `prompts/027-csv-core-repair.md`
+  - Result: interrupted before accepting another full-file repair.
+  - Follow-up: move patch-oriented repairs ahead of CSV regeneration.
+- Patch repair attempt produced a stale patch diagnostic.
+  - Prompt: `prompts/027-csv-core-patch-repair.md`
+  - Artifact: `.koder/runs/2026-05-26T19-52-24.963Z`
+  - Result: failed safely before applying because the patch search text did not match current file content.
+- Patch repair retry applied after newline normalization but failed verification.
+  - Prompt: `prompts/027-csv-core-patch-repair.md`
+  - Artifact: `.koder/runs/2026-05-26T19-59-51.100Z`
+  - Result: applied a patch and ran tests.
+  - Verification: failed because the patch duplicated helper functions and did not complete the repair list.
+
+The canonical CSV regeneration is deferred to Phase 28 so it can use patch proposals deliberately, and likely a scratchpad/task discipline if repair complexity continues to grow.

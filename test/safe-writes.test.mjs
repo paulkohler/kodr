@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	jailedPath,
+	prepareChanges,
+	preparePatches,
 	prepareWrites,
 	SafeWriteError,
 } from '../src/safe-writes.mjs';
@@ -107,6 +109,128 @@ describe('safe writes', () => {
 				'utf8',
 			),
 			'old',
+		);
+	});
+
+	it('applies exact patches and creates backups', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-patch-'));
+		await mkdir(join(cwd, 'src'), { recursive: true });
+		await writeFile(join(cwd, 'src', 'app.js'), 'one\ntwo\nthree\n', 'utf8');
+
+		const result = await preparePatches(
+			cwd,
+			[
+				{
+					path: 'src/app.js',
+					replace: 'TWO\n',
+					search: 'two\n',
+				},
+			],
+			{
+				apply: true,
+				timestamp: 'patch-time',
+			},
+		);
+
+		assert.equal(result.applied, true);
+		assert.equal(result.writes[0].status, 'patch');
+		assert.equal(
+			await readFile(join(cwd, 'src', 'app.js'), 'utf8'),
+			'one\nTWO\nthree\n',
+		);
+		assert.equal(
+			await readFile(
+				join(cwd, '.koder', 'backups', 'patch-time', 'src', 'app.js'),
+				'utf8',
+			),
+			'one\ntwo\nthree\n',
+		);
+	});
+
+	it('rejects stale or ambiguous patches', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-stale-patch-'));
+		await writeFile(join(cwd, 'README.md'), 'same\nsame\n', 'utf8');
+
+		await assert.rejects(
+			() =>
+				preparePatches(cwd, [
+					{
+						path: 'README.md',
+						replace: 'changed',
+						search: 'same',
+					},
+				]),
+			/match exactly once/u,
+		);
+		await assert.rejects(
+			() =>
+				preparePatches(cwd, [
+					{
+						path: 'README.md',
+						replace: 'changed',
+						search: 'missing',
+					},
+				]),
+			/found 0/u,
+		);
+		assert.equal(
+			await readFile(join(cwd, 'README.md'), 'utf8'),
+			'same\nsame\n',
+		);
+	});
+
+	it('normalizes double-escaped patch newlines only when unambiguous', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-escaped-patch-'));
+		await writeFile(join(cwd, 'README.md'), 'hello\nworld\n', 'utf8');
+
+		const result = await preparePatches(
+			cwd,
+			[
+				{
+					path: 'README.md',
+					replace: 'hello\\nthere\\n',
+					search: 'hello\\nworld\\n',
+				},
+			],
+			{ apply: true },
+		);
+
+		assert.equal(result.writes[0].status, 'patch');
+		assert.equal(
+			await readFile(join(cwd, 'README.md'), 'utf8'),
+			'hello\nthere\n',
+		);
+	});
+
+	it('can combine full-file writes and patches', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-changes-'));
+		await writeFile(join(cwd, 'README.md'), 'hello\n', 'utf8');
+
+		const result = await prepareChanges(
+			cwd,
+			{
+				files: [
+					{
+						content: 'created\n',
+						path: 'new.txt',
+					},
+				],
+				patches: [
+					{
+						path: 'README.md',
+						replace: 'hello world\n',
+						search: 'hello\n',
+					},
+				],
+			},
+			{ apply: true },
+		);
+
+		assert.equal(result.writes.length, 2);
+		assert.equal(await readFile(join(cwd, 'new.txt'), 'utf8'), 'created\n');
+		assert.equal(
+			await readFile(join(cwd, 'README.md'), 'utf8'),
+			'hello world\n',
 		);
 	});
 });

@@ -746,6 +746,117 @@ describe('run', () => {
 		}
 	});
 
+	it('applies extracted patch proposals with --yes', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						patches: [
+							{
+								path: 'README.md',
+								replace: 'hello patched\n',
+								search: 'hello\n',
+							},
+						],
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-patch-'));
+			await writeFile(join(cwd, 'README.md'), 'hello\n', 'utf8');
+
+			const result = await main(
+				['run', '-p', 'Patch README', '--base-url', server.baseUrl, '--yes'],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.result.applied, true);
+			assert.equal(
+				await readFile(join(cwd, 'README.md'), 'utf8'),
+				'hello patched\n',
+			);
+			assert.equal(result.result.writeResult.writes[0].status, 'patch');
+			assert.equal(
+				result.result.taskPlan.tasks.find(
+					(task) => task.id === 'edit-readme-md',
+				).status,
+				'completed',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('records failed patch proposals as failed run artifacts', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						patches: [
+							{
+								path: 'README.md',
+								replace: 'changed\n',
+								search: 'missing\n',
+							},
+						],
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-bad-patch-'));
+			await writeFile(join(cwd, 'README.md'), 'hello\n', 'utf8');
+
+			const result = await main(
+				['run', '-p', 'Patch README', '--base-url', server.baseUrl, '--yes'],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.ok, false);
+			assert.equal(await readFile(join(cwd, 'README.md'), 'utf8'), 'hello\n');
+
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.ok, false);
+			assert.match(summary.writeError.message, /found 0/u);
+
+			const writes = JSON.parse(
+				await readFile(join(result.result.runDir, 'writes.json'), 'utf8'),
+			);
+			assert.match(writes.error.message, /found 0/u);
+
+			const tasks = JSON.parse(
+				await readFile(join(result.result.runDir, 'tasks.json'), 'utf8'),
+			);
+			assert.equal(
+				tasks.tasks.find((task) => task.id === 'edit-readme-md').status,
+				'failed',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('runs verification from a jailed test cwd', async () => {
 		const server = await startFakeModelServer({
 			responses: [

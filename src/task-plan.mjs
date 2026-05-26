@@ -71,7 +71,7 @@ export function updateTask(plan, id, status, note = '') {
 export function updateTasksFromRun(plan, result) {
 	let next = plan;
 
-	if (result.proposalFound) {
+	if (result.proposalFound && !result.writeError) {
 		for (const task of next.tasks.filter((item) => item.path)) {
 			next = updateTask(
 				next,
@@ -80,6 +80,13 @@ export function updateTasksFromRun(plan, result) {
 				'Proposal included this path.',
 			);
 		}
+	}
+
+	if (result.writeError) {
+		for (const task of next.tasks.filter((item) => item.path)) {
+			next = updateTask(next, task.id, 'failed', result.writeError.message);
+		}
+		next = updateTask(next, 'verify', 'failed', 'Change preparation failed.');
 	}
 
 	if (result.tested) {
