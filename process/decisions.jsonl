@@ -15,3 +15,4 @@
 {"phase":"08","decision":"Introduce a safe-write transaction module before proposal flow","reason":"Model-proposed paths and contents must be jailed, diffed, and backed up before any later phase can safely apply generated changes."}
 {"phase":"09","decision":"Run verification through a small shell-free command allowlist","reason":"Later proposal flows need checks, but arbitrary shell commands would let untrusted model output escape the intended execution boundary."}
 {"phase":"10","decision":"Make proposal application explicit with --yes while defaulting model writes to dry-run","reason":"The first full coding loop should be useful, but untrusted model output must not modify files unless the user opts into apply behavior."}
+{"phase":"11","decision":"Add bounded tool primitives before workflow orchestration","reason":"Tools need budget, duplicate-call, filesystem, command, and network limits before any model loop can call them repeatedly."}

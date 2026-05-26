@@ -6,16 +6,16 @@ Give the model tools with strict budgets.
 
 ## Build Steps
 
-- [ ] Add `list_files`.
-- [ ] Add `read_file`.
-- [ ] Add `write_file`.
-- [ ] Add `run_command`.
-- [ ] Add `fetch_url` with local/private network blocks.
-- [ ] Add duplicate-call detection.
+- [x] Add `list_files`.
+- [x] Add `read_file`.
+- [x] Add `write_file`.
+- [x] Add `run_command`.
+- [x] Add `fetch_url` with local/private network blocks.
+- [x] Add duplicate-call detection.
 
 ## Done Criteria
 
-- [ ] Tests cover each tool.
-- [ ] Tests cover budget exhaustion.
-- [ ] Tests cover duplicate-call stopping.
-- [ ] Blog post explains why tools need limits first.
+- [x] Tests cover each tool.
+- [x] Tests cover budget exhaustion.
+- [x] Tests cover duplicate-call stopping.
+- [x] Blog post explains why tools need limits first.
