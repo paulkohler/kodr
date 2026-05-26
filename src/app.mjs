@@ -17,6 +17,7 @@ import {
 import { prepareWrites } from './safe-writes.mjs';
 import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
 import { runVerification } from './verification-runner.mjs';
+import { replayRun } from './replay.mjs';
 
 export const VERSION = '0.0.0';
 
@@ -43,6 +44,7 @@ export function parseArgs(argv, env = {}) {
 		apiKey: env.OPENAI_API_KEY || '',
 		prompt: '',
 		promptFile: '',
+		replayDir: '',
 		showContext: false,
 		showFiles: false,
 		showSkills: false,
@@ -129,7 +131,9 @@ export function parseArgs(argv, env = {}) {
 
 	if (positionals.length > 0) {
 		options.command = positionals[0];
-		if (positionals.length > 1) {
+		if (options.command === 'replay' && positionals.length === 2) {
+			options.replayDir = positionals[1];
+		} else if (positionals.length > 1) {
 			throw new CliError(
 				`Unexpected positional arguments: ${positionals.slice(1).join(' ')}`,
 			);
@@ -159,6 +163,7 @@ Usage:
   koder run --show-files
   koder run --show-context
   koder run --show-skills
+  koder replay <run-dir>
 
 Local-model defaults:
   --base-url URL       Default: ${DEFAULT_BASE_URL}
@@ -226,6 +231,15 @@ export async function main(argv, io) {
 			io.stdout.write(`Response: ${result.responsePath}\n`);
 		}
 		return { ok: true, command: 'run', result };
+	}
+
+	if (options.command === 'replay') {
+		if (!options.replayDir) {
+			throw new CliError('koder replay requires a run directory');
+		}
+		const result = await replayRun(join(io.cwd, options.replayDir));
+		io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+		return { ok: true, command: 'replay', result };
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);

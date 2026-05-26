@@ -608,6 +608,32 @@ describe('run', () => {
 	});
 });
 
+describe('replay', () => {
+	it('prints saved run artifacts as JSON', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-replay-cli-'));
+		await mkdir(join(cwd, 'run'), { recursive: true });
+		await writeFile(join(cwd, 'run', 'prompt.md'), 'prompt', 'utf8');
+		await writeFile(join(cwd, 'run', 'response.md'), 'response', 'utf8');
+		await writeFile(join(cwd, 'run', 'summary.json'), '{"ok":true}\n', 'utf8');
+		await writeFile(
+			join(cwd, 'run', 'raw-response.json'),
+			'{"responses":[]}\n',
+			'utf8',
+		);
+		const stdout = captureStream();
+
+		const result = await main(['replay', 'run'], {
+			cwd,
+			env: {},
+			stderr: captureStream(),
+			stdout,
+		});
+
+		assert.equal(result.ok, true);
+		assert.equal(JSON.parse(stdout.text).response, 'response');
+	});
+});
+
 function captureStream() {
 	return {
 		text: '',

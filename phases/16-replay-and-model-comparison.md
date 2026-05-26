@@ -6,14 +6,14 @@ Make experiments teachable and repeatable.
 
 ## Build Steps
 
-- [ ] Add `koder replay <run-dir>`.
-- [ ] Add model comparison over a list of model ids.
-- [ ] Reuse the same prompt across models.
-- [ ] Write comparison summary.
-- [ ] Record experiment metadata in `process/experiments.jsonl`.
+- [x] Add `koder replay <run-dir>`.
+- [x] Add model comparison over a list of model ids.
+- [x] Reuse the same prompt across models.
+- [x] Write comparison summary.
+- [x] Record experiment metadata in `process/experiments.jsonl`.
 
 ## Done Criteria
 
-- [ ] Tests replay parser/write behavior without model calls.
-- [ ] Tests compare at least two fake models.
-- [ ] Blog post documents comparison output.
+- [x] Tests replay parser/write behavior without model calls.
+- [x] Tests compare at least two fake models.
+- [x] Blog post documents comparison output.

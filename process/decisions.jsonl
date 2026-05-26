@@ -20,3 +20,4 @@
 {"phase":"13","decision":"Limit automatic healing to one repair attempt","reason":"A single repair can address obvious verification failures without creating an unbounded autonomous loop."}
 {"phase":"14","decision":"Represent continuous work as bounded cycles with explicit stop markers","reason":"Repeated local model runs must have visible limits and fresh context per cycle to remain inspectable."}
 {"phase":"15","decision":"Install Kodr locally with a small shell shim rather than a package dependency","reason":"The repo remains dependency-light while making local command ergonomics practical from any working directory."}
+{"phase":"16","decision":"Represent replay and comparison as artifact-level helpers","reason":"Saved run artifacts are the stable teaching surface, so comparison should operate over prompts, responses, summaries, and experiment metadata."}
