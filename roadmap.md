@@ -10,7 +10,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 05 Defensive JSON Extraction
 - [x] 06 Context Packing
 - [x] 07 Markdown Skills
-- [ ] 08 Safe Writes And Diffs
+- [x] 08 Safe Writes And Diffs
 - [ ] 09 Verification Runner
 - [ ] 10 Proposal Flow
 - [ ] 11 Bounded ReAct Tools

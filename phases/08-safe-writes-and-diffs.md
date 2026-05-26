@@ -6,15 +6,15 @@ Turn model proposals into controlled filesystem transactions.
 
 ## Build Steps
 
-- [ ] Add path jail.
-- [ ] Reject absolute paths and `..`.
-- [ ] Reject symlink parent escapes.
-- [ ] Add dry-run diffs.
-- [ ] Add timestamped backups.
+- [x] Add path jail.
+- [x] Reject absolute paths and `..`.
+- [x] Reject symlink parent escapes.
+- [x] Add dry-run diffs.
+- [x] Add timestamped backups.
 
 ## Done Criteria
 
-- [ ] Tests cover path escapes.
-- [ ] Tests cover symlink escapes.
-- [ ] Tests cover dry-run and apply.
-- [ ] Blog post explains why model writes are untrusted.
+- [x] Tests cover path escapes.
+- [x] Tests cover symlink escapes.
+- [x] Tests cover dry-run and apply.
+- [x] Blog post explains why model writes are untrusted.
