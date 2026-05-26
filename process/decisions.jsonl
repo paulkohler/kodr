@@ -14,3 +14,4 @@
 {"phase":"07","decision":"Support Markdown-only SKILL.md discovery and explicit loading","reason":"Reusable instructions are valuable before workflow and tool phases, but executable skill runtimes would expand the trust boundary too early."}
 {"phase":"08","decision":"Introduce a safe-write transaction module before proposal flow","reason":"Model-proposed paths and contents must be jailed, diffed, and backed up before any later phase can safely apply generated changes."}
 {"phase":"09","decision":"Run verification through a small shell-free command allowlist","reason":"Later proposal flows need checks, but arbitrary shell commands would let untrusted model output escape the intended execution boundary."}
+{"phase":"10","decision":"Make proposal application explicit with --yes while defaulting model writes to dry-run","reason":"The first full coding loop should be useful, but untrusted model output must not modify files unless the user opts into apply behavior."}

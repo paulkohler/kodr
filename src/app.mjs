@@ -6,6 +6,7 @@ import {
 	listContextFiles,
 	renderContextMarkdown,
 } from './context-packer.mjs';
+import { extractJson, JsonExtractionError } from './json-extractor.mjs';
 import {
 	createChatCompletion,
 	firstAssistantMessage,
@@ -13,7 +14,9 @@ import {
 	firstModelId,
 	listModels,
 } from './model-client.mjs';
+import { prepareWrites } from './safe-writes.mjs';
 import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
+import { runVerification } from './verification-runner.mjs';
 
 export const VERSION = '0.0.0';
 
@@ -32,6 +35,7 @@ export function parseArgs(argv, env = {}) {
 	const options = {
 		baseUrl: env.BASE_URL || DEFAULT_BASE_URL,
 		command: 'help',
+		dryRun: true,
 		help: false,
 		json: false,
 		model: env.MODEL_ID || '',
@@ -43,8 +47,10 @@ export function parseArgs(argv, env = {}) {
 		showFiles: false,
 		showSkills: false,
 		skills: [],
+		testCommand: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		version: false,
+		yes: false,
 	};
 
 	const positionals = [];
@@ -64,6 +70,17 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--json') {
 			options.json = true;
+			continue;
+		}
+
+		if (arg === '--dry-run') {
+			options.dryRun = true;
+			continue;
+		}
+
+		if (arg === '--yes') {
+			options.dryRun = false;
+			options.yes = true;
 			continue;
 		}
 
@@ -91,6 +108,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '--prompt' ||
 			arg === '--prompt-file' ||
 			arg === '--skill' ||
+			arg === '--test' ||
 			arg === '--timeout-ms'
 		) {
 			const value = argv[index + 1];
@@ -136,6 +154,8 @@ Usage:
   koder probe [--json]
   koder run -p "task" [--json]
   koder run --prompt-file prompt.md [--out .koder/runs/name]
+  koder run -p "task" --dry-run
+  koder run -p "task" --yes [--test "npm test"]
   koder run --show-files
   koder run --show-context
   koder run --show-skills
@@ -226,6 +246,8 @@ function assignValue(options, flag, value) {
 		options.promptFile = value;
 	} else if (flag === '--skill') {
 		options.skills.push(value);
+	} else if (flag === '--test') {
+		options.testCommand = value;
 	} else if (flag === '--timeout-ms') {
 		options.timeoutMs = Number(value);
 	}
@@ -312,6 +334,8 @@ async function runPrompt(options, io) {
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
 			summary: 'summary.json',
+			tests: 'tests.json',
+			writes: 'writes.json',
 		},
 		baseUrl: options.baseUrl,
 		finishReasons: completion.finishReasons,
@@ -322,6 +346,24 @@ async function runPrompt(options, io) {
 		responseCount: completion.responses.length,
 		workspaceFileCount: context.files.length,
 	};
+	const proposal = extractProposal(completion.text);
+	const writeResult = proposal
+		? await prepareWrites(io.cwd, proposal.files, { apply: options.yes })
+		: {
+				applied: false,
+				writes: [],
+			};
+	const testResult =
+		options.testCommand && options.yes
+			? await runVerification(io.cwd, options.testCommand, {
+					timeoutMs: options.timeoutMs,
+				})
+			: null;
+
+	summary.applied = writeResult.applied;
+	summary.proposalFound = proposal !== null;
+	summary.tested = testResult !== null;
+	summary.writeCount = writeResult.writes.length;
 
 	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
 	await writeText(join(runDir, 'prompt.md'), prompt);
@@ -330,12 +372,17 @@ async function runPrompt(options, io) {
 		responses: completion.responses,
 	});
 	await writeJson(join(runDir, 'summary.json'), summary);
+	await writeJson(join(runDir, 'writes.json'), writeResult);
+	await writeJson(join(runDir, 'tests.json'), testResult);
 
 	return {
 		...summary,
+		proposal,
 		response: completion.text,
 		responsePath,
 		runDir,
+		testResult,
+		writeResult,
 	};
 }
 
@@ -353,6 +400,39 @@ async function loadPrompt(options, cwd) {
 	}
 
 	throw new CliError('koder run requires -p/--prompt or --prompt-file');
+}
+
+function extractProposal(text) {
+	try {
+		const value = extractJson(text);
+		if (!value || !Array.isArray(value.files)) {
+			return null;
+		}
+
+		return {
+			files: value.files.map((file) => {
+				if (
+					!file ||
+					typeof file.path !== 'string' ||
+					typeof file.content !== 'string'
+				) {
+					throw new CliError(
+						'Proposal files must have string path and content',
+					);
+				}
+
+				return {
+					content: file.content,
+					path: file.path,
+				};
+			}),
+		};
+	} catch (error) {
+		if (error instanceof JsonExtractionError) {
+			return null;
+		}
+		throw error;
+	}
 }
 
 async function completeWithContinuations(options, model, prompt, systemPrompt) {

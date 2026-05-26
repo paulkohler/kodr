@@ -238,6 +238,8 @@ describe('run', () => {
 				rawResponse: 'raw-response.json',
 				response: 'response.md',
 				summary: 'summary.json',
+				tests: 'tests.json',
+				writes: 'writes.json',
 			});
 			assert.equal(Object.hasOwn(summary, 'runDir'), false);
 
@@ -498,6 +500,112 @@ describe('run', () => {
 			await server.close();
 		}
 	});
+
+	it('dry-runs extracted file proposals by default', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'new readme',
+								path: 'README.md',
+							},
+						],
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-dry-'));
+			await writeFile(join(cwd, 'README.md'), 'old readme', 'utf8');
+
+			const result = await main(
+				['run', '-p', 'Update README', '--base-url', server.baseUrl],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.result.proposalFound, true);
+			assert.equal(result.result.applied, false);
+			assert.equal(
+				await readFile(join(cwd, 'README.md'), 'utf8'),
+				'old readme',
+			);
+
+			const writes = JSON.parse(
+				await readFile(join(result.result.runDir, 'writes.json'), 'utf8'),
+			);
+			assert.equal(writes.applied, false);
+			assert.match(writes.writes[0].diff, /new readme/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('applies extracted proposals with --yes and records tests', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export {};\n',
+								path: 'created.mjs',
+							},
+						],
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-apply-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create a module',
+					'--base-url',
+					server.baseUrl,
+					'--yes',
+					'--test',
+					'node --check created.mjs',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.result.applied, true);
+			assert.equal(result.result.tested, true);
+			assert.equal(
+				await readFile(join(cwd, 'created.mjs'), 'utf8'),
+				'export {};\n',
+			);
+
+			const tests = JSON.parse(
+				await readFile(join(result.result.runDir, 'tests.json'), 'utf8'),
+			);
+			assert.equal(tests.ok, true);
+		} finally {
+			await server.close();
+		}
+	});
 });
 
 function captureStream() {
@@ -506,5 +614,21 @@ function captureStream() {
 		write(chunk) {
 			this.text += chunk;
 		},
+	};
+}
+
+function proposalResponse(value) {
+	return {
+		choices: [
+			{
+				finish_reason: 'stop',
+				message: {
+					content: JSON.stringify(value),
+					role: 'assistant',
+				},
+			},
+		],
+		id: 'chatcmpl_proposal',
+		object: 'chat.completion',
 	};
 }
