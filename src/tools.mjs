@@ -2,6 +2,7 @@ import { lookup } from 'node:dns/promises';
 import { readFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { listContextFiles } from './context-packer.mjs';
+import { createHooks, HookBlockedError } from './hooks.mjs';
 import { jailedPath, prepareWrites } from './safe-writes.mjs';
 import { createTaskPlan, updateTask } from './task-plan.mjs';
 import { runVerification } from './verification-runner.mjs';
@@ -22,6 +23,7 @@ export class ToolRunner {
 		this.remainingCalls = options.maxCalls || 20;
 		this.seen = new Set();
 		this.taskPlan = options.taskPlan || createTaskPlan(options.task || '');
+		this.hooks = createHooks(options.hooks);
 	}
 
 	async call(name, input = {}) {
@@ -36,7 +38,37 @@ export class ToolRunner {
 
 		this.seen.add(key);
 		this.remainingCalls -= 1;
+		const hookDecisions = [];
+		let activeInput = input;
 
+		try {
+			const pre = await this.hooks.run('pre_tool_use', {
+				cwd: this.cwd,
+				input: activeInput,
+				tool: name,
+			});
+			hookDecisions.push(...pre.decisions);
+			activeInput = pre.payload.input;
+		} catch (error) {
+			if (error instanceof HookBlockedError) {
+				throw new ToolError(error.message);
+			}
+			throw error;
+		}
+
+		const result = await this.runTool(name, activeInput);
+		const post = await this.hooks.run('post_tool_use', {
+			cwd: this.cwd,
+			input: activeInput,
+			result,
+			tool: name,
+		});
+		hookDecisions.push(...post.decisions);
+
+		return post.payload.result;
+	}
+
+	async runTool(name, input = {}) {
 		if (name === 'list_files') {
 			return listContextFiles(this.cwd);
 		}

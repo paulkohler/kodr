@@ -137,4 +137,60 @@ describe('bounded tools', () => {
 			'Example tests passed.',
 		);
 	});
+
+	it('runs hooks around tool calls', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-hooks-'));
+		await writeFile(join(cwd, 'a.txt'), 'alpha', 'utf8');
+		await writeFile(join(cwd, 'b.txt'), 'bravo', 'utf8');
+		const observed = [];
+		const runner = new ToolRunner(cwd, {
+			hooks: {
+				post_tool_use: [
+					(payload) => {
+						observed.push(`${payload.tool}:${payload.result}`);
+					},
+				],
+				pre_tool_use: [
+					(payload) => {
+						return {
+							action: 'mutate',
+							payload: {
+								...payload,
+								input: {
+									...payload.input,
+									path: 'b.txt',
+								},
+							},
+						};
+					},
+				],
+			},
+		});
+
+		assert.equal(await runner.call('read_file', { path: 'a.txt' }), 'bravo');
+		assert.deepEqual(observed, ['read_file:bravo']);
+	});
+
+	it('lets pre-tool hooks block calls', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-hook-block-'));
+		const runner = new ToolRunner(cwd, {
+			hooks: {
+				pre_tool_use: [
+					() => ({
+						action: 'block',
+						reason: 'Writes are disabled by hook.',
+					}),
+				],
+			},
+		});
+
+		await assert.rejects(
+			() =>
+				runner.call('write_file', {
+					content: 'x',
+					path: 'x.txt',
+				}),
+			/Writes are disabled by hook/u,
+		);
+	});
 });
