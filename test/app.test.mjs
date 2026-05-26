@@ -24,6 +24,8 @@ describe('parseArgs', () => {
 			'custom-run',
 			'--prompt-file',
 			'prompt.md',
+			'--test-cwd',
+			'examples/todo-cli',
 			'--api-key',
 			'test-key',
 			'--timeout-ms',
@@ -35,6 +37,7 @@ describe('parseArgs', () => {
 		assert.equal(options.model, 'nvidia/nemotron-3-nano-omni');
 		assert.equal(options.out, 'custom-run');
 		assert.equal(options.promptFile, 'prompt.md');
+		assert.equal(options.testCwd, 'examples/todo-cli');
 		assert.equal(options.apiKey, 'test-key');
 		assert.equal(options.timeoutMs, 1000);
 		assert.equal(options.json, true);
@@ -620,6 +623,158 @@ describe('run', () => {
 				await readFile(join(result.result.runDir, 'tests.json'), 'utf8'),
 			);
 			assert.equal(tests.ok, true);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runs verification from a jailed test cwd', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: '{"type":"module","scripts":{"test":"node --test"}}\n',
+								path: 'example/package.json',
+							},
+							{
+								content:
+									"import assert from 'node:assert/strict';\nimport { test } from 'node:test';\n\ntest('subproject test', () => assert.equal(1, 1));\n",
+								path: 'example/test/example.test.mjs',
+							},
+						],
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-test-cwd-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create a subproject',
+					'--base-url',
+					server.baseUrl,
+					'--yes',
+					'--test',
+					'npm test',
+					'--test-cwd',
+					'example',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.result.testResult.ok, true);
+			assert.match(result.result.testResult.stdout, /node --test/u);
+			assert.match(
+				await readFile(join(cwd, 'example', '.koder', 'last-test.md'), 'utf8'),
+				/node --test/u,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('marks the run failed when verification fails', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const broken = ;\n',
+								path: 'example/bad.mjs',
+							},
+						],
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-test-fails-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create a failing subproject',
+					'--base-url',
+					server.baseUrl,
+					'--yes',
+					'--test',
+					'node --check bad.mjs',
+					'--test-cwd',
+					'example',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.ok, false);
+			assert.equal(result.result.ok, false);
+			assert.equal(result.result.testResult.ok, false);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('rejects test cwd paths outside the workspace', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({ files: [] }),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-test-cwd-escape-'));
+
+			await assert.rejects(
+				() =>
+					main(
+						[
+							'run',
+							'-p',
+							'No writes',
+							'--base-url',
+							server.baseUrl,
+							'--yes',
+							'--test',
+							'npm test',
+							'--test-cwd',
+							'..',
+						],
+						{
+							cwd,
+							env: {},
+							stderr: captureStream(),
+							stdout: captureStream(),
+						},
+					),
+				/Parent path segments/u,
+			);
 		} finally {
 			await server.close();
 		}

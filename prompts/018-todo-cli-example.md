@@ -1,0 +1,31 @@
+Create a small example app under examples/todo-cli.
+
+Return only one JSON object with this shape:
+
+{
+  "files": [
+    {
+      "path": "examples/todo-cli/package.json",
+      "content": "..."
+    }
+  ]
+}
+
+Requirements:
+
+- Use ESM.
+- Do not use CommonJS globals such as require, module, or __dirname.
+- The example app may have its own package.json.
+- Use Node.js built-ins only for this first example.
+- Provide a CLI at src/cli.mjs.
+- Provide a TodoStore module at src/store.mjs.
+- Persist todos to a JSON file.
+- Commands:
+  - add <text>
+  - list
+  - done <id>
+  - delete <id>
+- Support --file <path> to choose the todo JSON file.
+- Add native node:test coverage under test/.
+- Add a README.md with usage examples.
+- Keep the implementation small and readable.

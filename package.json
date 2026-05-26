@@ -8,8 +8,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check bin/*.mjs && node --check src/*.mjs && node --check test/*.mjs && node --check test-support/*.mjs",
-    "format": "biome format --write bin src test test-support",
+    "check": "node --check bin/*.mjs && node --check src/*.mjs && node --check test/*.mjs && node --check test-support/*.mjs && find examples -name '*.mjs' -print0 | xargs -0 -n1 node --check",
+    "format": "biome format --write bin src test test-support examples",
     "install-local": "node bin/install-local.mjs"
   },
   "engines": {

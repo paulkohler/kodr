@@ -1,0 +1,13 @@
+{
+	"name": "todo-cli",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"main": "src/cli.mjs",
+	"scripts": {
+		"test": "node --test"
+	},
+	"engines": {
+		"node": ">=24"
+	}
+}

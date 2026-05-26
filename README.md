@@ -27,6 +27,10 @@ npm run format
 
 Use [roadmap.md](./roadmap.md) as the phase index. Each phase has a spec under [phases/](./phases). Public learning notes live under [blog/](./blog). Small append-only records live under [process/](./process).
 
+## Examples
+
+Small harness trial apps live under [examples/](./examples). The first example is a generated CLI todo app with its own package and tests under [examples/todo-cli](./examples/todo-cli).
+
 ## Security Boundaries
 
 Kodr treats model output, workspace files, `AGENTS.md`, `SKILL.md`, replay artifacts, and fetched network content as untrusted input. File reads and writes are jailed to the workspace, model-proposed writes stay dry-run until `--yes`, and Markdown skills are byte-capped before entering the system prompt.

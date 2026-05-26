@@ -50,6 +50,7 @@ export function parseArgs(argv, env = {}) {
 		showSkills: false,
 		skills: [],
 		testCommand: '',
+		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		version: false,
 		yes: false,
@@ -111,6 +112,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '--prompt-file' ||
 			arg === '--skill' ||
 			arg === '--test' ||
+			arg === '--test-cwd' ||
 			arg === '--timeout-ms'
 		) {
 			const value = argv[index + 1];
@@ -159,7 +161,7 @@ Usage:
   koder run -p "task" [--json]
   koder run --prompt-file prompt.md [--out .koder/runs/name]
   koder run -p "task" --dry-run
-  koder run -p "task" --yes [--test "npm test"]
+  koder run -p "task" --yes [--test "npm test"] [--test-cwd path]
   koder run --show-files
   koder run --show-context
   koder run --show-skills
@@ -230,7 +232,7 @@ export async function main(argv, io) {
 			io.stdout.write(`Model: ${result.model}\n`);
 			io.stdout.write(`Response: ${result.responsePath}\n`);
 		}
-		return { ok: true, command: 'run', result };
+		return { ok: result.ok, command: 'run', result };
 	}
 
 	if (options.command === 'replay') {
@@ -263,6 +265,8 @@ function assignValue(options, flag, value) {
 		options.skills.push(value);
 	} else if (flag === '--test') {
 		options.testCommand = value;
+	} else if (flag === '--test-cwd') {
+		options.testCwd = value;
 	} else if (flag === '--timeout-ms') {
 		options.timeoutMs = Number(value);
 	}
@@ -370,12 +374,17 @@ async function runPrompt(options, io) {
 			};
 	const testResult =
 		options.testCommand && options.yes
-			? await runVerification(io.cwd, options.testCommand, {
-					timeoutMs: options.timeoutMs,
-				})
+			? await runVerification(
+					await verificationCwd(io.cwd, options),
+					options.testCommand,
+					{
+						timeoutMs: options.timeoutMs,
+					},
+				)
 			: null;
 
 	summary.applied = writeResult.applied;
+	summary.ok = testResult ? testResult.ok : true;
 	summary.proposalFound = proposal !== null;
 	summary.tested = testResult !== null;
 	summary.writeCount = writeResult.writes.length;
@@ -399,6 +408,15 @@ async function runPrompt(options, io) {
 		testResult,
 		writeResult,
 	};
+}
+
+async function verificationCwd(cwd, options) {
+	if (!options.testCwd) {
+		return cwd;
+	}
+
+	const testCwd = await jailedPath(cwd, options.testCwd);
+	return testCwd.absolute;
 }
 
 async function loadPrompt(options, cwd) {
