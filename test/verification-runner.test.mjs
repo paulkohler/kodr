@@ -80,4 +80,21 @@ describe('verification runner', () => {
 		assert.equal(result.ok, false);
 		assert.equal(result.timedOut, true);
 	});
+
+	it('marks node test runs with zero tests as failed', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-verify-empty-'));
+		await writeFile(
+			join(cwd, 'package.json'),
+			'{"type":"module","scripts":{"test":"node --test"}}\n',
+			'utf8',
+		);
+
+		const result = await runVerification(cwd, 'npm test', {
+			timeoutMs: 1000,
+		});
+
+		assert.equal(result.exitCode, 0);
+		assert.equal(result.ok, false, result.stdout);
+		assert.match(result.stdout, /node --test/u);
+	});
 });

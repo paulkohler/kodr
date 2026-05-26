@@ -1,4 +1,4 @@
-# Phase 25: Subagents
+# Phase 26: Subagents
 
 ## Goal
 

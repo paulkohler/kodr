@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 
 export class VerificationError extends Error {
@@ -65,7 +65,10 @@ export async function runVerification(cwd, command, options = {}) {
 		durationMs: Math.round(performance.now() - started),
 		exitCode: result.exitCode,
 		finishedAt,
-		ok: result.exitCode === 0 && !result.timedOut,
+		ok:
+			result.exitCode === 0 &&
+			!result.timedOut &&
+			(await hasRequiredTestCoverage(cwd, command, result.stdout)),
 		stderr: result.stderr,
 		stdout: result.stdout,
 		timedOut: result.timedOut,
@@ -76,6 +79,53 @@ export async function runVerification(cwd, command, options = {}) {
 
 	await writeLastTest(cwd, summary);
 	return summary;
+}
+
+async function hasRequiredTestCoverage(cwd, command, stdout) {
+	if (!/\btest\b/u.test(command)) {
+		return true;
+	}
+
+	const match = /tests\s+(\d+)/u.exec(stdout);
+	if (!match) {
+		return !/node --test/u.test(stdout) || (await hasTestFiles(cwd));
+	}
+
+	return Number(match[1]) > 0;
+}
+
+async function hasTestFiles(cwd) {
+	const files = [];
+	await collectFiles(cwd, cwd, files);
+	return files.some((file) => {
+		return (
+			file.startsWith('test/') &&
+			(/\.test\.[cm]?js$/u.test(file) || /-test\.[cm]?js$/u.test(file))
+		);
+	});
+}
+
+async function collectFiles(root, dir, files) {
+	let entries;
+	try {
+		entries = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return;
+	}
+
+	for (const entry of entries) {
+		if (entry.name === 'node_modules' || entry.name === '.koder') {
+			continue;
+		}
+
+		const path = join(dir, entry.name);
+		const relativePath = path.slice(root.length + 1);
+		if (entry.isDirectory()) {
+			await collectFiles(root, path, files);
+		} else if (entry.isFile()) {
+			files.push(relativePath);
+		}
+	}
 }
 
 function spawnCommand(cwd, parsed, timeoutMs) {

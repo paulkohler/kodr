@@ -19,3 +19,7 @@ The first trial is the CLI todo app because it is the smallest useful app and ca
 ## Second Trial
 
 The second trial is the Markdown blog generator because it adds structured parsing, static output, escaping, and generated-file tests without needing a server or browser.
+
+## Third Trial
+
+The third trial is the Notes API because it adds HTTP routing, JSON validation, persistence, status codes, and integration tests with real requests.
