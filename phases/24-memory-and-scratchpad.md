@@ -1,4 +1,4 @@
-# Phase 23: Memory And Scratchpad
+# Phase 24: Memory And Scratchpad
 
 ## Goal
 

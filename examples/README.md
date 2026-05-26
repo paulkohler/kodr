@@ -15,3 +15,7 @@ These examples are small target apps for exercising Kodr against different proje
 ## First Trial
 
 The first trial is the CLI todo app because it is the smallest useful app and can be verified with fast Node tests.
+
+## Second Trial
+
+The second trial is the Markdown blog generator because it adds structured parsing, static output, escaping, and generated-file tests without needing a server or browser.

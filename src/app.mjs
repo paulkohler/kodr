@@ -335,22 +335,44 @@ async function runPrompt(options, io) {
 	const runDir = await createRunArtifacts(io.cwd, options.out);
 	const skills = await loadSkills(io.cwd, options.skills);
 	const context = await buildWorkspaceContext(io.cwd, { skills });
-	const modelsResponse = await listModels(options);
-	const model = options.model || firstModelId(modelsResponse.body);
+	const responsePath = join(runDir, 'response.md');
+	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
+	await writeText(join(runDir, 'prompt.md'), prompt);
 
-	if (!model) {
+	let modelsResponse;
+	let model;
+	let completion;
+
+	try {
+		modelsResponse = await listModels(options);
+		model = options.model || firstModelId(modelsResponse.body);
+
+		if (!model) {
+			throw new CliError(
+				'No model was provided and GET /models did not return a usable model id',
+			);
+		}
+
+		completion = await completeWithContinuations(
+			options,
+			model,
+			prompt,
+			context.systemPrompt,
+		);
+	} catch (error) {
+		await writeRunFailure(runDir, {
+			baseUrl: options.baseUrl,
+			context,
+			error,
+			model: model || options.model || '',
+			prompt,
+			responsePath,
+		});
 		throw new CliError(
-			'No model was provided and GET /models did not return a usable model id',
+			`Model run failed: ${error.message}. Artifacts: ${runDir}`,
 		);
 	}
 
-	const completion = await completeWithContinuations(
-		options,
-		model,
-		prompt,
-		context.systemPrompt,
-	);
-	const responsePath = join(runDir, 'response.md');
 	const summary = {
 		artifacts: {
 			context: 'context.md',
@@ -401,8 +423,6 @@ async function runPrompt(options, io) {
 	taskPlan = updateTasksFromRun(taskPlan, summary);
 	summary.taskCounts = taskCounts(taskPlan);
 
-	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
-	await writeText(join(runDir, 'prompt.md'), prompt);
 	await writeText(responsePath, completion.text);
 	await writeJson(join(runDir, 'raw-response.json'), {
 		responses: completion.responses,
@@ -422,6 +442,47 @@ async function runPrompt(options, io) {
 		taskPlan,
 		writeResult,
 	};
+}
+
+async function writeRunFailure(runDir, details) {
+	const taskPlan = createTaskPlan(details.prompt);
+	const error = {
+		message: details.error.message,
+		name: details.error.name,
+	};
+	const summary = {
+		artifacts: {
+			context: 'context.md',
+			error: 'error.json',
+			prompt: 'prompt.md',
+			rawResponse: 'raw-response.json',
+			response: 'response.md',
+			summary: 'summary.json',
+			tasks: 'tasks.json',
+			tests: 'tests.json',
+			writes: 'writes.json',
+		},
+		baseUrl: details.baseUrl,
+		error,
+		model: details.model,
+		ok: false,
+		promptChars: details.prompt.length,
+		responseChars: 0,
+		responseCount: 0,
+		taskCounts: taskCounts(taskPlan),
+		workspaceFileCount: details.context.files.length,
+	};
+
+	await writeText(details.responsePath, '');
+	await writeJson(join(runDir, 'error.json'), error);
+	await writeJson(join(runDir, 'raw-response.json'), { responses: [] });
+	await writeJson(join(runDir, 'summary.json'), summary);
+	await writeJson(join(runDir, 'tasks.json'), taskPlan);
+	await writeJson(join(runDir, 'tests.json'), null);
+	await writeJson(join(runDir, 'writes.json'), {
+		applied: false,
+		writes: [],
+	});
 }
 
 async function verificationCwd(cwd, options) {

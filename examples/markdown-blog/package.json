@@ -1,0 +1,13 @@
+{
+	"name": "markdown-blog-example",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "node src/build.mjs",
+		"test": "node --test"
+	},
+	"engines": {
+		"node": ">=24"
+	}
+}

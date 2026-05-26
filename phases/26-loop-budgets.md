@@ -1,4 +1,4 @@
-# Phase 25: Loop Budgets
+# Phase 26: Loop Budgets
 
 ## Goal
 

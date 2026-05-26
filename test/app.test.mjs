@@ -358,6 +358,62 @@ describe('run', () => {
 		}
 	});
 
+	it('writes failure artifacts when model completion fails', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: {
+						error: 'model unavailable',
+					},
+					method: 'POST',
+					status: 500,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-run-model-fail-'));
+
+			await assert.rejects(
+				() =>
+					main(
+						[
+							'run',
+							'-p',
+							'Build an example.',
+							'--base-url',
+							server.baseUrl,
+							'--out',
+							'failed-run',
+							'--timeout-ms',
+							'1000',
+						],
+						{
+							cwd,
+							env: {},
+							stderr: captureStream(),
+							stdout: captureStream(),
+						},
+					),
+				/Model run failed/u,
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'failed-run', 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.ok, false);
+			assert.equal(summary.artifacts.error, 'error.json');
+			assert.match(summary.error.message, /HTTP 500/u);
+			assert.equal(
+				await readFile(join(cwd, 'failed-run', 'prompt.md'), 'utf8'),
+				'Build an example.',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('rejects ambiguous prompt input', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'koder-run-ambiguous-'));
 

@@ -1,4 +1,4 @@
-# Phase 22: MCP Client
+# Phase 23: MCP Client
 
 ## Goal
 
