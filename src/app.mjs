@@ -10,7 +10,6 @@ import { extractJson, JsonExtractionError } from './json-extractor.mjs';
 import {
 	createChatCompletion,
 	firstAssistantMessage,
-	firstFinishReason,
 	firstModelId,
 	listModels,
 } from './model-client.mjs';
@@ -25,10 +24,14 @@ import {
 } from './task-plan.mjs';
 import { runVerification } from './verification-runner.mjs';
 import { replayRun } from './replay.mjs';
-import { createLoopBudget } from './loop-budgets.mjs';
 import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
 import { runComparison } from './compare.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
+import {
+	completeWithContinuations,
+	OPENROUTER_BASE_URL,
+	OPENROUTER_EXTRA_HEADERS,
+} from './completion.mjs';
 import { VERSION } from './version.mjs';
 
 export { VERSION };
@@ -38,12 +41,7 @@ const DEFAULT_MODEL_ID = 'qwen/qwen3.6-35b-a3b';
 const DEFAULT_TIMEOUT_MS = 600000;
 const PROBE_PROMPT = 'Reply with exactly: kodr-probe-ok';
 
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';
-const OPENROUTER_EXTRA_HEADERS = {
-	'HTTP-Referer': 'https://github.com/pkohler/koder',
-	'X-Title': 'kodr',
-};
 
 export class CliError extends Error {
 	constructor(message) {
@@ -962,22 +960,19 @@ function extractProposal(text) {
 					path: file.path,
 				};
 			}),
-			messages: messages.map((message) => {
-				if (
-					!message ||
-					typeof message.level !== 'string' ||
-					typeof message.content !== 'string'
-				) {
-					throw new CliError(
-						'Proposal messages must have string level and content',
-					);
-				}
-
-				return {
+			// Messages are informational only — filter out malformed entries
+			// rather than rejecting the whole proposal over a bad annotation.
+			messages: messages
+				.filter(
+					(message) =>
+						message &&
+						typeof message.level === 'string' &&
+						typeof message.content === 'string',
+				)
+				.map((message) => ({
 					content: message.content,
 					level: message.level,
-				};
-			}),
+				})),
 			scratchpad: typeof value.scratchpad === 'string' ? value.scratchpad : '',
 			status,
 			patches: patches.map((patch) => {
@@ -1029,67 +1024,4 @@ function proposalPaths(proposal) {
 		...proposal.files.map((file) => file.path),
 		...proposal.patches.map((patch) => patch.path),
 	];
-}
-
-async function completeWithContinuations(options, model, prompt, systemPrompt) {
-	const budget = createLoopBudget({
-		maxCostUsd: options.maxCostUsd,
-		maxRetries: options.maxRetries,
-		maxTokens: options.maxTokens,
-		maxTurns: options.maxTurns,
-	});
-	const responses = [];
-	const finishReasons = [];
-	const chunks = [];
-	const messages = [
-		{
-			content: systemPrompt,
-			role: 'system',
-		},
-		{
-			content: prompt,
-			role: 'user',
-		},
-	];
-
-	while (true) {
-		budget.beforeTurn();
-		const chatResponse = await createChatCompletion(options, {
-			messages,
-			model,
-			temperature: 0,
-		});
-		budget.recordUsage(chatResponse.body?.usage);
-		const content = firstAssistantMessage(chatResponse.body);
-		if (!content) {
-			throw new CliError(
-				'POST /chat/completions did not return a usable assistant message',
-			);
-		}
-
-		const finishReason = firstFinishReason(chatResponse.body);
-		responses.push(chatResponse.body);
-		finishReasons.push(finishReason);
-		chunks.push(content);
-
-		if (finishReason !== 'length') {
-			budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
-			return {
-				finishReasons,
-				loopBudget: budget.snapshot(),
-				responses,
-				text: chunks.join(''),
-			};
-		}
-
-		budget.recordRetry();
-		messages.push({
-			content,
-			role: 'assistant',
-		});
-		messages.push({
-			content: 'Continue from exactly where you stopped.',
-			role: 'user',
-		});
-	}
 }

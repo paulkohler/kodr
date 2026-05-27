@@ -1,18 +1,11 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createRunArtifacts, writeJson, writeText } from './artifacts.mjs';
-import { createLoopBudget } from './loop-budgets.mjs';
 import {
-	createChatCompletion,
-	firstAssistantMessage,
-	firstFinishReason,
-} from './model-client.mjs';
-
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-const OPENROUTER_EXTRA_HEADERS = {
-	'HTTP-Referer': 'https://github.com/pkohler/koder',
-	'X-Title': 'kodr',
-};
+	completeWithContinuations,
+	OPENROUTER_BASE_URL,
+	OPENROUTER_EXTRA_HEADERS,
+} from './completion.mjs';
 
 // "openrouter:openai/gpt-4o-mini" → { provider: 'openrouter', modelId: 'openai/gpt-4o-mini' }
 // "qwen/qwen3.6-35b-a3b"         → { provider: 'local',      modelId: 'qwen/qwen3.6-35b-a3b' }
@@ -45,66 +38,6 @@ function sanitizeModelId(modelId) {
 	return modelId.replace(/[/: ]/gu, '_');
 }
 
-async function runOneModel(options, prompt, systemPrompt) {
-	const budget = createLoopBudget({
-		maxCostUsd: options.maxCostUsd,
-		maxRetries: options.maxRetries,
-		maxTokens: options.maxTokens,
-		maxTurns: options.maxTurns,
-	});
-
-	const messages = [
-		{ content: systemPrompt, role: 'system' },
-		{ content: prompt, role: 'user' },
-	];
-	const responses = [];
-	const finishReasons = [];
-	const chunks = [];
-	const startMs = Date.now();
-
-	while (true) {
-		budget.beforeTurn();
-		const chatResponse = await createChatCompletion(options, {
-			messages,
-			model: options.model,
-			temperature: 0,
-		});
-		budget.recordUsage(chatResponse.body?.usage);
-
-		const content = firstAssistantMessage(chatResponse.body);
-		if (!content) {
-			throw new Error(
-				'POST /chat/completions did not return a usable assistant message',
-			);
-		}
-
-		const finishReason = firstFinishReason(chatResponse.body);
-		responses.push(chatResponse.body);
-		finishReasons.push(finishReason);
-		chunks.push(content);
-
-		if (finishReason !== 'length') {
-			budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
-			break;
-		}
-
-		budget.recordRetry();
-		messages.push({ content, role: 'assistant' });
-		messages.push({
-			content: 'Continue from exactly where you stopped.',
-			role: 'user',
-		});
-	}
-
-	return {
-		durationMs: Date.now() - startMs,
-		finishReasons,
-		loopBudget: budget.snapshot(),
-		responses,
-		text: chunks.join(''),
-	};
-}
-
 export async function runComparison(
 	baseOptions,
 	env,
@@ -126,7 +59,13 @@ export async function runComparison(
 
 		let result;
 		try {
-			const completion = await runOneModel(modelOptions, prompt, systemPrompt);
+			const startMs = Date.now();
+			const completion = await completeWithContinuations(
+				modelOptions,
+				modelOptions.model,
+				prompt,
+				systemPrompt,
+			);
 			result = {
 				modelSpec: spec,
 				provider,
@@ -135,7 +74,7 @@ export async function runComparison(
 				finishReasons: completion.finishReasons,
 				loopBudget: completion.loopBudget,
 				responseChars: completion.text.length,
-				durationMs: completion.durationMs,
+				durationMs: Date.now() - startMs,
 				error: null,
 				runDir: modelDir,
 			};
