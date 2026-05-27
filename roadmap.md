@@ -35,7 +35,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 30 Subagents
 - [x] 31 Local Markdown Search Example
 - [x] 32 Response Envelope
-- [ ] 33 Loop Budgets
+- [x] 33 Loop Budgets
 
 ## Phase Contract
 
