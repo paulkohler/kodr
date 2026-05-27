@@ -2,6 +2,7 @@
   "name": "kodr-by-codex",
   "version": "0.0.33",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "bin": {
     "kodr": "./bin/kodr.mjs"
