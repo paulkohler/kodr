@@ -6,6 +6,6 @@ Make turn, token, cost, retry, and stop-condition budgets explicit across long-r
 
 ## Done Criteria
 
-- [ ] Add budget state and tests.
-- [ ] Integrate with continuous cycles.
-- [ ] Document retry and stop behavior.
+- [x] Add budget state and tests.
+- [x] Integrate with continuous cycles.
+- [x] Document retry and stop behavior.

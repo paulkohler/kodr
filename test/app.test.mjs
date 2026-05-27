@@ -13,6 +13,8 @@ describe('parseArgs', () => {
 		assert.equal(options.baseUrl, 'http://localhost:1234/v1');
 		assert.equal(options.model, 'qwen/qwen3.6-35b-a3b');
 		assert.equal(options.timeoutMs, 600000);
+		assert.equal(options.maxTurns, 8);
+		assert.equal(options.maxRetries, 7);
 	});
 
 	it('parses model endpoint flags', () => {
@@ -31,6 +33,14 @@ describe('parseArgs', () => {
 			'test-key',
 			'--timeout-ms',
 			'1000',
+			'--max-turns',
+			'3',
+			'--max-retries',
+			'2',
+			'--max-tokens',
+			'100',
+			'--max-cost-usd',
+			'0.01',
 			'--json',
 		]);
 
@@ -41,6 +51,10 @@ describe('parseArgs', () => {
 		assert.equal(options.testCwd, 'examples/todo-cli');
 		assert.equal(options.apiKey, 'test-key');
 		assert.equal(options.timeoutMs, 1000);
+		assert.equal(options.maxTurns, 3);
+		assert.equal(options.maxRetries, 2);
+		assert.equal(options.maxTokens, 100);
+		assert.equal(options.maxCostUsd, '0.01');
 		assert.equal(options.json, true);
 	});
 
@@ -295,6 +309,11 @@ describe('run', () => {
 						],
 						id: 'chatcmpl_part_1',
 						object: 'chat.completion',
+						usage: {
+							completion_tokens: 2,
+							prompt_tokens: 3,
+							total_tokens: 5,
+						},
 					},
 					method: 'POST',
 					status: 200,
@@ -313,6 +332,11 @@ describe('run', () => {
 						],
 						id: 'chatcmpl_part_2',
 						object: 'chat.completion',
+						usage: {
+							completion_tokens: 2,
+							prompt_tokens: 4,
+							total_tokens: 6,
+						},
 					},
 					method: 'POST',
 					status: 200,
@@ -336,6 +360,10 @@ describe('run', () => {
 					'stitched-output',
 					'--timeout-ms',
 					'1000',
+					'--max-turns',
+					'2',
+					'--max-tokens',
+					'20',
 				],
 				{
 					cwd,
@@ -347,6 +375,17 @@ describe('run', () => {
 
 			assert.equal(result.result.response, 'First half second half.');
 			assert.deepEqual(result.result.finishReasons, ['length', 'stop']);
+			assert.deepEqual(result.result.loopBudget, {
+				costUsd: 0,
+				maxCostUsd: null,
+				maxRetries: 7,
+				maxTokens: 20,
+				maxTurns: 2,
+				retries: 1,
+				stopReason: 'finish_stop',
+				tokens: 11,
+				turns: 2,
+			});
 			assert.equal(
 				await readFile(join(cwd, 'stitched-output', 'response.md'), 'utf8'),
 				'First half second half.',
@@ -362,6 +401,7 @@ describe('run', () => {
 				raw.responses.map((response) => response.id),
 				['chatcmpl_part_1', 'chatcmpl_part_2'],
 			);
+			assert.equal(raw.loopBudget.tokens, 11);
 
 			const continuationRequest = server.recordings[2].requestBody;
 			assert.equal(continuationRequest.messages[2].role, 'assistant');
@@ -370,6 +410,68 @@ describe('run', () => {
 				continuationRequest.messages[3].content,
 				'Continue from exactly where you stopped.',
 			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('stops continuation runs at the turn budget', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: {
+						choices: [
+							{
+								finish_reason: 'length',
+								message: {
+									content: 'unfinished',
+									role: 'assistant',
+								},
+							},
+						],
+						id: 'chatcmpl_budget_1',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-budget-'));
+			await assert.rejects(
+				() =>
+					main(
+						[
+							'run',
+							'-p',
+							'Keep going forever.',
+							'--base-url',
+							server.baseUrl,
+							'--out',
+							'budget-output',
+							'--timeout-ms',
+							'1000',
+							'--max-turns',
+							'1',
+						],
+						{
+							cwd,
+							env: {},
+							stderr: captureStream(),
+							stdout: captureStream(),
+						},
+					),
+				/turn_budget_exhausted/u,
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'budget-output', 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.ok, false);
+			assert.match(summary.error.message, /turn_budget_exhausted/u);
 		} finally {
 			await server.close();
 		}

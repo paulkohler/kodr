@@ -25,8 +25,10 @@ import {
 } from './task-plan.mjs';
 import { runVerification } from './verification-runner.mjs';
 import { replayRun } from './replay.mjs';
+import { createLoopBudget } from './loop-budgets.mjs';
+import { VERSION } from './version.mjs';
 
-export const VERSION = '0.0.0';
+export { VERSION };
 
 const DEFAULT_BASE_URL = 'http://localhost:1234/v1';
 const DEFAULT_MODEL_ID = 'qwen/qwen3.6-35b-a3b';
@@ -62,6 +64,10 @@ export function parseArgs(argv, env = {}) {
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		transcriptFile: '',
+		maxCostUsd: '',
+		maxRetries: 7,
+		maxTokens: '',
+		maxTurns: 8,
 		version: false,
 		yes: false,
 	};
@@ -129,7 +135,11 @@ export function parseArgs(argv, env = {}) {
 			arg === '--test' ||
 			arg === '--test-cwd' ||
 			arg === '--timeout-ms' ||
-			arg === '--transcript-file'
+			arg === '--transcript-file' ||
+			arg === '--max-cost-usd' ||
+			arg === '--max-retries' ||
+			arg === '--max-tokens' ||
+			arg === '--max-turns'
 		) {
 			const value = argv[index + 1];
 			if (!value || value.startsWith('--')) {
@@ -163,8 +173,33 @@ export function parseArgs(argv, env = {}) {
 			'--timeout-ms must be an integer greater than or equal to 100',
 		);
 	}
+	validateLoopBudgetOptions(options);
 
 	return options;
+}
+
+function validateLoopBudgetOptions(options) {
+	if (!Number.isInteger(options.maxTurns) || options.maxTurns < 1) {
+		throw new CliError(
+			'--max-turns must be an integer greater than or equal to 1',
+		);
+	}
+	if (!Number.isInteger(options.maxRetries) || options.maxRetries < 0) {
+		throw new CliError('--max-retries must be a non-negative integer');
+	}
+	if (
+		options.maxTokens !== '' &&
+		(!Number.isInteger(options.maxTokens) || options.maxTokens < 0)
+	) {
+		throw new CliError('--max-tokens must be a non-negative integer');
+	}
+	if (
+		options.maxCostUsd !== '' &&
+		(!Number.isFinite(Number(options.maxCostUsd)) ||
+			Number(options.maxCostUsd) < 0)
+	) {
+		throw new CliError('--max-cost-usd must be a non-negative number');
+	}
 }
 
 export function usage() {
@@ -190,6 +225,10 @@ Local-model defaults:
   --model ID           Default: MODEL_ID or ${DEFAULT_MODEL_ID}
   --api-key KEY        Default: OPENAI_API_KEY
   --timeout-ms N       Default: ${DEFAULT_TIMEOUT_MS}
+  --max-turns N        Max model turns in a run. Default: 8
+  --max-retries N      Max continuation retries after length stops. Default: 7
+  --max-tokens N       Optional total token budget from model usage
+  --max-cost-usd N     Optional cost budget when usage includes costUsd
 
 Implemented library primitives:
   workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
@@ -334,6 +373,14 @@ function assignValue(options, flag, value) {
 		options.timeoutMs = Number(value);
 	} else if (flag === '--transcript-file') {
 		options.transcriptFile = value;
+	} else if (flag === '--max-cost-usd') {
+		options.maxCostUsd = value;
+	} else if (flag === '--max-retries') {
+		options.maxRetries = Number(value);
+	} else if (flag === '--max-tokens') {
+		options.maxTokens = Number(value);
+	} else if (flag === '--max-turns') {
+		options.maxTurns = Number(value);
 	}
 }
 
@@ -449,6 +496,7 @@ async function runPrompt(options, io) {
 		},
 		baseUrl: options.baseUrl,
 		finishReasons: completion.finishReasons,
+		loopBudget: completion.loopBudget,
 		model,
 		ok: true,
 		promptChars: prompt.length,
@@ -488,6 +536,7 @@ async function runPrompt(options, io) {
 		await writeJson(join(runDir, 'messages.json'), []);
 		await writeText(join(runDir, 'scratchpad.md'), '');
 		await writeJson(join(runDir, 'raw-response.json'), {
+			loopBudget: completion.loopBudget,
 			responses: completion.responses,
 		});
 		await writeJson(join(runDir, 'summary.json'), summary);
@@ -588,6 +637,7 @@ async function runPrompt(options, io) {
 	await writeJson(join(runDir, 'messages.json'), proposalMessages);
 	await writeText(join(runDir, 'scratchpad.md'), scratchpad);
 	await writeJson(join(runDir, 'raw-response.json'), {
+		loopBudget: completion.loopBudget,
 		responses: completion.responses,
 	});
 	await writeJson(join(runDir, 'summary.json'), summary);
@@ -785,6 +835,12 @@ function proposalPaths(proposal) {
 }
 
 async function completeWithContinuations(options, model, prompt, systemPrompt) {
+	const budget = createLoopBudget({
+		maxCostUsd: options.maxCostUsd,
+		maxRetries: options.maxRetries,
+		maxTokens: options.maxTokens,
+		maxTurns: options.maxTurns,
+	});
 	const responses = [];
 	const finishReasons = [];
 	const chunks = [];
@@ -799,12 +855,14 @@ async function completeWithContinuations(options, model, prompt, systemPrompt) {
 		},
 	];
 
-	for (let index = 0; index < 8; index += 1) {
+	while (true) {
+		budget.beforeTurn();
 		const chatResponse = await createChatCompletion(options, {
 			messages,
 			model,
 			temperature: 0,
 		});
+		budget.recordUsage(chatResponse.body?.usage);
 		const content = firstAssistantMessage(chatResponse.body);
 		if (!content) {
 			throw new CliError(
@@ -818,13 +876,16 @@ async function completeWithContinuations(options, model, prompt, systemPrompt) {
 		chunks.push(content);
 
 		if (finishReason !== 'length') {
+			budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
 			return {
 				finishReasons,
+				loopBudget: budget.snapshot(),
 				responses,
 				text: chunks.join(''),
 			};
 		}
 
+		budget.recordRetry();
 		messages.push({
 			content,
 			role: 'assistant',
@@ -834,6 +895,4 @@ async function completeWithContinuations(options, model, prompt, systemPrompt) {
 			role: 'user',
 		});
 	}
-
-	throw new CliError('Continuation limit reached before the model stopped');
 }

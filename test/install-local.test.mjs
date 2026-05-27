@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, it } from 'node:test';
 import { installLocal } from '../src/install-local.mjs';
+import { VERSION } from '../src/version.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -15,7 +16,7 @@ describe('local install', () => {
 			cwd: process.cwd(),
 		});
 
-		assert.equal(stdout.trim(), '0.0.0');
+		assert.equal(stdout.trim(), VERSION);
 	});
 
 	it('installed temp shim works with --version', async () => {
@@ -27,6 +28,6 @@ describe('local install', () => {
 
 		const { stdout } = await execFileAsync(result.path, ['--version']);
 
-		assert.equal(stdout.trim(), '0.0.0');
+		assert.equal(stdout.trim(), VERSION);
 	});
 });

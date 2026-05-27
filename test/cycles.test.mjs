@@ -21,6 +21,8 @@ describe('continuous cycles', () => {
 		});
 
 		assert.equal(result.cycles.length, 3);
+		assert.equal(result.budget.stopReason, 'max_turns');
+		assert.equal(result.budget.turns, 3);
 		assert.deepEqual(
 			result.cycles.map((cycle) => cycle.fileCount),
 			[1, 1, 1],
@@ -41,6 +43,24 @@ describe('continuous cycles', () => {
 
 		assert.equal(result.cycles.length, 2);
 		assert.equal(result.stoppedEarly, true);
+		assert.equal(result.budget.stopReason, 'stop_marker');
 		assert.equal(hasStopMarker('KODR_STOP'), true);
+	});
+
+	it('records cycle token usage against the loop budget', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cycles-budget-'));
+		const result = await runCycles(cwd, {
+			cycles: 2,
+			maxTokens: 10,
+			cycle({ index }) {
+				return {
+					text: `cycle ${index}`,
+					usage: { total_tokens: index },
+				};
+			},
+		});
+
+		assert.equal(result.budget.tokens, 3);
+		assert.equal(result.cycles[1].budget.tokens, 3);
 	});
 });
