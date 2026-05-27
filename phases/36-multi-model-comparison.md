@@ -20,9 +20,9 @@ operation.
 
 ## Done Criteria
 
-- [ ] `kodr compare` command with `--models m1,m2` and prompt flags.
-- [ ] Comparison run directory with per-model sub-artifacts and `comparison.json`.
-- [ ] Tests cover: multi-model dispatch, artifact layout, summary structure.
-- [ ] Works with at least one local model and one OpenRouter model in a live test.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] `kodr compare` command with `--models m1,m2` and prompt flags.
+- [x] Comparison run directory with per-model sub-artifacts and `comparison.json`.
+- [x] Tests cover: multi-model dispatch, artifact layout, summary structure.
+- [x] Works with at least one local model and one OpenRouter model in a live test.
+- [x] Record decisions and any failures.
+- [x] Blog post.

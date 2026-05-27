@@ -27,6 +27,7 @@ import { runVerification } from './verification-runner.mjs';
 import { replayRun } from './replay.mjs';
 import { createLoopBudget } from './loop-budgets.mjs';
 import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
+import { runComparison } from './compare.mjs';
 import { VERSION } from './version.mjs';
 
 export { VERSION };
@@ -71,6 +72,7 @@ export function parseArgs(argv, env = {}) {
 		skills: [],
 		stream: false,
 		testCommand: '',
+		models: [],
 		tools: false,
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -142,6 +144,19 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--tools') {
 			options.tools = true;
+			continue;
+		}
+
+		if (arg === '--models') {
+			const value = argv[index + 1];
+			if (!value || value.startsWith('--')) {
+				throw new CliError(`${arg} requires a value`);
+			}
+			index += 1;
+			options.models = value
+				.split(',')
+				.map((s) => s.trim())
+				.filter(Boolean);
 			continue;
 		}
 
@@ -260,6 +275,7 @@ Usage:
   kodr run --show-context
   kodr run --show-skills
   kodr cycle-review --transcript-file chat.md [--json]
+  kodr compare -p "task" --models "m1,openrouter:m2" [--json]
   kodr replay <run-dir>
 
 Local-model defaults:
@@ -277,6 +293,9 @@ OpenRouter:
                        Default model: ${OPENROUTER_DEFAULT_MODEL}
                        API key: OPENROUTER_API_KEY env var (falls back to OPENAI_API_KEY)
                        All --base-url, --model, and --api-key flags still override these defaults.
+
+  --models m1,m2       Comma-separated model specs for compare. Prefix with
+                       "openrouter:" to route a model via OpenRouter.
 
 Implemented library primitives:
   workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
@@ -393,6 +412,38 @@ export async function main(argv, io) {
 			io.stdout.write(`Findings: ${review.result.findings.length}\n`);
 		}
 		return { ok: result.ok, command: 'cycle-review', result };
+	}
+
+	if (options.command === 'compare') {
+		if (!options.models.length) {
+			throw new CliError('kodr compare requires --models');
+		}
+		const prompt = await loadPrompt(options, io.cwd);
+		const memory = await loadMemory(io.cwd);
+		const skills = await loadSkills(io.cwd, options.skills);
+		const context = await buildWorkspaceContext(io.cwd, { memory, skills });
+		const { compDir, comparison } = await runComparison(
+			options,
+			io.env,
+			prompt,
+			context.systemPrompt,
+			options.models,
+			io.cwd,
+			options.out,
+		);
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(comparison, null, 2)}\n`);
+		} else {
+			io.stdout.write(`Compare ok\n`);
+			io.stdout.write(`Run: ${compDir}\n`);
+			for (const model of comparison.models) {
+				const status = model.ok ? 'ok' : 'failed';
+				io.stdout.write(
+					`  ${model.modelSpec}: ${status} (${model.responseChars} chars)\n`,
+				);
+			}
+		}
+		return { ok: true, command: 'compare', comparison, compDir };
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);

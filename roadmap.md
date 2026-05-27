@@ -38,7 +38,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 33 Loop Budgets
 - [x] 34 OpenRouter Support
 - [x] 35 Native Tool Calls
-- [ ] 36 Multi-Model Comparison
+- [x] 36 Multi-Model Comparison
 - [ ] 37 Eval And Scoring
 - [ ] 38 Prompt Versioning
 
