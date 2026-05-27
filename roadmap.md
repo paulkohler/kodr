@@ -36,6 +36,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 31 Local Markdown Search Example
 - [x] 32 Response Envelope
 - [x] 33 Loop Budgets
+- [x] 34 OpenRouter Support
 
 ## Phase Contract
 

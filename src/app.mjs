@@ -35,6 +35,13 @@ const DEFAULT_MODEL_ID = 'qwen/qwen3.6-35b-a3b';
 const DEFAULT_TIMEOUT_MS = 600000;
 const PROBE_PROMPT = 'Reply with exactly: kodr-probe-ok';
 
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';
+const OPENROUTER_EXTRA_HEADERS = {
+	'HTTP-Referer': 'https://github.com/pkohler/koder-by-codex',
+	'X-Title': 'kodr',
+};
+
 export class CliError extends Error {
 	constructor(message) {
 		super(message);
@@ -47,6 +54,7 @@ export function parseArgs(argv, env = {}) {
 		baseUrl: env.BASE_URL || DEFAULT_BASE_URL,
 		command: 'help',
 		dryRun: true,
+		extraHeaders: {},
 		help: false,
 		json: false,
 		model: env.MODEL_ID || DEFAULT_MODEL_ID,
@@ -54,6 +62,7 @@ export function parseArgs(argv, env = {}) {
 		apiKey: env.OPENAI_API_KEY || '',
 		prompt: '',
 		promptFile: '',
+		provider: 'local',
 		replayDir: '',
 		showContext: false,
 		showFiles: false,
@@ -70,6 +79,7 @@ export function parseArgs(argv, env = {}) {
 		maxTurns: 8,
 		version: false,
 		yes: false,
+		_apiKeySet: false,
 	};
 
 	const positionals = [];
@@ -123,6 +133,11 @@ export function parseArgs(argv, env = {}) {
 			continue;
 		}
 
+		if (arg === '--openrouter') {
+			options.provider = 'openrouter';
+			continue;
+		}
+
 		if (
 			arg === '--base-url' ||
 			arg === '--model' ||
@@ -167,6 +182,25 @@ export function parseArgs(argv, env = {}) {
 			);
 		}
 	}
+
+	if (options.provider === 'openrouter') {
+		if (options.baseUrl === DEFAULT_BASE_URL && !env.BASE_URL) {
+			options.baseUrl = OPENROUTER_BASE_URL;
+		}
+		if (options.model === (env.MODEL_ID || DEFAULT_MODEL_ID) && !env.MODEL_ID) {
+			options.model = OPENROUTER_DEFAULT_MODEL;
+		}
+		if (!options._apiKeySet) {
+			options.apiKey = env.OPENROUTER_API_KEY || env.OPENAI_API_KEY || '';
+		}
+		if (!options.apiKey) {
+			throw new CliError(
+				'--openrouter requires OPENROUTER_API_KEY or OPENAI_API_KEY to be set',
+			);
+		}
+		options.extraHeaders = OPENROUTER_EXTRA_HEADERS;
+	}
+	delete options._apiKeySet;
 
 	if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 100) {
 		throw new CliError(
@@ -229,6 +263,12 @@ Local-model defaults:
   --max-retries N      Max continuation retries after length stops. Default: 7
   --max-tokens N       Optional total token budget from model usage
   --max-cost-usd N     Optional cost budget when usage includes costUsd
+
+OpenRouter:
+  --openrouter         Use OpenRouter as the provider (base URL: ${OPENROUTER_BASE_URL})
+                       Default model: ${OPENROUTER_DEFAULT_MODEL}
+                       API key: OPENROUTER_API_KEY env var (falls back to OPENAI_API_KEY)
+                       All --base-url, --model, and --api-key flags still override these defaults.
 
 Implemented library primitives:
   workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
@@ -357,6 +397,7 @@ function assignValue(options, flag, value) {
 		options.model = value;
 	} else if (flag === '--api-key') {
 		options.apiKey = value;
+		options._apiKeySet = true;
 	} else if (flag === '--out') {
 		options.out = value;
 	} else if (flag === '-p' || flag === '--prompt') {

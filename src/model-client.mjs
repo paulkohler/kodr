@@ -8,6 +8,7 @@ export class ModelClientError extends Error {
 export async function listModels(options) {
 	return requestJson(`${options.baseUrl}/models`, {
 		apiKey: options.apiKey,
+		extraHeaders: options.extraHeaders,
 		method: 'GET',
 		timeoutMs: options.timeoutMs,
 	});
@@ -21,6 +22,7 @@ export async function createChatCompletion(options, body) {
 				...body,
 				stream: true,
 			},
+			extraHeaders: options.extraHeaders,
 			method: 'POST',
 			timeoutMs: options.timeoutMs,
 		});
@@ -29,6 +31,7 @@ export async function createChatCompletion(options, body) {
 	return requestJson(`${options.baseUrl}/chat/completions`, {
 		apiKey: options.apiKey,
 		body,
+		extraHeaders: options.extraHeaders,
 		method: 'POST',
 		timeoutMs: options.timeoutMs,
 	});
@@ -95,6 +98,7 @@ async function requestJson(url, options) {
 async function requestRaw(url, options) {
 	const headers = {
 		accept: 'application/json',
+		...(options.extraHeaders || {}),
 	};
 
 	if (options.body) {

@@ -75,6 +75,58 @@ describe('parseArgs', () => {
 	it('rejects unknown options', () => {
 		assert.throws(() => parseArgs(['--wat']), CliError);
 	});
+
+	it('--openrouter applies OpenRouter defaults', () => {
+		const options = parseArgs(['--openrouter'], {
+			OPENROUTER_API_KEY: 'or-test-key',
+		});
+
+		assert.equal(options.provider, 'openrouter');
+		assert.equal(options.baseUrl, 'https://openrouter.ai/api/v1');
+		assert.equal(options.model, 'openai/gpt-4o-mini');
+		assert.equal(options.apiKey, 'or-test-key');
+		assert.equal(options.extraHeaders['HTTP-Referer'] !== undefined, true);
+		assert.equal(options.extraHeaders['X-Title'], 'kodr');
+	});
+
+	it('--openrouter falls back to OPENAI_API_KEY when OPENROUTER_API_KEY absent', () => {
+		const options = parseArgs(['--openrouter'], {
+			OPENAI_API_KEY: 'oai-fallback',
+		});
+
+		assert.equal(options.apiKey, 'oai-fallback');
+	});
+
+	it('--openrouter throws when no API key is available', () => {
+		assert.throws(() => parseArgs(['--openrouter'], {}), CliError);
+	});
+
+	it('explicit flags override --openrouter defaults', () => {
+		const options = parseArgs(
+			[
+				'--openrouter',
+				'--base-url',
+				'https://custom.endpoint/v1',
+				'--model',
+				'anthropic/claude-3-haiku',
+				'--api-key',
+				'explicit-key',
+			],
+			{ OPENROUTER_API_KEY: 'should-be-ignored' },
+		);
+
+		assert.equal(options.baseUrl, 'https://custom.endpoint/v1');
+		assert.equal(options.model, 'anthropic/claude-3-haiku');
+		assert.equal(options.apiKey, 'explicit-key');
+	});
+
+	it('--openrouter does not expose _apiKeySet on returned options', () => {
+		const options = parseArgs(['--openrouter'], {
+			OPENROUTER_API_KEY: 'or-key',
+		});
+
+		assert.equal('_apiKeySet' in options, false);
+	});
 });
 
 describe('usage', () => {
