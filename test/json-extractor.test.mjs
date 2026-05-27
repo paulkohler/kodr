@@ -52,6 +52,16 @@ describe('extractJson', () => {
 		});
 	});
 
+	it('repairs invalid single-quote escapes inside JSON strings', () => {
+		const value = extractJson(
+			'{"code":"document.getElementById(\\\'game\\\')"}',
+		);
+
+		assert.deepEqual(value, {
+			code: "document.getElementById('game')",
+		});
+	});
+
 	it('parses fixture-like text captured from response.md artifacts', () => {
 		const responseMarkdown = `I will update one file.
 

@@ -517,7 +517,18 @@ async function runPrompt(options, io) {
 		writes: [],
 	};
 	let writeError = null;
-	if (proposal?.status === 'ERROR') {
+	if (!proposal && (options.yes || options.testCommand)) {
+		writeError = {
+			message:
+				'Model response did not include a proposal, so no writes or verification were run',
+			name: 'ProposalMissingError',
+		};
+		writeResult = {
+			applied: false,
+			error: writeError,
+			writes: [],
+		};
+	} else if (proposal?.status === 'ERROR') {
 		writeError = {
 			message:
 				proposalMessages

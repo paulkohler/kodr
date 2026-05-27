@@ -1118,6 +1118,59 @@ describe('run', () => {
 		}
 	});
 
+	it('does not run verification when apply mode receives no proposal', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponseText('Here is a plain explanation.'),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-missing-'));
+			await writeFile(
+				join(cwd, 'package.json'),
+				'{"type":"module","scripts":{"test":"node --test"}}\n',
+				'utf8',
+			);
+
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create a file',
+					'--base-url',
+					server.baseUrl,
+					'--yes',
+					'--test',
+					'npm test',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.ok, false);
+			assert.equal(result.result.proposalFound, false);
+			assert.equal(result.result.tested, false);
+			assert.match(result.result.writeError.name, /ProposalMissingError/u);
+
+			const tests = JSON.parse(
+				await readFile(join(result.result.runDir, 'tests.json'), 'utf8'),
+			);
+			assert.equal(tests, null);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('runs verification from a jailed test cwd', async () => {
 		const server = await startFakeModelServer({
 			responses: [
@@ -1396,12 +1449,16 @@ function captureStream() {
 }
 
 function proposalResponse(value) {
+	return proposalResponseText(JSON.stringify(value));
+}
+
+function proposalResponseText(content) {
 	return {
 		choices: [
 			{
 				finish_reason: 'stop',
 				message: {
-					content: JSON.stringify(value),
+					content,
 					role: 'assistant',
 				},
 			},

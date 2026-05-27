@@ -142,13 +142,12 @@ function repairRawStringControlChars(text) {
 	for (const char of text) {
 		if (inString) {
 			if (escaped) {
-				output += char;
+				output += isValidJsonEscape(char) ? `\\${char}` : char;
 				escaped = false;
 				continue;
 			}
 
 			if (char === '\\') {
-				output += char;
 				escaped = true;
 				continue;
 			}
@@ -186,4 +185,18 @@ function repairRawStringControlChars(text) {
 	}
 
 	return output;
+}
+
+function isValidJsonEscape(char) {
+	return (
+		char === '"' ||
+		char === '\\' ||
+		char === '/' ||
+		char === 'b' ||
+		char === 'f' ||
+		char === 'n' ||
+		char === 'r' ||
+		char === 't' ||
+		char === 'u'
+	);
 }

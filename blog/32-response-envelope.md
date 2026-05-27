@@ -15,3 +15,5 @@ Legacy proposal objects without `status` still work and default to `OK`. When th
 Run artifacts now include `messages.json`, so user-facing notes are separate from `scratchpad.md`. That gives future tool loops a place to feed back concise status without mixing it into task instructions.
 
 The active Markdown-search prompt fixtures were cleaned up so they describe the requested work and edit style without restating JSON object shapes. Older prompts remain useful historical artifacts, but new prompts should rely on the centralized envelope.
+
+A later 70B Pong experiment exposed two follow-up hardening points. First, model output can contain invalid JSON escapes such as `\'` inside file content; the extractor now repairs those by dropping the unnecessary escape. Second, an apply/test run must not run verification when no proposal was extracted. Kodr now marks that case as a failed run instead of accidentally verifying unrelated workspace tests.
