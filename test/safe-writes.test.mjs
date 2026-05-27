@@ -179,6 +179,63 @@ describe('safe writes', () => {
 		);
 	});
 
+	it('does not partially apply a patch batch when a later patch is stale', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-patch-batch-'));
+		await writeFile(join(cwd, 'a.txt'), 'alpha\n', 'utf8');
+		await writeFile(join(cwd, 'b.txt'), 'beta\n', 'utf8');
+
+		await assert.rejects(
+			() =>
+				preparePatches(
+					cwd,
+					[
+						{
+							path: 'a.txt',
+							replace: 'ALPHA\n',
+							search: 'alpha\n',
+						},
+						{
+							path: 'b.txt',
+							replace: 'BETA\n',
+							search: 'missing\n',
+						},
+					],
+					{ apply: true },
+				),
+			/found 0/u,
+		);
+
+		assert.equal(await readFile(join(cwd, 'a.txt'), 'utf8'), 'alpha\n');
+		assert.equal(await readFile(join(cwd, 'b.txt'), 'utf8'), 'beta\n');
+	});
+
+	it('composes multiple patches to the same file before writing', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-patch-compose-'));
+		await writeFile(join(cwd, 'notes.txt'), 'alpha\nbeta\ngamma\n', 'utf8');
+
+		await preparePatches(
+			cwd,
+			[
+				{
+					path: 'notes.txt',
+					replace: 'ALPHA\n',
+					search: 'alpha\n',
+				},
+				{
+					path: 'notes.txt',
+					replace: 'BETA\n',
+					search: 'beta\n',
+				},
+			],
+			{ apply: true },
+		);
+
+		assert.equal(
+			await readFile(join(cwd, 'notes.txt'), 'utf8'),
+			'ALPHA\nBETA\ngamma\n',
+		);
+	});
+
 	it('normalizes double-escaped patch newlines only when unambiguous', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-escaped-patch-'));
 		await writeFile(join(cwd, 'README.md'), 'hello\nworld\n', 'utf8');

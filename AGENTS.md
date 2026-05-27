@@ -13,6 +13,9 @@ This repo is built as a learning tool. Preserve the process, not just the code.
 - Default model timeout: `600000ms`.
 - Treat model output as untrusted.
 - Default file writes to dry-run until explicit apply behavior exists.
+- Treat examples as Kodr samples with provenance, not hand-written fixtures.
+- If generation fails, diagnose whether the harness or example needs repair before stabilizing manually.
+- Blog posts should capture important harness and app failures discovered during the phase.
 
 ## Required Loop
 

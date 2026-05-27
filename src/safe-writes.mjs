@@ -79,39 +79,64 @@ export async function preparePatches(cwd, patches, options = {}) {
 	const timestamp =
 		options.timestamp || new Date().toISOString().replaceAll(':', '-');
 	const writes = [];
+	const targets = new Map();
 
 	for (const patch of patches) {
 		const jailed = await jailedPath(cwd, patch.path);
-		const before = await readExisting(jailed.absolute);
-		if (!before.exists) {
+		let target = targets.get(patch.path);
+		if (!target) {
+			const before = await readExisting(jailed.absolute);
+			if (!before.exists) {
+				throw new SafeWriteError(`Patch target does not exist: ${patch.path}`);
+			}
+			target = {
+				absolute: jailed.absolute,
+				backupPath: apply
+					? join(cwd, '.koder', 'backups', timestamp, patch.path)
+					: '',
+				content: before.content,
+				original: before.content,
+			};
+			targets.set(patch.path, target);
+		}
+
+		if (target.content === null) {
 			throw new SafeWriteError(`Patch target does not exist: ${patch.path}`);
 		}
 
-		const normalized = normalizePatch(before.content, patch);
-		const occurrences = countOccurrences(before.content, normalized.search);
+		const normalized = normalizePatch(target.content, patch);
+		const occurrences = countOccurrences(target.content, normalized.search);
 		if (occurrences !== 1) {
 			throw new SafeWriteError(
 				`Patch search must match exactly once in ${patch.path}; found ${occurrences}`,
 			);
 		}
 
-		const after = before.content.replace(normalized.search, normalized.replace);
-		const backupPath = apply
-			? join(cwd, '.koder', 'backups', timestamp, patch.path)
-			: '';
+		const after = target.content.replace(normalized.search, normalized.replace);
 
 		writes.push({
-			backupPath,
-			diff: makeDiff(patch.path, before, after),
+			backupPath: target.backupPath,
+			diff: makeDiff(
+				patch.path,
+				{
+					content: target.content,
+					exists: true,
+				},
+				after,
+			),
 			path: patch.path,
 			status: 'patch',
 		});
 
-		if (apply) {
-			await mkdir(dirname(jailed.absolute), { recursive: true });
-			await mkdir(dirname(backupPath), { recursive: true });
-			await copyFile(jailed.absolute, backupPath);
-			await writeFile(jailed.absolute, after, 'utf8');
+		target.content = after;
+	}
+
+	if (apply) {
+		for (const item of targets.values()) {
+			await mkdir(dirname(item.absolute), { recursive: true });
+			await mkdir(dirname(item.backupPath), { recursive: true });
+			await copyFile(item.absolute, item.backupPath);
+			await writeFile(item.absolute, item.content, 'utf8');
 		}
 	}
 

@@ -33,7 +33,8 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 28 CSV Expense Regeneration
 - [x] 29 Memory And Scratchpad
 - [x] 30 Subagents
-- [ ] 31 Loop Budgets
+- [x] 31 Local Markdown Search Example
+- [ ] 32 Loop Budgets
 
 ## Phase Contract
 

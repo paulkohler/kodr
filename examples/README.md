@@ -29,3 +29,7 @@ The third trial is the Notes API because it adds HTTP routing, JSON validation, 
 ## Fourth Trial
 
 The fourth trial is the CSV expense analyzer because it adds quoted text parsing, validation, aggregation, and command-line reporting.
+
+## Fifth Trial
+
+The fifth trial is the Local Markdown search app because it adds untrusted document content, indexing, ranking, snippets, CLI output, and naturally subagent-shaped work.
