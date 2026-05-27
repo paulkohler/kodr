@@ -1,8 +1,8 @@
-# kodr-by-codex
+# kodr
 
 `kodr` is a zero-runtime-dependency coding harness for local OpenAI-compatible models, initially LM Studio at `http://localhost:1234/v1`.
 
-The repo is also a learning artifact. The implementation, tests, fixes, and rollbacks across each phase were driven with Codex; the code, tests, decisions, failures, and blog posts evolve together so the build process stays readable, not just the finished code.
+The repo is also a learning artifact. The implementation, tests, fixes, and rollbacks across each phase were driven with a harness such as Codex or Claude; the code, tests, decisions, failures, and blog posts evolve together so the build process stays readable, not just the finished code.
 
 ## Constraints
 

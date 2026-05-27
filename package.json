@@ -1,5 +1,5 @@
 {
-  "name": "kodr-by-codex",
+  "name": "kodr-cli",
   "version": "0.0.35",
   "license": "MIT",
   "type": "module",

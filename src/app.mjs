@@ -39,7 +39,7 @@ const PROBE_PROMPT = 'Reply with exactly: kodr-probe-ok';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';
 const OPENROUTER_EXTRA_HEADERS = {
-	'HTTP-Referer': 'https://github.com/pkohler/koder-by-codex',
+	'HTTP-Referer': 'https://github.com/pkohler/koder',
 	'X-Title': 'kodr',
 };
 
