@@ -130,9 +130,16 @@ async function collectFiles(root, dir, files) {
 
 function spawnCommand(cwd, parsed, timeoutMs) {
 	return new Promise((resolve) => {
+		// Strip the Node.js test-runner's IPC vars so nested `node --test` runs
+		// don't trigger the "called recursively" short-circuit added in Node 24.
+		const env = { ...process.env };
+		delete env.NODE_TEST_CONTEXT;
+		delete env.NODE_CHANNEL_FD;
+
 		const child = spawn(parsed.bin, parsed.args, {
 			cwd,
 			detached: true,
+			env,
 			shell: false,
 		});
 		let stdout = '';

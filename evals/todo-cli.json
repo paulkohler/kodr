@@ -1,0 +1,30 @@
+{
+	"name": "todo-cli smoke",
+	"description": "Checks that a model generates a working Node.js 24 CLI todo app. The tests_pass assertion catches test bugs like the phase-34 bare-await pattern.",
+	"cases": [
+		{
+			"id": "generates-core-files",
+			"prompt": "Build a Node.js 24 ESM CLI todo app. Commands: add <title>, list, done <id>. Store todos in a JSON file at .todos.json. Put source in src/cli.mjs and src/store.mjs. Put tests in test/cli.test.mjs using node:test and node:assert/strict. Export a default async function from src/cli.mjs that accepts process.argv.",
+			"assertions": [
+				{
+					"type": "files_exist",
+					"paths": ["src/cli.mjs", "src/store.mjs", "test/cli.test.mjs"]
+				},
+				{
+					"type": "content_matches",
+					"path": "src/cli.mjs",
+					"pattern": "add"
+				},
+				{
+					"type": "content_matches",
+					"path": "src/cli.mjs",
+					"pattern": "list"
+				},
+				{
+					"type": "tests_pass",
+					"command": "node --test"
+				}
+			]
+		}
+	]
+}

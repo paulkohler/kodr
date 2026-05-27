@@ -28,6 +28,7 @@ import { replayRun } from './replay.mjs';
 import { createLoopBudget } from './loop-budgets.mjs';
 import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
 import { runComparison } from './compare.mjs';
+import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { VERSION } from './version.mjs';
 
 export { VERSION };
@@ -71,6 +72,7 @@ export function parseArgs(argv, env = {}) {
 		showSkills: false,
 		skills: [],
 		stream: false,
+		suitePath: '',
 		testCommand: '',
 		models: [],
 		tools: false,
@@ -169,6 +171,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '--prompt' ||
 			arg === '--prompt-file' ||
 			arg === '--skill' ||
+			arg === '--suite' ||
 			arg === '--test' ||
 			arg === '--test-cwd' ||
 			arg === '--timeout-ms' ||
@@ -276,6 +279,7 @@ Usage:
   kodr run --show-skills
   kodr cycle-review --transcript-file chat.md [--json]
   kodr compare -p "task" --models "m1,openrouter:m2" [--json]
+  kodr eval --suite evals/suite.json [--json]
   kodr replay <run-dir>
 
 Local-model defaults:
@@ -296,6 +300,7 @@ OpenRouter:
 
   --models m1,m2       Comma-separated model specs for compare. Prefix with
                        "openrouter:" to route a model via OpenRouter.
+  --suite path         Path to an eval suite JSON file for kodr eval.
 
 Implemented library primitives:
   workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
@@ -414,6 +419,88 @@ export async function main(argv, io) {
 		return { ok: result.ok, command: 'cycle-review', result };
 	}
 
+	if (options.command === 'eval') {
+		if (!options.suitePath) {
+			throw new CliError('kodr eval requires --suite');
+		}
+		const suitePath = await jailedPath(io.cwd, options.suitePath);
+		const suiteText = await readFile(suitePath.absolute, 'utf8');
+		const suite = loadEvalSuite(suiteText);
+
+		const runDir = await createRunArtifacts(io.cwd, options.out);
+		const memory = await loadMemory(io.cwd);
+		const context = await buildWorkspaceContext(io.cwd, { memory });
+
+		const caseResults = [];
+		for (const evalCase of suite.cases) {
+			const model = evalCase.model || options.model;
+			const caseOptions = { ...options, model };
+
+			let proposal = null;
+			let completionError = null;
+			let finishReasons = [];
+			let responseChars = 0;
+
+			try {
+				const completion = await completeWithContinuations(
+					caseOptions,
+					model,
+					evalCase.prompt,
+					context.systemPrompt,
+				);
+				finishReasons = completion.finishReasons;
+				responseChars = completion.text.length;
+				proposal = extractProposal(completion.text);
+			} catch (error) {
+				completionError = { message: error.message, name: error.name };
+			}
+
+			const scored = await scoreCase(evalCase, proposal, options.timeoutMs);
+			caseResults.push({
+				...scored,
+				completionError,
+				finishReasons,
+				model,
+				proposalFound: proposal !== null,
+				responseChars,
+			});
+		}
+
+		const passCount = caseResults.filter((r) => r.ok).length;
+		const totalCount = caseResults.length;
+		const score = totalCount > 0 ? passCount / totalCount : 1;
+
+		const evalResults = {
+			name: suite.name,
+			ok: passCount === totalCount,
+			score,
+			cases: caseResults,
+			passCount,
+			totalCount,
+			timestamp: new Date().toISOString(),
+		};
+
+		await writeJson(join(runDir, 'eval-results.json'), evalResults);
+
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(evalResults, null, 2)}\n`);
+		} else {
+			io.stdout.write(`Eval: ${suite.name}\n`);
+			io.stdout.write(`Run: ${runDir}\n`);
+			for (const c of caseResults) {
+				const status = c.ok ? 'pass' : 'fail';
+				io.stdout.write(
+					`  ${c.id}: ${status} (${c.passCount}/${c.totalCount}, score ${c.score.toFixed(2)})\n`,
+				);
+			}
+			io.stdout.write(
+				`Overall: ${passCount}/${totalCount} cases passed (score ${score.toFixed(2)})\n`,
+			);
+		}
+
+		return { ok: evalResults.ok, command: 'eval', evalResults, runDir };
+	}
+
 	if (options.command === 'compare') {
 		if (!options.models.length) {
 			throw new CliError('kodr compare requires --models');
@@ -465,6 +552,8 @@ function assignValue(options, flag, value) {
 		options.promptFile = value;
 	} else if (flag === '--skill') {
 		options.skills.push(value);
+	} else if (flag === '--suite') {
+		options.suitePath = value;
 	} else if (flag === '--test') {
 		options.testCommand = value;
 	} else if (flag === '--test-cwd') {

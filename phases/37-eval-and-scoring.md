@@ -23,10 +23,10 @@ makes that systematic.
 
 ## Done Criteria
 
-- [ ] `EvalSuite` schema and loader.
-- [ ] `kodr eval` command with results artifact.
-- [ ] Three built-in assertion types with tests.
-- [ ] At least one eval suite for the todo-cli example that catches the
+- [x] `EvalSuite` schema and loader.
+- [x] `kodr eval` command with results artifact.
+- [x] Three built-in assertion types with tests.
+- [x] At least one eval suite for the todo-cli example that catches the
       test-bug pattern from phase 34.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] Record decisions and any failures.
+- [x] Blog post.
