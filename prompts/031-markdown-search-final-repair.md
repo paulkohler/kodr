@@ -1,28 +1,8 @@
 Repair the Markdown search example with exact, small patches.
 
-Return only one JSON object with this shape:
-
-{
-  "patches": [
-    {
-      "path": "examples/markdown-search/src/search.mjs",
-      "search": "exact current text",
-      "replace": "replacement text"
-    },
-    {
-      "path": "examples/markdown-search/test/search.test.mjs",
-      "search": "exact current text",
-      "replace": "replacement text"
-    }
-  ],
-  "scratchpad": "brief note"
-}
-
 Requirements:
 
-- Return valid JSON only.
-- Do not add markdown fences.
-- Do not add a files array.
+- Use narrow search/replace patches only.
 - Keep Node.js built-ins only.
 - Export a `createSnippet(doc, terms)` helper from `examples/markdown-search/src/search.mjs`.
 - Use `createSnippet` from `searchIndex` instead of inline snippet construction.

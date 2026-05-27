@@ -33,7 +33,7 @@ Small harness trial apps live under [examples/](./examples). The first example i
 
 ## Run Artifacts
 
-Each `koder run` writes inspectable artifacts under `.koder/runs/...`, including packed context, raw model responses, proposed writes, verification results, and `tasks.json`. The task plan makes the harness' todo list explicit for replay and later repair loops.
+Each `koder run` writes inspectable artifacts under `.koder/runs/...`, including packed context, proposal messages, raw model responses, proposed writes, verification results, and `tasks.json`. The task plan makes the harness' todo list explicit for replay and later repair loops.
 
 ## Security Boundaries
 

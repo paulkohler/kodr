@@ -1,21 +1,5 @@
 Implement the core local Markdown search behavior.
 
-Return only one JSON object with this shape:
-
-{
-  "files": [
-    {
-      "path": "examples/markdown-search/src/search.mjs",
-      "content": "..."
-    },
-    {
-      "path": "examples/markdown-search/src/cli.mjs",
-      "content": "..."
-    }
-  ],
-  "scratchpad": "..."
-}
-
 Requirements:
 
 - Update only examples/markdown-search/src/search.mjs and examples/markdown-search/src/cli.mjs.

@@ -35,5 +35,7 @@ This blog records the build as a learning sequence. Keep posts terse and concret
 29. [Phase 28: CSV Expense Regeneration](./28-csv-expense-regeneration.md)
 30. [Phase 29: Memory And Scratchpad](./29-memory-and-scratchpad.md)
 31. [Phase 30: Subagents](./30-subagents.md)
+32. [Phase 31: Local Markdown Search Example](./31-local-markdown-search.md)
+33. [Phase 32: Response Envelope](./32-response-envelope.md)
 
 Future posts should track the roadmap phases and include what changed, why, how it failed, and how it was verified.

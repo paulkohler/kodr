@@ -436,6 +436,7 @@ async function runPrompt(options, io) {
 	const summary = {
 		artifacts: {
 			context: 'context.md',
+			messages: 'messages.json',
 			prompt: 'prompt.md',
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
@@ -483,6 +484,7 @@ async function runPrompt(options, io) {
 		};
 
 		await writeText(responsePath, completion.text);
+		await writeJson(join(runDir, 'messages.json'), []);
 		await writeText(join(runDir, 'scratchpad.md'), '');
 		await writeJson(join(runDir, 'raw-response.json'), {
 			responses: completion.responses,
@@ -505,6 +507,7 @@ async function runPrompt(options, io) {
 	}
 
 	const scratchpad = proposal?.scratchpad || '';
+	const proposalMessages = proposal?.messages || [];
 	let taskPlan = createTaskPlan(
 		prompt,
 		proposal ? proposalPaths(proposal) : [],
@@ -514,7 +517,21 @@ async function runPrompt(options, io) {
 		writes: [],
 	};
 	let writeError = null;
-	if (proposal) {
+	if (proposal?.status === 'ERROR') {
+		writeError = {
+			message:
+				proposalMessages
+					.map((message) => message.content)
+					.filter(Boolean)
+					.join('\n') || 'Model returned status ERROR',
+			name: 'ProposalStatusError',
+		};
+		writeResult = {
+			applied: false,
+			error: writeError,
+			writes: [],
+		};
+	} else if (proposal) {
 		try {
 			writeResult = await prepareChanges(io.cwd, proposal, {
 				apply: options.yes,
@@ -544,7 +561,9 @@ async function runPrompt(options, io) {
 
 	summary.applied = writeResult.applied;
 	summary.ok = writeError ? false : testResult ? testResult.ok : true;
+	summary.proposalMessageCount = proposalMessages.length;
 	summary.proposalFound = proposal !== null;
+	summary.proposalStatus = proposal?.status || '';
 	summary.tested = testResult !== null;
 	if (writeError) {
 		summary.writeError = writeError;
@@ -554,6 +573,7 @@ async function runPrompt(options, io) {
 	summary.taskCounts = taskCounts(taskPlan);
 
 	await writeText(responsePath, completion.text);
+	await writeJson(join(runDir, 'messages.json'), proposalMessages);
 	await writeText(join(runDir, 'scratchpad.md'), scratchpad);
 	await writeJson(join(runDir, 'raw-response.json'), {
 		responses: completion.responses,
@@ -586,6 +606,7 @@ async function writeRunFailure(runDir, details) {
 		artifacts: {
 			context: 'context.md',
 			error: 'error.json',
+			messages: 'messages.json',
 			prompt: 'prompt.md',
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
@@ -607,6 +628,7 @@ async function writeRunFailure(runDir, details) {
 	};
 
 	await writeText(details.responsePath, '');
+	await writeJson(join(runDir, 'messages.json'), []);
 	await writeText(join(runDir, 'scratchpad.md'), '');
 	await writeJson(join(runDir, 'error.json'), error);
 	await writeJson(join(runDir, 'raw-response.json'), { responses: [] });
@@ -652,6 +674,8 @@ function extractProposal(text) {
 			!value ||
 			(!Array.isArray(value.files) &&
 				!Array.isArray(value.patches) &&
+				!Array.isArray(value.messages) &&
+				typeof value.status !== 'string' &&
 				typeof value.scratchpad !== 'string')
 		) {
 			return null;
@@ -659,6 +683,8 @@ function extractProposal(text) {
 
 		const files = Array.isArray(value.files) ? value.files : [];
 		const patches = Array.isArray(value.patches) ? value.patches : [];
+		const messages = Array.isArray(value.messages) ? value.messages : [];
+		const status = parseProposalStatus(value.status);
 
 		return {
 			files: files.map((file) => {
@@ -677,7 +703,24 @@ function extractProposal(text) {
 					path: file.path,
 				};
 			}),
+			messages: messages.map((message) => {
+				if (
+					!message ||
+					typeof message.level !== 'string' ||
+					typeof message.content !== 'string'
+				) {
+					throw new CliError(
+						'Proposal messages must have string level and content',
+					);
+				}
+
+				return {
+					content: message.content,
+					level: message.level,
+				};
+			}),
 			scratchpad: typeof value.scratchpad === 'string' ? value.scratchpad : '',
+			status,
 			patches: patches.map((patch) => {
 				if (
 					!patch ||
@@ -703,6 +746,23 @@ function extractProposal(text) {
 		}
 		throw error;
 	}
+}
+
+function parseProposalStatus(value) {
+	if (value === undefined) {
+		return 'OK';
+	}
+
+	if (typeof value !== 'string') {
+		throw new CliError('Proposal status must be "OK" or "ERROR"');
+	}
+
+	const status = value.toUpperCase();
+	if (status !== 'OK' && status !== 'ERROR') {
+		throw new CliError('Proposal status must be "OK" or "ERROR"');
+	}
+
+	return status;
 }
 
 function proposalPaths(proposal) {

@@ -1,48 +1,5 @@
 Create the scaffold for a local Markdown search example.
 
-Return only one JSON object with this shape:
-
-{
-  "files": [
-    {
-      "path": "examples/markdown-search/package.json",
-      "content": "..."
-    },
-    {
-      "path": "examples/markdown-search/README.md",
-      "content": "..."
-    },
-    {
-      "path": "examples/markdown-search/PROVENANCE.md",
-      "content": "..."
-    },
-    {
-      "path": "examples/markdown-search/docs/agent-safety.md",
-      "content": "..."
-    },
-    {
-      "path": "examples/markdown-search/docs/local-models.md",
-      "content": "..."
-    },
-    {
-      "path": "examples/markdown-search/docs/search-notes.md",
-      "content": "..."
-    },
-    {
-      "path": "examples/markdown-search/src/search.mjs",
-      "content": "..."
-    },
-    {
-      "path": "examples/markdown-search/src/cli.mjs",
-      "content": "..."
-    },
-    {
-      "path": "examples/markdown-search/test/search.test.mjs",
-      "content": "..."
-    }
-  ]
-}
-
 Requirements:
 
 - Create only files under examples/markdown-search.

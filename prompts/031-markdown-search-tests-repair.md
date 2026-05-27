@@ -1,21 +1,8 @@
 Repair the Markdown search tests using patch proposals only.
 
-Return only one JSON object with this shape:
-
-{
-  "patches": [
-    {
-      "path": "examples/markdown-search/test/search.test.mjs",
-      "search": "...exact current text...",
-      "replace": "...replacement text..."
-    }
-  ],
-  "scratchpad": "..."
-}
-
 Requirements:
 
-- Do not return a "files" array.
+- Use narrow search/replace patches only.
 - Patch only examples/markdown-search/test/search.test.mjs.
 - Import mkdir from node:fs/promises.
 - Use .md file extensions in all indexed fixture files, not .doc.

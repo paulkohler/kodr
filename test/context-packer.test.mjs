@@ -40,6 +40,9 @@ describe('context packing', () => {
 			context.systemPrompt,
 			/Repository instructions from AGENTS\.md/u,
 		);
+		assert.match(context.systemPrompt, /"status":"OK"/u);
+		assert.match(context.systemPrompt, /"messages"/u);
+		assert.match(context.systemPrompt, /Use status "ERROR"/u);
 		assert.match(context.systemPrompt, /<workspace-instructions/u);
 		assert.match(context.systemPrompt, /Always prefer small commits/u);
 		assert.deepEqual(

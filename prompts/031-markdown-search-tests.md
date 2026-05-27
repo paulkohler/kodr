@@ -1,17 +1,5 @@
 Add comprehensive tests for the local Markdown search example.
 
-Return only one JSON object with this shape:
-
-{
-  "files": [
-    {
-      "path": "examples/markdown-search/test/search.test.mjs",
-      "content": "..."
-    }
-  ],
-  "scratchpad": "..."
-}
-
 Requirements:
 
 - Update only examples/markdown-search/test/search.test.mjs.

@@ -251,6 +251,7 @@ describe('run', () => {
 			assert.equal(summary.promptChars, 'Summarize the repo.'.length);
 			assert.deepEqual(summary.artifacts, {
 				context: 'context.md',
+				messages: 'messages.json',
 				prompt: 'prompt.md',
 				rawResponse: 'raw-response.json',
 				response: 'response.md',
@@ -700,6 +701,135 @@ describe('run', () => {
 				'completed',
 			);
 			assert.equal(result.result.taskCounts.completed, 4);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('records OK envelope messages alongside proposed writes', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'new readme',
+								path: 'README.md',
+							},
+						],
+						messages: [
+							{
+								content: 'Prepared README update.',
+								level: 'info',
+							},
+						],
+						status: 'OK',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-envelope-'));
+			await writeFile(join(cwd, 'README.md'), 'old readme', 'utf8');
+
+			const result = await main(
+				['run', '-p', 'Update README', '--base-url', server.baseUrl],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.result.proposalStatus, 'OK');
+			assert.equal(result.result.proposalMessageCount, 1);
+			assert.deepEqual(
+				JSON.parse(
+					await readFile(join(result.result.runDir, 'messages.json'), 'utf8'),
+				),
+				[
+					{
+						content: 'Prepared README update.',
+						level: 'info',
+					},
+				],
+			);
+			assert.equal(
+				await readFile(join(cwd, 'README.md'), 'utf8'),
+				'old readme',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('treats ERROR envelopes as failed runs without applying writes', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						messages: [
+							{
+								content: 'README.md was not present in context.',
+								level: 'error',
+							},
+						],
+						status: 'ERROR',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-error-'));
+
+			const result = await main(
+				['run', '-p', 'Update README', '--base-url', server.baseUrl, '--yes'],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.ok, false);
+			assert.equal(result.result.proposalStatus, 'ERROR');
+			assert.match(
+				result.result.writeError.message,
+				/README\.md was not present/u,
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.ok, false);
+			assert.equal(summary.proposalStatus, 'ERROR');
+
+			const writes = JSON.parse(
+				await readFile(join(result.result.runDir, 'writes.json'), 'utf8'),
+			);
+			assert.deepEqual(writes.writes, []);
+			assert.match(writes.error.message, /README\.md was not present/u);
+			assert.deepEqual(
+				JSON.parse(
+					await readFile(join(result.result.runDir, 'messages.json'), 'utf8'),
+				),
+				[
+					{
+						content: 'README.md was not present in context.',
+						level: 'error',
+					},
+				],
+			);
 		} finally {
 			await server.close();
 		}
