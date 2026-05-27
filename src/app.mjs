@@ -32,6 +32,8 @@ import {
 	OPENROUTER_BASE_URL,
 	OPENROUTER_EXTRA_HEADERS,
 } from './completion.mjs';
+import { derivePromptId, promptIdFromFilename } from './prompt-id.mjs';
+import { scanRunHistory } from './run-history.mjs';
 import { VERSION } from './version.mjs';
 
 export { VERSION };
@@ -73,6 +75,8 @@ export function parseArgs(argv, env = {}) {
 		suitePath: '',
 		testCommand: '',
 		models: [],
+		promptId: '',
+		promptHistoryId: '',
 		tools: false,
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -168,6 +172,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '-p' ||
 			arg === '--prompt' ||
 			arg === '--prompt-file' ||
+			arg === '--prompt-id' ||
 			arg === '--skill' ||
 			arg === '--suite' ||
 			arg === '--test' ||
@@ -199,6 +204,11 @@ export function parseArgs(argv, env = {}) {
 		options.command = positionals[0];
 		if (options.command === 'replay' && positionals.length === 2) {
 			options.replayDir = positionals[1];
+		} else if (
+			options.command === 'prompt-history' &&
+			positionals.length === 2
+		) {
+			options.promptHistoryId = positionals[1];
 		} else if (positionals.length > 1) {
 			throw new CliError(
 				`Unexpected positional arguments: ${positionals.slice(1).join(' ')}`,
@@ -267,7 +277,7 @@ Usage:
   kodr --version
   kodr probe [--json]
   kodr run -p "task" [--json]
-  kodr run --prompt-file prompt.md [--out .kodr/runs/name]
+  kodr run --prompt-file prompt.md [--out .kodr/runs/name] [--prompt-id slug]
   kodr run -p "task" --dry-run
   kodr run -p "task" --yes [--test "npm test"] [--test-cwd path]
   kodr run -p "task" --stream
@@ -278,6 +288,7 @@ Usage:
   kodr cycle-review --transcript-file chat.md [--json]
   kodr compare -p "task" --models "m1,openrouter:m2" [--json]
   kodr eval --suite evals/suite.json [--json]
+  kodr prompt-history <promptId> [--json]
   kodr replay <run-dir>
 
 Local-model defaults:
@@ -298,6 +309,9 @@ OpenRouter:
 
   --models m1,m2       Comma-separated model specs for compare. Prefix with
                        "openrouter:" to route a model via OpenRouter.
+  --prompt-id slug     Override the prompt id recorded in summary.json.
+                       Defaults to a content hash for -p prompts or the
+                       filename slug for --prompt-file prompts.
   --suite path         Path to an eval suite JSON file for kodr eval.
 
 Implemented library primitives:
@@ -531,6 +545,31 @@ export async function main(argv, io) {
 		return { ok: true, command: 'compare', comparison, compDir };
 	}
 
+	if (options.command === 'prompt-history') {
+		if (!options.promptHistoryId) {
+			throw new CliError('kodr prompt-history requires a prompt id argument');
+		}
+		const runs = await scanRunHistory(io.cwd, options.promptHistoryId);
+		const result = { promptId: options.promptHistoryId, runs };
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+		} else {
+			io.stdout.write(`Prompt history: ${options.promptHistoryId}\n`);
+			if (runs.length === 0) {
+				io.stdout.write('  No runs found.\n');
+			}
+			for (const run of runs) {
+				const status = run.ok ? 'ok' : 'fail';
+				const evalPart =
+					run.evalScore !== null ? ` eval=${run.evalScore.toFixed(2)}` : '';
+				io.stdout.write(
+					`  ${run.timestamp}  ${run.model}  [${status}]${evalPart}\n`,
+				);
+			}
+		}
+		return { ok: true, command: 'prompt-history', result };
+	}
+
 	throw new CliError(`Command not implemented yet: ${options.command}`);
 }
 
@@ -548,6 +587,8 @@ function assignValue(options, flag, value) {
 		options.prompt = value;
 	} else if (flag === '--prompt-file') {
 		options.promptFile = value;
+	} else if (flag === '--prompt-id') {
+		options.promptId = value;
 	} else if (flag === '--skill') {
 		options.skills.push(value);
 	} else if (flag === '--suite') {
@@ -626,6 +667,7 @@ async function probe(options, io) {
 
 async function runPrompt(options, io) {
 	const prompt = await loadPrompt(options, io.cwd);
+	const promptId = resolvePromptId(options, prompt);
 	const runDir = await createRunArtifacts(io.cwd, options.out);
 	const skills = await loadSkills(io.cwd, options.skills);
 	const memory = await loadMemory(io.cwd);
@@ -669,6 +711,7 @@ async function runPrompt(options, io) {
 			error,
 			model: model || options.model || '',
 			prompt,
+			promptId,
 			responsePath,
 		});
 		throw new CliError(
@@ -695,8 +738,10 @@ async function runPrompt(options, io) {
 		model,
 		ok: true,
 		promptChars: prompt.length,
+		promptId,
 		responseChars: completion.text.length,
 		responseCount: completion.responses.length,
+		timestamp: new Date().toISOString(),
 		workspaceFileCount: context.files.length,
 	};
 	let proposal = null;
@@ -878,9 +923,11 @@ async function writeRunFailure(runDir, details) {
 		model: details.model,
 		ok: false,
 		promptChars: details.prompt.length,
+		promptId: details.promptId || '',
 		responseChars: 0,
 		responseCount: 0,
 		taskCounts: taskCounts(taskPlan),
+		timestamp: new Date().toISOString(),
 		workspaceFileCount: details.context.files.length,
 	};
 
@@ -1017,6 +1064,12 @@ function parseProposalStatus(value) {
 	}
 
 	return status;
+}
+
+function resolvePromptId(options, prompt) {
+	if (options.promptId) return options.promptId;
+	if (options.promptFile) return promptIdFromFilename(options.promptFile);
+	return derivePromptId(prompt);
 }
 
 function proposalPaths(proposal) {

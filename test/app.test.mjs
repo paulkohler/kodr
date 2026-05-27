@@ -1594,6 +1594,176 @@ describe('cycle-review', () => {
 	});
 });
 
+describe('prompt versioning', () => {
+	it('parseArgs stores --prompt-id value', () => {
+		const options = parseArgs(['run', '-p', 'hi', '--prompt-id', 'my-slug']);
+		assert.equal(options.promptId, 'my-slug');
+	});
+
+	it('parseArgs stores prompt-history id as second positional', () => {
+		const options = parseArgs(['prompt-history', 'todo-cli']);
+		assert.equal(options.command, 'prompt-history');
+		assert.equal(options.promptHistoryId, 'todo-cli');
+	});
+
+	it('prompt-history throws CliError when no id is given', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ph-noid-'));
+		await assert.rejects(
+			() =>
+				main(['prompt-history'], {
+					cwd,
+					env: {},
+					stdout: captureStream(),
+				}),
+			CliError,
+		);
+	});
+
+	it('prompt-history returns empty runs when nothing matches', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ph-empty-'));
+		const stdout = captureStream();
+		const result = await main(['prompt-history', 'nonexistent'], {
+			cwd,
+			env: {},
+			stdout,
+		});
+		assert.equal(result.ok, true);
+		assert.equal(result.result.runs.length, 0);
+		assert.ok(stdout.text.includes('No runs found'));
+	});
+
+	it('run records a content-hash promptId in summary.json', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({ files: [] }),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-ph-hash-'));
+			const result = await main(
+				['run', '-p', 'Build a todo app', '--base-url', server.baseUrl],
+				{ cwd, env: {}, stdout: captureStream() },
+			);
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.match(summary.promptId, /^[0-9a-f]{8}$/u);
+			assert.ok(summary.timestamp);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('run records the --prompt-id override in summary.json', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({ files: [] }),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-ph-override-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Build a notes app',
+					'--prompt-id',
+					'notes-api-v1',
+					'--base-url',
+					server.baseUrl,
+				],
+				{ cwd, env: {}, stdout: captureStream() },
+			);
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.promptId, 'notes-api-v1');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('run with --prompt-file derives promptId from the filename slug', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({ files: [] }),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-ph-file-'));
+			await writeFile(
+				join(cwd, 'todo-cli.md'),
+				'Build a Node.js todo CLI',
+				'utf8',
+			);
+			const result = await main(
+				['run', '--prompt-file', 'todo-cli.md', '--base-url', server.baseUrl],
+				{ cwd, env: {}, stdout: captureStream() },
+			);
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.promptId, 'todo-cli');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('prompt-history finds runs after kodr run with a named prompt-id', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({ files: [] }),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-ph-integ-'));
+			await main(
+				[
+					'run',
+					'-p',
+					'Build a CSV parser',
+					'--prompt-id',
+					'csv-parser',
+					'--base-url',
+					server.baseUrl,
+				],
+				{ cwd, env: {}, stdout: captureStream() },
+			);
+
+			const histResult = await main(['prompt-history', 'csv-parser'], {
+				cwd,
+				env: {},
+				stdout: captureStream(),
+			});
+			assert.equal(histResult.result.runs.length, 1);
+			assert.equal(histResult.result.runs[0].promptId, undefined);
+			assert.ok(histResult.result.runs[0].runDir);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
 function captureStream() {
 	return {
 		text: '',

@@ -40,7 +40,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 35 Native Tool Calls
 - [x] 36 Multi-Model Comparison
 - [x] 37 Eval And Scoring
-- [ ] 38 Prompt Versioning
+- [x] 38 Prompt Versioning
 
 ## Phase Contract
 

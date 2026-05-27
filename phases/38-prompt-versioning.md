@@ -20,10 +20,10 @@ a prompt change improved or regressed output quality.
 
 ## Done Criteria
 
-- [ ] `promptId` derived from content hash and recorded in `summary.json`.
-- [ ] `--prompt-id` flag for named overrides.
-- [ ] `kodr prompt-history` command with structured output.
-- [ ] `--prompt-file` auto-links to `prompts/` filename slug when applicable.
-- [ ] Tests cover id derivation, history lookup, and filename linking.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] `promptId` derived from content hash and recorded in `summary.json`.
+- [x] `--prompt-id` flag for named overrides.
+- [x] `kodr prompt-history` command with structured output.
+- [x] `--prompt-file` auto-links to `prompts/` filename slug when applicable.
+- [x] Tests cover id derivation, history lookup, and filename linking.
+- [x] Record decisions and any failures.
+- [x] Blog post.
