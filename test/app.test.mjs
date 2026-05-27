@@ -11,6 +11,7 @@ describe('parseArgs', () => {
 		const options = parseArgs([], {});
 
 		assert.equal(options.baseUrl, 'http://localhost:1234/v1');
+		assert.equal(options.model, 'qwen/qwen3.6-35b-a3b');
 		assert.equal(options.timeoutMs, 600000);
 	});
 
@@ -99,12 +100,12 @@ describe('probe', () => {
 
 			assert.equal(result.ok, true);
 			assert.equal(result.command, 'probe');
-			assert.equal(result.result.model, 'fake-local-model');
+			assert.equal(result.result.model, 'qwen/qwen3.6-35b-a3b');
 			assert.equal(result.result.reply, 'koder-probe-ok');
 
 			const output = JSON.parse(stdout.text);
 			assert.equal(output.ok, true);
-			assert.equal(output.model, 'fake-local-model');
+			assert.equal(output.model, 'qwen/qwen3.6-35b-a3b');
 
 			assert.deepEqual(
 				server.recordings.map((recording) => {
@@ -122,7 +123,7 @@ describe('probe', () => {
 			);
 
 			const chatRequest = server.recordings[1].requestBody;
-			assert.equal(chatRequest.model, 'fake-local-model');
+			assert.equal(chatRequest.model, 'qwen/qwen3.6-35b-a3b');
 			assert.equal(chatRequest.messages[0].role, 'user');
 			assert.equal(
 				server.recordings[1].responseBody.choices[0].message.content,
@@ -246,7 +247,7 @@ describe('run', () => {
 			const summary = JSON.parse(
 				await readFile(join(cwd, 'run-output', 'summary.json'), 'utf8'),
 			);
-			assert.equal(summary.model, 'fake-local-model');
+			assert.equal(summary.model, 'qwen/qwen3.6-35b-a3b');
 			assert.equal(summary.responseCount, 1);
 			assert.equal(summary.promptChars, 'Summarize the repo.'.length);
 			assert.deepEqual(summary.artifacts, {
@@ -272,7 +273,7 @@ describe('run', () => {
 			assert.equal(chatRequest.messages[0].role, 'system');
 			assert.match(chatRequest.messages[0].content, /You are Kodr/u);
 			assert.equal(chatRequest.messages[1].content, 'Summarize the repo.');
-			assert.equal(chatRequest.model, 'fake-local-model');
+			assert.equal(chatRequest.model, 'qwen/qwen3.6-35b-a3b');
 		} finally {
 			await server.close();
 		}

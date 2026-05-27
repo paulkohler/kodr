@@ -12,6 +12,7 @@ The repo is also a learning artifact. Code, tests, decisions, failures, and blog
 - No runtime dependencies.
 - Built-in Node modules only.
 - Local models first.
+- Default model: `qwen/qwen3.6-35b-a3b`.
 - Dry-run before writes.
 - Every meaningful decision gets a process note and a blog entry.
 

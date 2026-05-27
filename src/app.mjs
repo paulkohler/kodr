@@ -29,6 +29,7 @@ import { replayRun } from './replay.mjs';
 export const VERSION = '0.0.0';
 
 const DEFAULT_BASE_URL = 'http://localhost:1234/v1';
+const DEFAULT_MODEL_ID = 'qwen/qwen3.6-35b-a3b';
 const DEFAULT_TIMEOUT_MS = 600000;
 const PROBE_PROMPT = 'Reply with exactly: koder-probe-ok';
 
@@ -46,7 +47,7 @@ export function parseArgs(argv, env = {}) {
 		dryRun: true,
 		help: false,
 		json: false,
-		model: env.MODEL_ID || '',
+		model: env.MODEL_ID || DEFAULT_MODEL_ID,
 		out: '',
 		apiKey: env.OPENAI_API_KEY || '',
 		prompt: '',
@@ -186,7 +187,7 @@ Usage:
 
 Local-model defaults:
   --base-url URL       Default: ${DEFAULT_BASE_URL}
-  --model ID           Default: MODEL_ID
+  --model ID           Default: MODEL_ID or ${DEFAULT_MODEL_ID}
   --api-key KEY        Default: OPENAI_API_KEY
   --timeout-ms N       Default: ${DEFAULT_TIMEOUT_MS}
 
