@@ -90,7 +90,7 @@ describe('Markdown skills', () => {
 });
 
 async function mkWorkspace(files) {
-	const cwd = await mkdtemp(join(tmpdir(), 'koder-skills-'));
+	const cwd = await mkdtemp(join(tmpdir(), 'kodr-skills-'));
 
 	for (const [path, content] of Object.entries(files)) {
 		const absolute = join(cwd, path);

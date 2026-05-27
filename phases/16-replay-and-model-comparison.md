@@ -6,7 +6,7 @@ Make experiments teachable and repeatable.
 
 ## Build Steps
 
-- [x] Add `koder replay <run-dir>`.
+- [x] Add `kodr replay <run-dir>`.
 - [x] Add model comparison over a list of model ids.
 - [x] Reuse the same prompt across models.
 - [x] Write comparison summary.

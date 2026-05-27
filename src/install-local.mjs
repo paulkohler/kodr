@@ -3,9 +3,9 @@ import { join, resolve } from 'node:path';
 
 export async function installLocal(cwd, options = {}) {
 	const dir = options.dir || `${process.env.HOME}/.local/bin`;
-	const name = options.name || 'koder';
+	const name = options.name || 'kodr';
 	const target = join(dir, name);
-	const entry = resolve(cwd, 'bin', 'koder.mjs');
+	const entry = resolve(cwd, 'bin', 'kodr.mjs');
 	const shim = `#!/bin/sh
 exec node "${entry}" "$@"
 `;

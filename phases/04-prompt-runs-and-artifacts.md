@@ -6,9 +6,9 @@ Make a single prompt run repeatable and inspectable.
 
 ## Build Steps
 
-- [x] Extract shared OpenAI-compatible client code from `koder probe`.
+- [x] Extract shared OpenAI-compatible client code from `kodr probe`.
 - [x] Extract shared run artifact writing.
-- [x] Add `koder run -p "task"`.
+- [x] Add `kodr run -p "task"`.
 - [x] Add `--prompt-file`.
 - [x] Add `--out`.
 - [x] Save `prompt.md`, `response.md`, `summary.json`, and raw response JSON.

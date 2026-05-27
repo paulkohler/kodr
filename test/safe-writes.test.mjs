@@ -13,7 +13,7 @@ import {
 
 describe('safe writes', () => {
 	it('rejects path escapes', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-'));
 
 		await assert.rejects(() => jailedPath(cwd, '/tmp/outside'), SafeWriteError);
 		await assert.rejects(() => jailedPath(cwd, '../outside'), SafeWriteError);
@@ -24,8 +24,8 @@ describe('safe writes', () => {
 	});
 
 	it('rejects symlink parent escapes', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-link-'));
-		const outside = await mkdtemp(join(tmpdir(), 'koder-outside-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-link-'));
+		const outside = await mkdtemp(join(tmpdir(), 'kodr-outside-'));
 		await symlink(outside, join(cwd, 'linked'));
 
 		await assert.rejects(
@@ -35,8 +35,8 @@ describe('safe writes', () => {
 	});
 
 	it('rejects existing symlink file targets', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-link-file-'));
-		const outside = await mkdtemp(join(tmpdir(), 'koder-outside-file-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-link-file-'));
+		const outside = await mkdtemp(join(tmpdir(), 'kodr-outside-file-'));
 		await writeFile(join(outside, 'secret.txt'), 'secret', 'utf8');
 		await symlink(join(outside, 'secret.txt'), join(cwd, 'linked.txt'));
 
@@ -62,7 +62,7 @@ describe('safe writes', () => {
 	});
 
 	it('supports dry-run diffs without modifying files', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-dry-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-dry-'));
 		await writeFile(join(cwd, 'README.md'), 'old\n', 'utf8');
 
 		const result = await prepareWrites(
@@ -83,7 +83,7 @@ describe('safe writes', () => {
 	});
 
 	it('applies writes and creates timestamped backups', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-apply-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-apply-'));
 		await mkdir(join(cwd, 'src'), { recursive: true });
 		await writeFile(join(cwd, 'src', 'app.js'), 'old', 'utf8');
 
@@ -105,7 +105,7 @@ describe('safe writes', () => {
 		assert.equal(await readFile(join(cwd, 'src', 'app.js'), 'utf8'), 'new');
 		assert.equal(
 			await readFile(
-				join(cwd, '.koder', 'backups', 'fixed-time', 'src', 'app.js'),
+				join(cwd, '.kodr', 'backups', 'fixed-time', 'src', 'app.js'),
 				'utf8',
 			),
 			'old',
@@ -113,7 +113,7 @@ describe('safe writes', () => {
 	});
 
 	it('applies exact patches and creates backups', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-patch-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-patch-'));
 		await mkdir(join(cwd, 'src'), { recursive: true });
 		await writeFile(join(cwd, 'src', 'app.js'), 'one\ntwo\nthree\n', 'utf8');
 
@@ -140,7 +140,7 @@ describe('safe writes', () => {
 		);
 		assert.equal(
 			await readFile(
-				join(cwd, '.koder', 'backups', 'patch-time', 'src', 'app.js'),
+				join(cwd, '.kodr', 'backups', 'patch-time', 'src', 'app.js'),
 				'utf8',
 			),
 			'one\ntwo\nthree\n',
@@ -148,7 +148,7 @@ describe('safe writes', () => {
 	});
 
 	it('rejects stale or ambiguous patches', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-stale-patch-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-stale-patch-'));
 		await writeFile(join(cwd, 'README.md'), 'same\nsame\n', 'utf8');
 
 		await assert.rejects(
@@ -180,7 +180,7 @@ describe('safe writes', () => {
 	});
 
 	it('does not partially apply a patch batch when a later patch is stale', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-patch-batch-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-patch-batch-'));
 		await writeFile(join(cwd, 'a.txt'), 'alpha\n', 'utf8');
 		await writeFile(join(cwd, 'b.txt'), 'beta\n', 'utf8');
 
@@ -210,7 +210,7 @@ describe('safe writes', () => {
 	});
 
 	it('composes multiple patches to the same file before writing', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-patch-compose-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-patch-compose-'));
 		await writeFile(join(cwd, 'notes.txt'), 'alpha\nbeta\ngamma\n', 'utf8');
 
 		await preparePatches(
@@ -237,7 +237,7 @@ describe('safe writes', () => {
 	});
 
 	it('normalizes double-escaped patch newlines only when unambiguous', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-escaped-patch-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-escaped-patch-'));
 		await writeFile(join(cwd, 'README.md'), 'hello\nworld\n', 'utf8');
 
 		const result = await preparePatches(
@@ -260,7 +260,7 @@ describe('safe writes', () => {
 	});
 
 	it('matches whitespace-drifted patch searches only when unambiguous', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-fuzzy-patch-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-fuzzy-patch-'));
 		await writeFile(
 			join(cwd, 'app.mjs'),
 			'export function run() {\n\tconst rows = [];\n}\n',
@@ -287,7 +287,7 @@ describe('safe writes', () => {
 	});
 
 	it('can combine full-file writes and patches', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-safe-changes-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-changes-'));
 		await writeFile(join(cwd, 'README.md'), 'hello\n', 'utf8');
 
 		const result = await prepareChanges(

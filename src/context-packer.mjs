@@ -3,7 +3,7 @@ import { relative, sep } from 'node:path';
 
 const DEFAULT_IGNORES = new Set([
 	'.git',
-	'.koder',
+	'.kodr',
 	'node_modules',
 	'dist',
 	'build',

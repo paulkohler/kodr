@@ -34,7 +34,7 @@ describe('startFakeModelServer', () => {
 			const chat = await chatResponse.json();
 
 			assert.equal(chatResponse.status, 200);
-			assert.equal(chat.choices[0].message.content, 'koder-probe-ok');
+			assert.equal(chat.choices[0].message.content, 'kodr-probe-ok');
 			assert.equal(
 				server.recordings[1].requestHeaders.authorization,
 				'[redacted]',
@@ -45,7 +45,7 @@ describe('startFakeModelServer', () => {
 			);
 			assert.equal(
 				server.recordings[1].responseBody.choices[0].message.content,
-				'koder-probe-ok',
+				'kodr-probe-ok',
 			);
 		} finally {
 			await server.close();

@@ -7,7 +7,7 @@ import { compareModels, ReplayError, replayRun } from '../src/replay.mjs';
 
 describe('replay and model comparison', () => {
 	it('replays run artifacts without model calls', async () => {
-		const runDir = await mkdtemp(join(tmpdir(), 'koder-replay-'));
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-replay-'));
 		await writeFile(join(runDir, 'prompt.md'), 'prompt', 'utf8');
 		await writeFile(join(runDir, 'response.md'), 'response', 'utf8');
 		await writeFile(join(runDir, 'summary.json'), '{"ok":true}\n', 'utf8');
@@ -26,7 +26,7 @@ describe('replay and model comparison', () => {
 	});
 
 	it('reports missing and corrupt replay artifacts clearly', async () => {
-		const runDir = await mkdtemp(join(tmpdir(), 'koder-replay-bad-'));
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-replay-bad-'));
 		await writeFile(join(runDir, 'prompt.md'), 'prompt', 'utf8');
 		await writeFile(join(runDir, 'response.md'), 'response', 'utf8');
 		await writeFile(join(runDir, 'summary.json'), '{nope', 'utf8');
@@ -48,7 +48,7 @@ describe('replay and model comparison', () => {
 	});
 
 	it('compares at least two fake models and records metadata', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-compare-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-compare-'));
 		await mkdir(join(cwd, 'process'), { recursive: true });
 		await writeFile(join(cwd, 'process', 'experiments.jsonl'), '', 'utf8');
 
@@ -68,7 +68,7 @@ describe('replay and model comparison', () => {
 			['fake-a', 'fake-b'],
 		);
 		assert.equal(
-			JSON.parse(await readFile(join(cwd, '.koder', 'comparison.json'), 'utf8'))
+			JSON.parse(await readFile(join(cwd, '.kodr', 'comparison.json'), 'utf8'))
 				.models.length,
 			2,
 		);

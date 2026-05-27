@@ -11,9 +11,9 @@ import {
 
 describe('memory', () => {
 	it('loads project and private user memory from separate scopes', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-memory-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-memory-'));
 		await writeFile(join(cwd, PROJECT_MEMORY_PATH), 'Project rule.\n', 'utf8');
-		await mkdir(join(cwd, '.koder', 'memory'), { recursive: true });
+		await mkdir(join(cwd, '.kodr', 'memory'), { recursive: true });
 		await writeFile(
 			join(cwd, USER_MEMORY_PATH),
 			'Private preference.\n',
@@ -29,7 +29,7 @@ describe('memory', () => {
 	});
 
 	it('omits absent memory scopes', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-no-memory-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-no-memory-'));
 
 		const memory = await loadMemory(cwd);
 
@@ -38,7 +38,7 @@ describe('memory', () => {
 	});
 
 	it('caps loaded memory content', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-memory-cap-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-memory-cap-'));
 		await writeFile(join(cwd, PROJECT_MEMORY_PATH), 'abcdef', 'utf8');
 
 		const memory = await loadMemory(cwd, { maxBytes: 3 });

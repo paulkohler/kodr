@@ -1,5 +1,5 @@
-# Local koder artifacts
-.koder/
+# Local kodr artifacts
+.kodr/
 node_modules/
 dist/
 build/

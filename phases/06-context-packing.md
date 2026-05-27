@@ -7,7 +7,7 @@ Build deterministic workspace context for prompts.
 ## Build Steps
 
 - [x] Add deterministic file walker.
-- [x] Ignore `.git`, `.koder`, `node_modules`, and build outputs.
+- [x] Ignore `.git`, `.kodr`, `node_modules`, and build outputs.
 - [x] Filter binary files.
 - [x] Add per-file and total byte budgets.
 - [x] Detect root `AGENTS.md`.

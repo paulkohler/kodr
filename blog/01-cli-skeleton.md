@@ -14,5 +14,5 @@ The harness should have a stable command surface before it talks to LM Studio.
 
 ```sh
 npm test
-./koder --help
+./kodr --help
 ```

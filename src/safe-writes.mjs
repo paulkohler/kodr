@@ -48,7 +48,7 @@ export async function prepareWrites(cwd, files, options = {}) {
 		const diff = makeDiff(file.path, before, file.content);
 		const backupPath =
 			before.exists && apply
-				? join(cwd, '.koder', 'backups', timestamp, file.path)
+				? join(cwd, '.kodr', 'backups', timestamp, file.path)
 				: '';
 
 		writes.push({
@@ -92,7 +92,7 @@ export async function preparePatches(cwd, patches, options = {}) {
 			target = {
 				absolute: jailed.absolute,
 				backupPath: apply
-					? join(cwd, '.koder', 'backups', timestamp, patch.path)
+					? join(cwd, '.kodr', 'backups', timestamp, patch.path)
 					: '',
 				content: before.content,
 				original: before.content,

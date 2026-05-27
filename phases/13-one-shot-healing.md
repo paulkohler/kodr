@@ -8,7 +8,7 @@ Repair one failed verification run without creating an unbounded loop.
 
 - [x] Detect failed post-write tests.
 - [x] Repack fresh context.
-- [x] Include `.koder/last-test.md`.
+- [x] Include `.kodr/last-test.md`.
 - [x] Ask for one repair proposal.
 - [x] Apply repair and rerun tests once.
 

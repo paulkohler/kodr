@@ -1,6 +1,6 @@
 # Initial Build Prompt
 
-You are Codex building `koder` from this clean repo.
+You are Codex building `kodr` from this clean repo.
 
 Goal: build a zero-runtime-dependency Node.js 24 coding harness for local OpenAI-compatible models, initially LM Studio at `http://localhost:1234/v1`.
 

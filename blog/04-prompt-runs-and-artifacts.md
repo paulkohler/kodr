@@ -4,11 +4,11 @@ Phase 04 adds the first repeatable prompt run.
 
 ## Decision
 
-Keep `koder run` small, but extract shared OpenAI-compatible client and artifact helpers before adding it.
+Keep `kodr run` small, but extract shared OpenAI-compatible client and artifact helpers before adding it.
 
 ## Design
 
-`koder run` accepts prompt text with `-p` or `--prompt`, or reads a file with `--prompt-file`. It writes artifacts to `.koder/runs/<timestamp>/` by default, or to `--out`.
+`kodr run` accepts prompt text with `-p` or `--prompt`, or reads a file with `--prompt-file`. It writes artifacts to `.kodr/runs/<timestamp>/` by default, or to `--out`.
 
 Each run writes:
 

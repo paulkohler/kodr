@@ -12,7 +12,7 @@ import {
 describe('context packing', () => {
 	it('walks files deterministically and ignores generated directories', async () => {
 		const cwd = await mkWorkspace({
-			'.koder/hidden.txt': 'hidden',
+			'.kodr/hidden.txt': 'hidden',
 			'a.txt': 'a',
 			'b.txt': 'b',
 			'node_modules/pkg/index.js': 'ignored',
@@ -54,7 +54,7 @@ describe('context packing', () => {
 
 	it('renders memory scopes without listing private memory as a workspace file', async () => {
 		const cwd = await mkWorkspace({
-			'.koder/memory/user.md': 'Use concise replies.',
+			'.kodr/memory/user.md': 'Use concise replies.',
 			'KODR_MEMORY.md': 'Project prefers patches.',
 			'src/app.mjs': 'export {};',
 		});
@@ -70,7 +70,7 @@ describe('context packing', () => {
 				user: {
 					content: 'Use concise replies.',
 					includedBytes: 20,
-					path: '.koder/memory/user.md',
+					path: '.kodr/memory/user.md',
 					truncated: false,
 				},
 			},
@@ -92,7 +92,7 @@ describe('context packing', () => {
 });
 
 async function mkWorkspace(files) {
-	const cwd = await mkdtemp(join(tmpdir(), 'koder-context-'));
+	const cwd = await mkdtemp(join(tmpdir(), 'kodr-context-'));
 
 	for (const [path, content] of Object.entries(files)) {
 		const absolute = join(cwd, path);

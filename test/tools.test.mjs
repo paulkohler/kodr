@@ -7,7 +7,7 @@ import { fetchUrl, ToolError, ToolRunner } from '../src/tools.mjs';
 
 describe('bounded tools', () => {
 	it('supports list_files, read_file, write_file, and run_command', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tools-'));
 		await writeFile(join(cwd, 'a.mjs'), 'export {};\n', 'utf8');
 		const runner = new ToolRunner(cwd, { maxCalls: 5 });
 
@@ -36,7 +36,7 @@ describe('bounded tools', () => {
 	});
 
 	it('blocks local fetch_url targets', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-fetch-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tools-fetch-'));
 		const runner = new ToolRunner(cwd);
 
 		await assert.rejects(
@@ -46,7 +46,7 @@ describe('bounded tools', () => {
 	});
 
 	it('jails read_file paths and symlink targets', async () => {
-		const parent = await mkdtemp(join(tmpdir(), 'koder-tools-jail-parent-'));
+		const parent = await mkdtemp(join(tmpdir(), 'kodr-tools-jail-parent-'));
 		const cwd = join(parent, 'workspace');
 		await mkdir(cwd, { recursive: true });
 		await writeFile(join(parent, 'secret.txt'), 'secret', 'utf8');
@@ -92,7 +92,7 @@ describe('bounded tools', () => {
 	});
 
 	it('stops budget exhaustion and duplicate calls', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-budget-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tools-budget-'));
 		const runner = new ToolRunner(cwd, { maxCalls: 1 });
 
 		await runner.call('list_files');
@@ -110,7 +110,7 @@ describe('bounded tools', () => {
 	});
 
 	it('exposes bounded task management tools', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-tasks-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tools-tasks-'));
 		const runner = new ToolRunner(cwd, {
 			maxCalls: 3,
 			task: 'build example',
@@ -139,7 +139,7 @@ describe('bounded tools', () => {
 	});
 
 	it('runs hooks around tool calls', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-hooks-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tools-hooks-'));
 		await writeFile(join(cwd, 'a.txt'), 'alpha', 'utf8');
 		await writeFile(join(cwd, 'b.txt'), 'bravo', 'utf8');
 		const observed = [];
@@ -172,7 +172,7 @@ describe('bounded tools', () => {
 	});
 
 	it('lets pre-tool hooks block calls', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-hook-block-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tools-hook-block-'));
 		const runner = new ToolRunner(cwd, {
 			hooks: {
 				pre_tool_use: [
@@ -195,7 +195,7 @@ describe('bounded tools', () => {
 	});
 
 	it('enforces permission policy before tool effects', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-policy-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tools-policy-'));
 		await writeFile(join(cwd, 'README.md'), 'readme', 'utf8');
 		const runner = new ToolRunner(cwd, {
 			policy: {
@@ -231,7 +231,7 @@ describe('bounded tools', () => {
 	});
 
 	it('keeps built-in tools working while exposing MCP-style providers', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-tools-mcp-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tools-mcp-'));
 		await writeFile(join(cwd, 'a.txt'), 'alpha', 'utf8');
 		const runner = new ToolRunner(cwd, {
 			mcpProviders: [

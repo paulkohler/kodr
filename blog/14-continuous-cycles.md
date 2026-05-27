@@ -12,7 +12,7 @@ Cycles stop early when output includes:
 
 - `DONE`
 - `NO_CHANGES`
-- `KODER_STOP`
+- `KODR_STOP`
 
 ## Why Bounded Autonomy
 

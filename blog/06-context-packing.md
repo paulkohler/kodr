@@ -10,7 +10,7 @@ Build context locally from the workspace, include root `AGENTS.md` as instructio
 
 The packer walks files in sorted order, ignores generated or external directories, filters binary-looking files, and enforces per-file and total byte budgets. `AGENTS.md` is separated from regular file context and placed into the system prompt as repository instructions.
 
-`koder run` now writes `context.md` next to `prompt.md`, `response.md`, `summary.json`, and `raw-response.json`.
+`kodr run` now writes `context.md` next to `prompt.md`, `response.md`, `summary.json`, and `raw-response.json`.
 
 ## Why
 

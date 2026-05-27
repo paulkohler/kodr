@@ -1,6 +1,6 @@
-# koder-by-codex
+# kodr-by-codex
 
-`koder` is a zero-runtime-dependency coding harness built by Codex for local OpenAI-compatible models, initially LM Studio at `http://localhost:1234/v1`.
+`kodr` is a zero-runtime-dependency coding harness built by Codex for local OpenAI-compatible models, initially LM Studio at `http://localhost:1234/v1`.
 
 The repo is also a learning artifact. Code, tests, decisions, failures, and blog posts should evolve together.
 
@@ -21,7 +21,7 @@ The repo is also a learning artifact. Code, tests, decisions, failures, and blog
 ```sh
 npm test
 npm run format
-./koder --help
+./kodr --help
 ```
 
 ## Process
@@ -34,7 +34,7 @@ Small harness trial apps live under [examples/](./examples). The first example i
 
 ## Run Artifacts
 
-Each `koder run` writes inspectable artifacts under `.koder/runs/...`, including packed context, proposal messages, raw model responses, proposed writes, verification results, and `tasks.json`. The task plan makes the harness' todo list explicit for replay and later repair loops.
+Each `kodr run` writes inspectable artifacts under `.kodr/runs/...`, including packed context, proposal messages, raw model responses, proposed writes, verification results, and `tasks.json`. The task plan makes the harness' todo list explicit for replay and later repair loops.
 
 ## Security Boundaries
 

@@ -4,7 +4,7 @@ The example-app trial made planning concrete. Kodr could generate and verify a s
 
 This phase adds a small task-plan primitive. A plan has stable task ids, descriptions, statuses, and optional notes. The first tasks are always to understand the request and inspect context. Proposed file paths become edit tasks. Verification and documentation are explicit tasks too.
 
-`koder run` now writes `tasks.json` next to the other run artifacts and includes `taskCounts` in `summary.json`. The task list is intentionally simple data instead of an interactive manager. That keeps it inspectable, replayable, and easy to feed into later workflow or repair loops.
+`kodr run` now writes `tasks.json` next to the other run artifacts and includes `taskCounts` in `summary.json`. The task list is intentionally simple data instead of an interactive manager. That keeps it inspectable, replayable, and easy to feed into later workflow or repair loops.
 
 The workflow primitive also now includes task plans, so staged work and todo-style planning describe the same run instead of living as separate concepts.
 

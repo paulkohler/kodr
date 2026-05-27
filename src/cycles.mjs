@@ -1,7 +1,7 @@
 import { createRunArtifacts } from './artifacts.mjs';
 import { buildWorkspaceContext } from './context-packer.mjs';
 
-const STOP_MARKERS = ['DONE', 'NO_CHANGES', 'KODER_STOP'];
+const STOP_MARKERS = ['DONE', 'NO_CHANGES', 'KODR_STOP'];
 
 export async function runCycles(cwd, options) {
 	const maxCycles = options.cycles;
@@ -11,7 +11,7 @@ export async function runCycles(cwd, options) {
 	for (let index = 1; index <= maxCycles; index += 1) {
 		const runDir = await createRunArtifacts(
 			cwd,
-			`${options.out || '.koder/runs'}/cycle-${index}`,
+			`${options.out || '.kodr/runs'}/cycle-${index}`,
 		);
 		const context = await buildWorkspaceContext(cwd);
 		const result = await cycle({

@@ -4,7 +4,7 @@ Phase 15 makes Kodr easier to run from any directory.
 
 ## Decision
 
-Add `npm run install-local` to write a small shell shim into `~/.local/bin/koder` by default.
+Add `npm run install-local` to write a small shell shim into `~/.local/bin/kodr` by default.
 
 ## Options
 

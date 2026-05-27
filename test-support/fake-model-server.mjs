@@ -63,7 +63,7 @@ function defaultResponse(method, url, modelId) {
 				choices: [
 					{
 						message: {
-							content: 'koder-probe-ok',
+							content: 'kodr-probe-ok',
 							role: 'assistant',
 						},
 						finish_reason: 'stop',

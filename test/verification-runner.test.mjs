@@ -45,7 +45,7 @@ describe('verification runner', () => {
 	});
 
 	it('runs commands without a shell and writes last-test output', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-verify-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-'));
 		await writeFile(join(cwd, 'ok.mjs'), 'export {};\n', 'utf8');
 
 		const result = await runVerification(cwd, 'node --check ok.mjs', {
@@ -56,13 +56,13 @@ describe('verification runner', () => {
 		assert.equal(result.exitCode, 0);
 		assert.match(result.trustBoundary, /trusted workspace code/u);
 		assert.match(
-			await readFile(join(cwd, '.koder', 'last-test.md'), 'utf8'),
+			await readFile(join(cwd, '.kodr', 'last-test.md'), 'utf8'),
 			/node --check ok\.mjs/u,
 		);
 	});
 
 	it('times out long-running allowlisted commands', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-verify-timeout-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-timeout-'));
 		await writeFile(
 			join(cwd, 'package.json'),
 			JSON.stringify({
@@ -82,7 +82,7 @@ describe('verification runner', () => {
 	});
 
 	it('marks node test runs with zero tests as failed', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-verify-empty-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-empty-'));
 		await writeFile(
 			join(cwd, 'package.json'),
 			'{"type":"module","scripts":{"test":"node --test"}}\n',

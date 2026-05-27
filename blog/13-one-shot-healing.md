@@ -4,7 +4,7 @@ Phase 13 adds a single repair attempt after failed verification.
 
 ## Decision
 
-Healing is one-shot only. If verification fails, Kodr can build a repair prompt from fresh context and `.koder/last-test.md`, apply one proposal, and rerun the allowlisted test once.
+Healing is one-shot only. If verification fails, Kodr can build a repair prompt from fresh context and `.kodr/last-test.md`, apply one proposal, and rerun the allowlisted test once.
 
 ## Why
 

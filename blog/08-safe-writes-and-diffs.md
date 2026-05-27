@@ -8,7 +8,7 @@ Add a reusable safe-write module before connecting model output to the filesyste
 
 ## Design
 
-The module rejects absolute paths, `..` segments, symlink parents, and existing symlink file targets. Dry runs produce simple before/after diffs without modifying files. Apply mode writes files and stores timestamped backups for existing files under `.koder/backups/`. These are controlled writes with backups, not full rollback transactions.
+The module rejects absolute paths, `..` segments, symlink parents, and existing symlink file targets. Dry runs produce simple before/after diffs without modifying files. Apply mode writes files and stores timestamped backups for existing files under `.kodr/backups/`. These are controlled writes with backups, not full rollback transactions.
 
 ## Why Model Writes Are Untrusted
 

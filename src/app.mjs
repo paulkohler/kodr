@@ -31,7 +31,7 @@ export const VERSION = '0.0.0';
 const DEFAULT_BASE_URL = 'http://localhost:1234/v1';
 const DEFAULT_MODEL_ID = 'qwen/qwen3.6-35b-a3b';
 const DEFAULT_TIMEOUT_MS = 600000;
-const PROBE_PROMPT = 'Reply with exactly: koder-probe-ok';
+const PROBE_PROMPT = 'Reply with exactly: kodr-probe-ok';
 
 export class CliError extends Error {
 	constructor(message) {
@@ -168,22 +168,22 @@ export function parseArgs(argv, env = {}) {
 }
 
 export function usage() {
-	return `koder ${VERSION}
+	return `kodr ${VERSION}
 
 Usage:
-  koder --help
-  koder --version
-  koder probe [--json]
-  koder run -p "task" [--json]
-  koder run --prompt-file prompt.md [--out .koder/runs/name]
-  koder run -p "task" --dry-run
-  koder run -p "task" --yes [--test "npm test"] [--test-cwd path]
-  koder run -p "task" --stream
-  koder run --show-files
-  koder run --show-context
-  koder run --show-skills
-  koder cycle-review --transcript-file chat.md [--json]
-  koder replay <run-dir>
+  kodr --help
+  kodr --version
+  kodr probe [--json]
+  kodr run -p "task" [--json]
+  kodr run --prompt-file prompt.md [--out .kodr/runs/name]
+  kodr run -p "task" --dry-run
+  kodr run -p "task" --yes [--test "npm test"] [--test-cwd path]
+  kodr run -p "task" --stream
+  kodr run --show-files
+  kodr run --show-context
+  kodr run --show-skills
+  kodr cycle-review --transcript-file chat.md [--json]
+  kodr replay <run-dir>
 
 Local-model defaults:
   --base-url URL       Default: ${DEFAULT_BASE_URL}
@@ -256,7 +256,7 @@ export async function main(argv, io) {
 
 	if (options.command === 'replay') {
 		if (!options.replayDir) {
-			throw new CliError('koder replay requires a run directory');
+			throw new CliError('kodr replay requires a run directory');
 		}
 		const replayDir = await jailedPath(io.cwd, options.replayDir);
 		const result = await replayRun(replayDir.absolute);
@@ -266,7 +266,7 @@ export async function main(argv, io) {
 
 	if (options.command === 'cycle-review') {
 		if (!options.transcriptFile) {
-			throw new CliError('koder cycle-review requires --transcript-file');
+			throw new CliError('kodr cycle-review requires --transcript-file');
 		}
 		const runDir = await createRunArtifacts(io.cwd, options.out);
 		const transcriptPath = await jailedPath(io.cwd, options.transcriptFile);
@@ -676,7 +676,7 @@ async function loadPrompt(options, cwd) {
 		return readFile(promptPath.absolute, 'utf8');
 	}
 
-	throw new CliError('koder run requires -p/--prompt or --prompt-file');
+	throw new CliError('kodr run requires -p/--prompt or --prompt-file');
 }
 
 function extractProposal(text) {

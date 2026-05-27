@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export const PROJECT_MEMORY_PATH = 'KODR_MEMORY.md';
-export const USER_MEMORY_PATH = '.koder/memory/user.md';
+export const USER_MEMORY_PATH = '.kodr/memory/user.md';
 
 const DEFAULT_MEMORY_BYTES = 12000;
 

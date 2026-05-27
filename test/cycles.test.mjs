@@ -7,7 +7,7 @@ import { hasStopMarker, runCycles } from '../src/cycles.mjs';
 
 describe('continuous cycles', () => {
 	it('runs multiple bounded cycles with fresh context', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-cycles-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cycles-'));
 		await writeFile(join(cwd, 'a.txt'), 'a', 'utf8');
 
 		const result = await runCycles(cwd, {
@@ -29,7 +29,7 @@ describe('continuous cycles', () => {
 	});
 
 	it('stops early on explicit markers', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-cycles-stop-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cycles-stop-'));
 		const result = await runCycles(cwd, {
 			cycles: 5,
 			cycle({ index }) {
@@ -41,6 +41,6 @@ describe('continuous cycles', () => {
 
 		assert.equal(result.cycles.length, 2);
 		assert.equal(result.stoppedEarly, true);
-		assert.equal(hasStopMarker('KODER_STOP'), true);
+		assert.equal(hasStopMarker('KODR_STOP'), true);
 	});
 });

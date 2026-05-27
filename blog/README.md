@@ -1,4 +1,4 @@
-# koder Build Journal
+# kodr Build Journal
 
 This blog records the build as a learning sequence. Keep posts terse and concrete.
 

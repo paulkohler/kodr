@@ -8,7 +8,7 @@ import { runVerification } from '../src/verification-runner.mjs';
 
 describe('one-shot healing', () => {
 	it('dry-runs a repair by default', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-heal-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-'));
 		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
 		const failed = await runVerification(cwd, 'node --check bad.mjs', {
 			timeoutMs: 1000,
@@ -30,7 +30,7 @@ describe('one-shot healing', () => {
 	});
 
 	it('repairs a failing write with explicit apply', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-heal-apply-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-apply-'));
 		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
 		const failed = await runVerification(cwd, 'node --check bad.mjs', {
 			timeoutMs: 1000,

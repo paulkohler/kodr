@@ -1,10 +1,10 @@
 {
-  "name": "koder-by-codex",
+  "name": "kodr-by-codex",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "bin": {
-    "koder": "./bin/koder.mjs"
+    "kodr": "./bin/kodr.mjs"
   },
   "scripts": {
     "test": "node --test",

@@ -16,7 +16,7 @@ Add a small task-list planning primitive so Kodr can make work state explicit be
 ## Done Criteria
 
 - [x] Native tests cover task creation and status updates.
-- [x] `koder run` writes `tasks.json`.
+- [x] `kodr run` writes `tasks.json`.
 - [x] Run summaries reference the task artifact.
 - [x] Tool tests cover task list and update calls.
 - [x] Blog post documents why task lists belong in the harness.

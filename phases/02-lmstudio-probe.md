@@ -6,11 +6,11 @@ Prove local OpenAI-compatible connectivity against LM Studio.
 
 ## Build Steps
 
-- [x] Add `koder probe`.
+- [x] Add `kodr probe`.
 - [x] Call `GET /models`.
 - [x] Call `POST /chat/completions` with a tiny prompt.
 - [x] Support `--base-url`, `--model`, `--api-key`, `--timeout-ms`, and `--json`.
-- [x] Write run artifacts under `.koder/runs/<timestamp>/`.
+- [x] Write run artifacts under `.kodr/runs/<timestamp>/`.
 
 ## Done Criteria
 
@@ -23,7 +23,7 @@ Prove local OpenAI-compatible connectivity against LM Studio.
 Ran against LM Studio with `nvidia/nemotron-3-nano-omni` loaded:
 
 ```sh
-./koder probe --model nvidia/nemotron-3-nano-omni --timeout-ms 600000 --json
+./kodr probe --model nvidia/nemotron-3-nano-omni --timeout-ms 600000 --json
 ```
 
-Result: passed, with artifacts written under `.koder/runs/2026-05-25T22-39-03.504Z/`.
+Result: passed, with artifacts written under `.kodr/runs/2026-05-25T22-39-03.504Z/`.

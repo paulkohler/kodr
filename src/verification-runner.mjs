@@ -114,7 +114,7 @@ async function collectFiles(root, dir, files) {
 	}
 
 	for (const entry of entries) {
-		if (entry.name === 'node_modules' || entry.name === '.koder') {
+		if (entry.name === 'node_modules' || entry.name === '.kodr') {
 			continue;
 		}
 
@@ -189,7 +189,7 @@ function isSafeRelativeFile(path) {
 }
 
 async function writeLastTest(cwd, result) {
-	const path = join(cwd, '.koder', 'last-test.md');
+	const path = join(cwd, '.kodr', 'last-test.md');
 	await mkdir(dirname(path), { recursive: true });
 	await writeFile(path, renderLastTest(result), 'utf8');
 }

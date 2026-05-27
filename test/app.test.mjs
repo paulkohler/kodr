@@ -68,7 +68,7 @@ describe('usage', () => {
 		const text = usage();
 
 		assert.match(text, new RegExp(VERSION));
-		assert.match(text, /koder probe/u);
+		assert.match(text, /kodr probe/u);
 	});
 });
 
@@ -77,7 +77,7 @@ describe('probe', () => {
 		const server = await startFakeModelServer();
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-probe-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-probe-'));
 			const stdout = captureStream();
 			const result = await main(
 				[
@@ -101,7 +101,7 @@ describe('probe', () => {
 			assert.equal(result.ok, true);
 			assert.equal(result.command, 'probe');
 			assert.equal(result.result.model, 'qwen/qwen3.6-35b-a3b');
-			assert.equal(result.result.reply, 'koder-probe-ok');
+			assert.equal(result.result.reply, 'kodr-probe-ok');
 
 			const output = JSON.parse(stdout.text);
 			assert.equal(output.ok, true);
@@ -127,14 +127,14 @@ describe('probe', () => {
 			assert.equal(chatRequest.messages[0].role, 'user');
 			assert.equal(
 				server.recordings[1].responseBody.choices[0].message.content,
-				'koder-probe-ok',
+				'kodr-probe-ok',
 			);
 
 			const artifact = JSON.parse(
 				await readFile(join(output.runDir, 'result.json'), 'utf8'),
 			);
 			assert.equal(artifact.ok, true);
-			assert.equal(artifact.reply, 'koder-probe-ok');
+			assert.equal(artifact.reply, 'kodr-probe-ok');
 
 			const chatResponse = JSON.parse(
 				await readFile(join(output.runDir, 'chat-response.json'), 'utf8'),
@@ -157,7 +157,7 @@ describe('probe', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-probe-bad-json-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-probe-bad-json-'));
 
 			await assert.rejects(
 				() =>
@@ -204,7 +204,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-run-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-'));
 			const stdout = captureStream();
 			const result = await main(
 				[
@@ -322,7 +322,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-run-file-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-file-'));
 			await writeFile(join(cwd, 'prompt.md'), 'Continue this thought.', 'utf8');
 
 			const result = await main(
@@ -399,7 +399,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-run-stream-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-stream-'));
 			const result = await main(
 				[
 					'run',
@@ -442,7 +442,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-run-model-fail-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-model-fail-'));
 
 			await assert.rejects(
 				() =>
@@ -484,7 +484,7 @@ describe('run', () => {
 	});
 
 	it('rejects ambiguous prompt input', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-run-ambiguous-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-ambiguous-'));
 
 		await assert.rejects(
 			() =>
@@ -499,7 +499,7 @@ describe('run', () => {
 	});
 
 	it('rejects prompt-file paths outside the workspace', async () => {
-		const parent = await mkdtemp(join(tmpdir(), 'koder-run-prompt-escape-'));
+		const parent = await mkdtemp(join(tmpdir(), 'kodr-run-prompt-escape-'));
 		const cwd = join(parent, 'workspace');
 		await mkdir(cwd, { recursive: true });
 		await writeFile(join(parent, 'prompt.md'), 'outside', 'utf8');
@@ -520,7 +520,7 @@ describe('run', () => {
 		const server = await startFakeModelServer();
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-show-context-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-show-context-'));
 			await writeFile(join(cwd, 'AGENTS.md'), 'Use local models.', 'utf8');
 			await writeFile(join(cwd, 'a.txt'), 'alpha', 'utf8');
 			const stdout = captureStream();
@@ -549,7 +549,7 @@ describe('run', () => {
 		const server = await startFakeModelServer();
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-show-files-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-show-files-'));
 			await writeFile(join(cwd, 'b.txt'), 'b', 'utf8');
 			await writeFile(join(cwd, 'a.txt'), 'a', 'utf8');
 			const stdout = captureStream();
@@ -576,7 +576,7 @@ describe('run', () => {
 		const server = await startFakeModelServer();
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-show-skills-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-show-skills-'));
 			await mkdir(join(cwd, 'skills', 'edit'), { recursive: true });
 			await writeFile(
 				join(cwd, 'skills', 'edit', 'SKILL.md'),
@@ -608,7 +608,7 @@ describe('run', () => {
 		const server = await startFakeModelServer();
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-load-skill-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-load-skill-'));
 			await mkdir(join(cwd, 'skills', 'review'), { recursive: true });
 			await writeFile(
 				join(cwd, 'skills', 'review', 'SKILL.md'),
@@ -668,7 +668,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-dry-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-proposal-dry-'));
 			await writeFile(join(cwd, 'README.md'), 'old readme', 'utf8');
 
 			const result = await main(
@@ -734,7 +734,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-envelope-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-proposal-envelope-'));
 			await writeFile(join(cwd, 'README.md'), 'old readme', 'utf8');
 
 			const result = await main(
@@ -790,7 +790,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-error-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-proposal-error-'));
 
 			const result = await main(
 				['run', '-p', 'Update README', '--base-url', server.baseUrl, '--yes'],
@@ -857,11 +857,11 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-run-memory-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-memory-'));
 			await writeFile(join(cwd, 'KODR_MEMORY.md'), 'Prefer patches.\n', 'utf8');
-			await mkdir(join(cwd, '.koder', 'memory'), { recursive: true });
+			await mkdir(join(cwd, '.kodr', 'memory'), { recursive: true });
 			await writeFile(
-				join(cwd, '.koder', 'memory', 'user.md'),
+				join(cwd, '.kodr', 'memory', 'user.md'),
 				'Keep examples small.\n',
 				'utf8',
 			);
@@ -915,7 +915,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-apply-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-proposal-apply-'));
 			const result = await main(
 				[
 					'run',
@@ -972,7 +972,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-patch-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-proposal-patch-'));
 			await writeFile(join(cwd, 'README.md'), 'hello\n', 'utf8');
 
 			const result = await main(
@@ -1023,7 +1023,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-bad-patch-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-proposal-bad-patch-'));
 			await writeFile(join(cwd, 'README.md'), 'hello\n', 'utf8');
 
 			const result = await main(
@@ -1082,7 +1082,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-invalid-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-proposal-invalid-'));
 			await writeFile(join(cwd, 'README.md'), 'hello\n', 'utf8');
 
 			const result = await main(
@@ -1132,7 +1132,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-proposal-missing-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-proposal-missing-'));
 			await writeFile(
 				join(cwd, 'package.json'),
 				'{"type":"module","scripts":{"test":"node --test"}}\n',
@@ -1197,7 +1197,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-test-cwd-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-test-cwd-'));
 			const result = await main(
 				[
 					'run',
@@ -1222,7 +1222,7 @@ describe('run', () => {
 			assert.equal(result.result.testResult.ok, true);
 			assert.match(result.result.testResult.stdout, /node --test/u);
 			assert.match(
-				await readFile(join(cwd, 'example', '.koder', 'last-test.md'), 'utf8'),
+				await readFile(join(cwd, 'example', '.kodr', 'last-test.md'), 'utf8'),
 				/node --test/u,
 			);
 		} finally {
@@ -1250,7 +1250,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-test-fails-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-test-fails-'));
 			const stdout = captureStream();
 			const result = await main(
 				[
@@ -1295,7 +1295,7 @@ describe('run', () => {
 		});
 
 		try {
-			const cwd = await mkdtemp(join(tmpdir(), 'koder-test-cwd-escape-'));
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-test-cwd-escape-'));
 
 			await assert.rejects(
 				() =>
@@ -1329,7 +1329,7 @@ describe('run', () => {
 
 describe('replay', () => {
 	it('prints saved run artifacts as JSON', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-replay-cli-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-replay-cli-'));
 		await mkdir(join(cwd, 'run'), { recursive: true });
 		await writeFile(join(cwd, 'run', 'prompt.md'), 'prompt', 'utf8');
 		await writeFile(join(cwd, 'run', 'response.md'), 'response', 'utf8');
@@ -1353,7 +1353,7 @@ describe('replay', () => {
 	});
 
 	it('rejects replay paths outside the workspace', async () => {
-		const parent = await mkdtemp(join(tmpdir(), 'koder-replay-escape-'));
+		const parent = await mkdtemp(join(tmpdir(), 'kodr-replay-escape-'));
 		const cwd = join(parent, 'workspace');
 		await mkdir(cwd, { recursive: true });
 
@@ -1372,7 +1372,7 @@ describe('replay', () => {
 
 describe('cycle-review', () => {
 	it('runs the cycle review subagent and writes artifacts', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-cycle-review-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cycle-review-'));
 		await writeFile(join(cwd, 'AGENTS.md'), '- Run tests.\n', 'utf8');
 		await writeFile(
 			join(cwd, 'chat.md'),
@@ -1425,7 +1425,7 @@ describe('cycle-review', () => {
 	});
 
 	it('rejects missing transcript file', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-cycle-review-missing-'));
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cycle-review-missing-'));
 
 		await assert.rejects(
 			() =>

@@ -8,7 +8,7 @@ Add replay parsing for existing run artifacts and a comparison helper that runs 
 
 ## Output
 
-Comparison writes `.koder/comparison.json` and appends metadata to `process/experiments.jsonl`.
+Comparison writes `.kodr/comparison.json` and appends metadata to `process/experiments.jsonl`.
 
 ## Why
 

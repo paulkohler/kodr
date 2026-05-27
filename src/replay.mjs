@@ -60,8 +60,8 @@ export async function compareModels(cwd, prompt, modelIds, runModel) {
 		prompt,
 	};
 
-	await mkdir(join(cwd, '.koder'), { recursive: true });
-	await writeJson(join(cwd, '.koder', 'comparison.json'), comparison);
+	await mkdir(join(cwd, '.kodr'), { recursive: true });
+	await writeJson(join(cwd, '.kodr', 'comparison.json'), comparison);
 	await appendExperiment(cwd, {
 		models: modelIds,
 		promptChars: prompt.length,

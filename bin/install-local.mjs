@@ -16,7 +16,7 @@ installLocal(process.cwd(), options)
 function parseArgs(argv) {
 	const options = {
 		dir: `${process.env.HOME}/.local/bin`,
-		name: 'koder',
+		name: 'kodr',
 	};
 
 	for (let index = 0; index < argv.length; index += 1) {

@@ -43,7 +43,7 @@ ${lastTest}`;
 
 async function readLastTest(cwd) {
 	try {
-		return await readFile(join(cwd, '.koder', 'last-test.md'), 'utf8');
+		return await readFile(join(cwd, '.kodr', 'last-test.md'), 'utf8');
 	} catch {
 		return 'No last-test.md was available.';
 	}

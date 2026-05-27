@@ -9,7 +9,7 @@ Repeat bounded runs for local model experiments.
 - [x] Add a bounded cycle primitive.
 - [x] Create per-cycle artifact directories.
 - [x] Repack context per cycle.
-- [x] Stop on explicit markers such as `DONE`, `NO_CHANGES`, or `KODER_STOP`.
+- [x] Stop on explicit markers such as `DONE`, `NO_CHANGES`, or `KODR_STOP`.
 
 ## Done Criteria
 

@@ -7,8 +7,8 @@ import { createCycleReviewRequest, runSubagent } from '../src/subagents.mjs';
 
 describe('subagents', () => {
 	it('writes request and result artifacts for cycle review', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-subagent-'));
-		const runDir = join(cwd, '.koder', 'runs', 'review');
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-subagent-'));
+		const runDir = join(cwd, '.kodr', 'runs', 'review');
 		await writeFile(
 			join(cwd, 'AGENTS.md'),
 			'- Run tests before committing.\n',
@@ -45,8 +45,8 @@ describe('subagents', () => {
 	});
 
 	it('does not flag directions already represented in AGENTS.md', async () => {
-		const cwd = await mkdtemp(join(tmpdir(), 'koder-subagent-covered-'));
-		const runDir = join(cwd, '.koder', 'runs', 'review');
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-subagent-covered-'));
+		const runDir = join(cwd, '.kodr', 'runs', 'review');
 		await writeFile(
 			join(cwd, 'AGENTS.md'),
 			'- Examples are Kodr samples and failed generations need recorded retries.\n',

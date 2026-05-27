@@ -4,7 +4,7 @@ import { isAbsolute, join } from 'node:path';
 export async function createRunArtifacts(cwd, out = '') {
 	const runDir = out
 		? outputPath(cwd, out)
-		: join(cwd, '.koder', 'runs', timestamp());
+		: join(cwd, '.kodr', 'runs', timestamp());
 	await mkdir(runDir, { recursive: true });
 	return runDir;
 }

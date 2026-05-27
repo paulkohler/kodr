@@ -7,7 +7,7 @@ The first concrete subagent is `cycle-review`. It reads a transcript file, compa
 The command is:
 
 ```sh
-koder cycle-review --transcript-file chat.md --json
+kodr cycle-review --transcript-file chat.md --json
 ```
 
 Artifacts are written under:

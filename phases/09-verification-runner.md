@@ -9,7 +9,7 @@ Run checks without exposing a shell.
 - [x] Add shell-free command parser.
 - [x] Allowlist `npm test`, `npm run test`, `node --test`, and safe `node --check <file>`.
 - [x] Add timeout support.
-- [x] Save `.koder/last-test.md`.
+- [x] Save `.kodr/last-test.md`.
 
 ## Done Criteria
 

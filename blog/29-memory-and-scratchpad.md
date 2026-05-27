@@ -5,7 +5,7 @@ The CSV redo showed that Kodr needed a place for durable intent that was neither
 This phase adds three scopes:
 
 - Project memory: `KODR_MEMORY.md`, committed with the repo and loaded as untrusted project guidance.
-- Private user memory: `.koder/memory/user.md`, local-only because `.koder` is ignored by context walking and should not be committed by default.
+- Private user memory: `.kodr/memory/user.md`, local-only because `.kodr` is ignored by context walking and should not be committed by default.
 - Run scratchpad: `scratchpad.md` inside each run artifact directory, populated from an optional `scratchpad` string in the model proposal.
 
 The system prompt now tells the model it can include short run-local scratchpad notes alongside `files` and `patches`. Scratchpad content is not applied to the workspace; it is recorded as an artifact for review and future diagnostics.
