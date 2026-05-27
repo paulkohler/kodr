@@ -39,7 +39,8 @@ export class TodoStore {
 			return normalizeTodos(data.todos);
 		} catch (error) {
 			// If missing file, treat as empty.
-			if (error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return [];
+			if (error && (error.code === 'ENOENT' || error.code === 'ENOTDIR'))
+				return [];
 			throw error;
 		}
 	}
@@ -50,7 +51,11 @@ export class TodoStore {
 			version: 1,
 			todos,
 		};
-		await writeFile(this.filePath, JSON.stringify(payload, null, '\t') + '\n', 'utf8');
+		await writeFile(
+			this.filePath,
+			JSON.stringify(payload, null, '\t') + '\n',
+			'utf8',
+		);
 	}
 
 	async list() {

@@ -53,7 +53,10 @@ describe('TodoStore (JSON persistence)', () => {
 		const filePath = join(dir, 'todos.json');
 		const store = new TodoStore({ filePath });
 
-		await assert.rejects(() => store.setDone('missing', true), /Todo not found/);
+		await assert.rejects(
+			() => store.setDone('missing', true),
+			/Todo not found/,
+		);
 		await rm(dir, { force: true, recursive: true });
 	});
 });

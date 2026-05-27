@@ -26,11 +26,11 @@ change — worth learning explicitly alongside the text-parsing approach.
 
 ## Done Criteria
 
-- [ ] `ToolRegistry` with schema-driven dispatch.
-- [ ] `completeWithToolCalls` loop that handles multi-turn tool call rounds.
-- [ ] At least two built-in tools exercised in tests.
-- [ ] `--tools` flag wired into `kodr run`.
-- [ ] Tests cover: single tool call, multiple tool calls in one turn, unknown tool
+- [x] `ToolRegistry` with schema-driven dispatch.
+- [x] `completeWithToolCalls` loop that handles multi-turn tool call rounds.
+- [x] At least two built-in tools exercised in tests.
+- [x] `--tools` flag wired into `kodr run`.
+- [x] Tests cover: single tool call, multiple tool calls in one turn, unknown tool
       error, loop terminates normally after tool use.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] Record decisions and any failures.
+- [x] Blog post.

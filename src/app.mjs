@@ -26,6 +26,7 @@ import {
 import { runVerification } from './verification-runner.mjs';
 import { replayRun } from './replay.mjs';
 import { createLoopBudget } from './loop-budgets.mjs';
+import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
 import { VERSION } from './version.mjs';
 
 export { VERSION };
@@ -70,6 +71,7 @@ export function parseArgs(argv, env = {}) {
 		skills: [],
 		stream: false,
 		testCommand: '',
+		tools: false,
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		transcriptFile: '',
@@ -135,6 +137,11 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--openrouter') {
 			options.provider = 'openrouter';
+			continue;
+		}
+
+		if (arg === '--tools') {
+			options.tools = true;
 			continue;
 		}
 
@@ -248,6 +255,7 @@ Usage:
   kodr run -p "task" --dry-run
   kodr run -p "task" --yes [--test "npm test"] [--test-cwd path]
   kodr run -p "task" --stream
+  kodr run -p "task" --tools
   kodr run --show-files
   kodr run --show-context
   kodr run --show-skills
@@ -502,12 +510,20 @@ async function runPrompt(options, io) {
 			);
 		}
 
-		completion = await completeWithContinuations(
-			options,
-			model,
-			prompt,
-			context.systemPrompt,
-		);
+		completion = options.tools
+			? await completeWithToolCalls(
+					options,
+					model,
+					prompt,
+					context.systemPrompt,
+					createBuiltinRegistry(io.cwd),
+				)
+			: await completeWithContinuations(
+					options,
+					model,
+					prompt,
+					context.systemPrompt,
+				);
 	} catch (error) {
 		await writeRunFailure(runDir, {
 			baseUrl: options.baseUrl,
