@@ -31,6 +31,23 @@ If `--openrouter` is set but neither `OPENROUTER_API_KEY` nor `OPENAI_API_KEY` i
 
 The model client gained an `extraHeaders` field that gets spread into the `fetch` headers before `content-type` and `authorization` are applied. This is the minimal change needed to carry OpenRouter's headers without coupling the transport layer to any specific provider. It is also useful for future providers that need custom headers.
 
+## First test run: gpt-5.4-nano generates todo-cli
+
+With the flag working, the first real test was generating the standard todo-cli example using `openai/gpt-5.4-nano` via OpenRouter:
+
+```
+kodr run -p "..." --openrouter --model openai/gpt-5.4-nano --yes
+```
+
+The harness reported `Run ok`. Six files landed in `examples/gpt-5.4-nano/todo-cli/`: `src/cli.mjs`, `src/store.mjs`, two test files, `README.md`, and `package.json`. 4/5 tests passed immediately.
+
+**Design differences from the reference todo-cli.** The model made two distinct choices compared to the hand-evolved original:
+
+- **UUIDs instead of sequential integers.** `TodoStore.add` calls `randomUUID()` from `node:crypto` for each new item. The original uses `Math.max(0, ...ids) + 1`. UUID ids are collision-safe across concurrent writers; sequential ids are simpler to type in a CLI. Both are defensible.
+- **Wrapped JSON envelope.** The store writes `{ "version": 1, "todos": [...] }` rather than a bare array. The original uses a bare array. The envelope makes forward migration easier; the bare array is simpler to inspect.
+
+**One test bug.** The test "prints usage and exits non-zero when no command is provided" awaited `promisify(execFile)` without a `try/catch`. Since the CLI exits with code 1 in this case, `execFile` rejects and the test always throws. The model's own inline comment said "Actually execFile rejects" — it diagnosed the issue correctly but still wrote the broken code. The fix is a `try/catch` that captures `error.stdout` and `error.code` for assertions. This is a known failure pattern: models can state a constraint correctly in a comment while violating it in the code immediately below.
+
 ## Lessons
 
 The pattern of applying provider defaults after argument parsing (rather than during) keeps `assignValue` clean and makes override precedence easy to reason about. The `_apiKeySet` tracking boolean on the options object is deleted before the options object is returned, so no internal state leaks to callers.
