@@ -320,6 +320,7 @@ describe('run', () => {
 				context: 'context.md',
 				messages: 'messages.json',
 				prompt: 'prompt.md',
+				rawRequest: 'raw-request.json',
 				rawResponse: 'raw-response.json',
 				response: 'response.md',
 				scratchpad: 'scratchpad.md',

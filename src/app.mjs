@@ -671,7 +671,16 @@ async function runPrompt(options, io) {
 	const runDir = await createRunArtifacts(io.cwd, options.out);
 	const skills = await loadSkills(io.cwd, options.skills);
 	const memory = await loadMemory(io.cwd);
-	const context = await buildWorkspaceContext(io.cwd, { memory, skills });
+	const context = await buildWorkspaceContext(io.cwd, {
+		memory,
+		skills,
+		toolsMode: options.tools,
+	});
+	const registry = options.tools ? createBuiltinRegistry(io.cwd) : null;
+	const initialMessages = [
+		{ role: 'system', content: context.systemPrompt },
+		{ role: 'user', content: prompt },
+	];
 	const responsePath = join(runDir, 'response.md');
 	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
 	await writeText(join(runDir, 'prompt.md'), prompt);
@@ -690,13 +699,23 @@ async function runPrompt(options, io) {
 			);
 		}
 
+		const rawRequest = {
+			messages: initialMessages,
+			model,
+			url: `${options.baseUrl}/chat/completions`,
+		};
+		if (registry) {
+			rawRequest.tools = registry.toApiTools();
+		}
+		await writeJson(join(runDir, 'raw-request.json'), rawRequest);
+
 		completion = options.tools
 			? await completeWithToolCalls(
 					options,
 					model,
 					prompt,
 					context.systemPrompt,
-					createBuiltinRegistry(io.cwd),
+					registry,
 				)
 			: await completeWithContinuations(
 					options,
@@ -704,14 +723,21 @@ async function runPrompt(options, io) {
 					prompt,
 					context.systemPrompt,
 				);
+
+		await writeJson(join(runDir, 'raw-request.json'), {
+			...rawRequest,
+			messages: completion.messages,
+		});
 	} catch (error) {
 		await writeRunFailure(runDir, {
 			baseUrl: options.baseUrl,
 			context,
 			error,
+			initialMessages,
 			model: model || options.model || '',
 			prompt,
 			promptId,
+			rawRequestTools: registry ? registry.toApiTools() : null,
 			responsePath,
 		});
 		throw new CliError(
@@ -724,6 +750,7 @@ async function runPrompt(options, io) {
 			context: 'context.md',
 			messages: 'messages.json',
 			prompt: 'prompt.md',
+			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
 			scratchpad: 'scratchpad.md',
@@ -904,12 +931,21 @@ async function writeRunFailure(runDir, details) {
 		message: details.error.message,
 		name: details.error.name,
 	};
+	const rawRequest = {
+		messages: details.initialMessages || [],
+		model: details.model,
+		url: `${details.baseUrl}/chat/completions`,
+	};
+	if (details.rawRequestTools) {
+		rawRequest.tools = details.rawRequestTools;
+	}
 	const summary = {
 		artifacts: {
 			context: 'context.md',
 			error: 'error.json',
 			messages: 'messages.json',
 			prompt: 'prompt.md',
+			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
 			scratchpad: 'scratchpad.md',
@@ -935,6 +971,7 @@ async function writeRunFailure(runDir, details) {
 	await writeJson(join(runDir, 'messages.json'), []);
 	await writeText(join(runDir, 'scratchpad.md'), '');
 	await writeJson(join(runDir, 'error.json'), error);
+	await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 	await writeJson(join(runDir, 'raw-response.json'), { responses: [] });
 	await writeJson(join(runDir, 'summary.json'), summary);
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);

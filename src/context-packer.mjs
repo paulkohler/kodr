@@ -12,18 +12,42 @@ const DEFAULT_IGNORES = new Set([
 
 const DEFAULT_PER_FILE_BYTES = 20000;
 const DEFAULT_TOTAL_BYTES = 80000;
+const FILE_MAP_MAX_FILES = 200;
 
 export async function buildWorkspaceContext(cwd, options = {}) {
 	const perFileBytes = options.perFileBytes || DEFAULT_PER_FILE_BYTES;
 	const totalBytes = options.totalBytes || DEFAULT_TOTAL_BYTES;
+	const toolsMode = options.toolsMode || false;
 	const files = await listContextFiles(cwd);
+	const memory = options.memory || { project: null, user: null };
+	const skills = options.skills || { index: [], loaded: [] };
+
+	if (toolsMode) {
+		let agents = null;
+		if (files.includes('AGENTS.md')) {
+			const content = await readTextPrefix(`${cwd}/AGENTS.md`, perFileBytes);
+			if (content !== null) {
+				const bytes = Buffer.byteLength(content);
+				agents = {
+					content,
+					includedBytes: bytes,
+					path: 'AGENTS.md',
+					truncated: bytes >= perFileBytes,
+				};
+			}
+		}
+		const fileMap = await buildFileMap(cwd, files);
+		const context = { agents, fileMap, files: [], memory, skills };
+		return {
+			...context,
+			systemPrompt: renderSystemPrompt(context),
+			totalBytes: agents ? agents.includedBytes : 0,
+		};
+	}
+
 	const packedFiles = [];
 	let usedBytes = 0;
 	let agents = null;
-	const memory = options.memory || {
-		project: null,
-		user: null,
-	};
 
 	for (const file of files) {
 		if (file === 'KODR_MEMORY.md' && memory.project) {
@@ -56,23 +80,10 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		}
 	}
 
+	const context = { agents, files: packedFiles, memory, skills };
 	return {
-		agents,
-		files: packedFiles,
-		memory,
-		skills: options.skills || {
-			index: [],
-			loaded: [],
-		},
-		systemPrompt: renderSystemPrompt({
-			agents,
-			files: packedFiles,
-			memory,
-			skills: options.skills || {
-				index: [],
-				loaded: [],
-			},
-		}),
+		...context,
+		systemPrompt: renderSystemPrompt(context),
 		totalBytes: usedBytes,
 	};
 }
@@ -117,11 +128,42 @@ export function renderContextMarkdown(context) {
 		);
 	}
 
-	for (const file of context.files) {
-		parts.push(`## ${file.path}\n\n\`\`\`\n${file.content}\n\`\`\``);
+	if (context.fileMap) {
+		parts.push(`## File map\n\n${renderFileMapText(context.fileMap)}`);
+	} else {
+		for (const file of context.files) {
+			parts.push(`## ${file.path}\n\n\`\`\`\n${file.content}\n\`\`\``);
+		}
 	}
 
 	return `${parts.join('\n\n')}\n`;
+}
+
+async function buildFileMap(cwd, files) {
+	const shown = files.slice(0, FILE_MAP_MAX_FILES);
+	const hidden = files.length - shown.length;
+	const entries = [];
+	for (const file of shown) {
+		try {
+			const stat = await lstat(`${cwd}/${file}`);
+			entries.push({ path: file, size: stat.size });
+		} catch {
+			entries.push({ path: file, size: 0 });
+		}
+	}
+	return { entries, hidden, total: files.length };
+}
+
+function renderFileMapText(fileMap) {
+	const lines = fileMap.entries.map(
+		({ path, size }) => `${path} (${size} bytes)`,
+	);
+	if (fileMap.hidden > 0) {
+		lines.push(
+			`... ${fileMap.hidden} more file${fileMap.hidden === 1 ? '' : 's'} — use list_files to explore`,
+		);
+	}
+	return `Workspace files (${fileMap.total} total):\n${lines.join('\n')}\nUse read_file to read any file.`;
 }
 
 function renderSystemPrompt(context) {
@@ -142,7 +184,11 @@ function renderSystemPrompt(context) {
 		);
 	}
 
-	if (context.files.length > 0) {
+	if (context.fileMap) {
+		parts.push(
+			`Workspace files — use read_file to read any file:\n${renderFileMapText(context.fileMap)}`,
+		);
+	} else if (context.files.length > 0) {
 		parts.push(`Workspace context:\n${renderContextMarkdown(context)}`);
 	}
 

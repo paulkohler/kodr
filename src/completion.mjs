@@ -58,6 +58,7 @@ export async function completeWithContinuations(
 			return {
 				finishReasons,
 				loopBudget: budget.snapshot(),
+				messages,
 				responses,
 				text: chunks.join(''),
 			};
