@@ -21,6 +21,9 @@ export async function createChatCompletion(options, body) {
 			body: {
 				...body,
 				stream: true,
+				// Ask the server to emit a final usage chunk so streamed runs can
+				// still enforce token and cost budgets.
+				stream_options: { include_usage: true },
 			},
 			extraHeaders: options.extraHeaders,
 			method: 'POST',
@@ -44,20 +47,34 @@ async function requestStreamJson(url, options) {
 		`${options.method} ${url}`,
 	);
 
+	const message = {
+		content: content.text,
+		role: 'assistant',
+	};
+	if (content.toolCalls.length > 0) {
+		message.tool_calls = content.toolCalls;
+	}
+
+	const finishReason =
+		content.finishReason ||
+		(content.toolCalls.length > 0 ? 'tool_calls' : 'stop');
+
+	const body = {
+		choices: [
+			{
+				finish_reason: finishReason,
+				message,
+			},
+		],
+		id: content.id || 'chatcmpl_stream',
+		object: 'chat.completion',
+	};
+	if (content.usage) {
+		body.usage = content.usage;
+	}
+
 	return {
-		body: {
-			choices: [
-				{
-					finish_reason: content.finishReason || 'stop',
-					message: {
-						content: content.text,
-						role: 'assistant',
-					},
-				},
-			],
-			id: content.id || 'chatcmpl_stream',
-			object: 'chat.completion',
-		},
+		body,
 		status: response.status,
 		url,
 	};
@@ -148,10 +165,28 @@ async function readServerSentEvents(response, label) {
 	}
 
 	const decoder = new TextDecoder();
+	const state = {
+		finishReason: '',
+		id: '',
+		text: '',
+		// tool_calls arrive as fragments keyed by index; merge them as we go.
+		toolCalls: [],
+		usage: null,
+	};
 	let buffer = '';
-	let text = '';
-	let finishReason = '';
-	let id = '';
+
+	const consume = (event) => {
+		const dataLines = event
+			.split('\n')
+			.filter((line) => line.startsWith('data:'))
+			.map((line) => line.slice(5).trim());
+		for (const data of dataLines) {
+			if (!data || data === '[DONE]') {
+				continue;
+			}
+			applyStreamEvent(state, parseJson(data, label));
+		}
+	};
 
 	while (true) {
 		const { done, value } = await reader.read();
@@ -160,48 +195,74 @@ async function readServerSentEvents(response, label) {
 		buffer = events.pop() || '';
 
 		for (const event of events) {
-			const dataLines = event
-				.split('\n')
-				.filter((line) => line.startsWith('data:'))
-				.map((line) => line.slice(5).trim());
-			for (const data of dataLines) {
-				if (data === '[DONE]') {
-					return { finishReason, id, text };
-				}
-
-				const parsed = parseJson(data, label);
-				if (parsed.id) {
-					id = parsed.id;
-				}
-				const choice = parsed.choices?.[0];
-				text += choice?.delta?.content || choice?.message?.content || '';
-				if (choice?.finish_reason) {
-					finishReason = choice.finish_reason;
-				}
-			}
+			consume(event);
 		}
 
 		if (done) {
 			if (buffer.trim()) {
-				const tail = `${buffer}\n\n`;
-				buffer = '';
-				for (const event of tail.split('\n\n').filter(Boolean)) {
-					const data = event
-						.split('\n')
-						.find((line) => line.startsWith('data:'))
-						?.slice(5)
-						.trim();
-					if (data && data !== '[DONE]') {
-						const parsed = parseJson(data, label);
-						const choice = parsed.choices?.[0];
-						text += choice?.delta?.content || choice?.message?.content || '';
-						if (choice?.finish_reason) {
-							finishReason = choice.finish_reason;
-						}
-					}
-				}
+				consume(buffer);
 			}
-			return { finishReason, id, text };
+			return finalizeStreamState(state);
 		}
 	}
+}
+
+function applyStreamEvent(state, parsed) {
+	if (parsed.id) {
+		state.id = parsed.id;
+	}
+	if (parsed.usage) {
+		state.usage = parsed.usage;
+	}
+
+	const choice = parsed.choices?.[0];
+	if (!choice) {
+		return;
+	}
+
+	state.text += choice.delta?.content || choice.message?.content || '';
+	if (choice.finish_reason) {
+		state.finishReason = choice.finish_reason;
+	}
+
+	const toolCalls = choice.delta?.tool_calls || choice.message?.tool_calls;
+	if (Array.isArray(toolCalls)) {
+		for (const fragment of toolCalls) {
+			mergeToolCallFragment(state.toolCalls, fragment);
+		}
+	}
+}
+
+// Tool calls stream as partial fragments: the first carries id/name, later ones
+// append to function.arguments. Fragments are addressed by `index`.
+function mergeToolCallFragment(toolCalls, fragment) {
+	const index = typeof fragment.index === 'number' ? fragment.index : 0;
+	let call = toolCalls[index];
+	if (!call) {
+		call = { id: '', type: 'function', function: { name: '', arguments: '' } };
+		toolCalls[index] = call;
+	}
+
+	if (fragment.id) {
+		call.id = fragment.id;
+	}
+	if (fragment.type) {
+		call.type = fragment.type;
+	}
+	if (fragment.function?.name) {
+		call.function.name = fragment.function.name;
+	}
+	if (fragment.function?.arguments) {
+		call.function.arguments += fragment.function.arguments;
+	}
+}
+
+function finalizeStreamState(state) {
+	return {
+		finishReason: state.finishReason,
+		id: state.id,
+		text: state.text,
+		toolCalls: state.toolCalls.filter(Boolean),
+		usage: state.usage,
+	};
 }

@@ -1,0 +1,152 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { createChatCompletion } from '../src/model-client.mjs';
+import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
+
+// Build a Server-Sent Events body from a list of chunk objects, terminated by
+// the [DONE] sentinel the OpenAI streaming protocol uses.
+function sse(chunks) {
+	const events = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}`);
+	events.push('data: [DONE]');
+	return `${events.join('\n\n')}\n\n`;
+}
+
+function streamResponse(body) {
+	return {
+		method: 'POST',
+		url: '/v1/chat/completions',
+		status: 200,
+		headers: { 'content-type': 'text/event-stream' },
+		body,
+	};
+}
+
+const streamOptions = (baseUrl) => ({
+	baseUrl,
+	extraHeaders: {},
+	stream: true,
+	timeoutMs: 5000,
+});
+
+describe('createChatCompletion streaming', () => {
+	it('stitches streamed content and captures usage', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				streamResponse(
+					sse([
+						{ choices: [{ delta: { content: 'Hello ' } }] },
+						{
+							choices: [{ delta: { content: 'world' }, finish_reason: 'stop' }],
+						},
+						{ choices: [], usage: { total_tokens: 4 } },
+					]),
+				),
+			],
+		});
+
+		try {
+			const response = await createChatCompletion(
+				streamOptions(server.baseUrl),
+				{
+					messages: [{ role: 'user', content: 'hi' }],
+					model: 'test-model',
+				},
+			);
+
+			const choice = response.body.choices[0];
+			assert.equal(choice.message.content, 'Hello world');
+			assert.equal(choice.finish_reason, 'stop');
+			assert.equal(response.body.usage.total_tokens, 4);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('accumulates streamed tool_calls fragments', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				streamResponse(
+					sse([
+						{
+							id: 'chatcmpl_s',
+							choices: [
+								{
+									delta: {
+										role: 'assistant',
+										tool_calls: [
+											{
+												index: 0,
+												id: 'call_1',
+												type: 'function',
+												function: { name: 'list_files', arguments: '' },
+											},
+										],
+									},
+								},
+							],
+						},
+						{
+							choices: [
+								{
+									delta: {
+										tool_calls: [{ index: 0, function: { arguments: '{}' } }],
+									},
+								},
+							],
+						},
+						{ choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+						{ choices: [], usage: { total_tokens: 8 } },
+					]),
+				),
+			],
+		});
+
+		try {
+			const response = await createChatCompletion(
+				streamOptions(server.baseUrl),
+				{
+					messages: [{ role: 'user', content: 'list files' }],
+					model: 'test-model',
+					tools: [],
+				},
+			);
+
+			const choice = response.body.choices[0];
+			assert.equal(choice.finish_reason, 'tool_calls');
+			assert.equal(choice.message.tool_calls.length, 1);
+			assert.deepEqual(choice.message.tool_calls[0], {
+				id: 'call_1',
+				type: 'function',
+				function: { name: 'list_files', arguments: '{}' },
+			});
+			assert.equal(response.body.usage.total_tokens, 8);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('requests stream_options.include_usage on streamed calls', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				streamResponse(
+					sse([
+						{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] },
+					]),
+				),
+			],
+		});
+
+		try {
+			await createChatCompletion(streamOptions(server.baseUrl), {
+				messages: [{ role: 'user', content: 'hi' }],
+				model: 'test-model',
+			});
+
+			assert.deepEqual(server.recordings[0].requestBody.stream_options, {
+				include_usage: true,
+			});
+		} finally {
+			await server.close();
+		}
+	});
+});

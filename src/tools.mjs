@@ -157,9 +157,16 @@ export async function fetchUrl(url, options = {}) {
 	const timeoutMs = options.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS;
 	const maxBytes = options.maxBytes || DEFAULT_FETCH_MAX_BYTES;
 	const fetchImpl = options.fetchImpl || fetch;
+	// Security: never follow redirects. The host checks above only validate the
+	// URL we were given; a redirect could send us to a private address (e.g. a
+	// cloud metadata endpoint) that was never validated. Reject 3xx outright.
 	const response = await fetchImpl(url, {
+		redirect: 'manual',
 		signal: AbortSignal.timeout(timeoutMs),
 	});
+	if (response.status >= 300 && response.status < 400) {
+		throw new ToolError(`Refusing to follow redirect from ${url}`);
+	}
 	return {
 		body: await readCappedText(response, maxBytes),
 		status: response.status,

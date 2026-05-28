@@ -152,10 +152,10 @@ export function parseArgs(argv, env = {}) {
 		}
 
 		if (arg === '--models') {
-			const value = argv[index + 1];
-			if (!value || value.startsWith('--')) {
+			if (index + 1 >= argv.length) {
 				throw new CliError(`${arg} requires a value`);
 			}
+			const value = argv[index + 1];
 			index += 1;
 			options.models = value
 				.split(',')
@@ -184,10 +184,13 @@ export function parseArgs(argv, env = {}) {
 			arg === '--max-tokens' ||
 			arg === '--max-turns'
 		) {
-			const value = argv[index + 1];
-			if (!value || value.startsWith('--')) {
+			// Consume the next token as the value unconditionally. An empty string
+			// or a value that starts with "--" (e.g. a literal prompt) is still a
+			// valid value; only a missing token is an error.
+			if (index + 1 >= argv.length) {
 				throw new CliError(`${arg} requires a value`);
 			}
+			const value = argv[index + 1];
 			index += 1;
 			assignValue(options, arg, value);
 			continue;
@@ -685,13 +688,19 @@ async function runPrompt(options, io) {
 	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
 	await writeText(join(runDir, 'prompt.md'), prompt);
 
-	let modelsResponse;
 	let model;
 	let completion;
 
 	try {
-		modelsResponse = await listModels(options);
-		model = options.model || firstModelId(modelsResponse.body);
+		// Only hit GET /models when no model was named. Some OpenAI-compatible
+		// servers don't implement /models, and requiring it would break runs that
+		// already specify --model.
+		if (options.model) {
+			model = options.model;
+		} else {
+			const modelsResponse = await listModels(options);
+			model = firstModelId(modelsResponse.body);
+		}
 
 		if (!model) {
 			throw new CliError(

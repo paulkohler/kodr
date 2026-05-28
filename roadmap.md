@@ -41,6 +41,9 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 36 Multi-Model Comparison
 - [x] 37 Eval And Scoring
 - [x] 38 Prompt Versioning
+- [x] 39 Network And Streaming Hardening
+- [ ] 40 Real Unified Diffs
+- [ ] 41 Token Usage Reporting
 
 ## Phase Contract
 

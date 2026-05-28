@@ -79,6 +79,26 @@ describe('bounded tools', () => {
 		);
 	});
 
+	it('refuses to follow redirects to keep the SSRF guard intact', async () => {
+		let calls = 0;
+		await assert.rejects(
+			() =>
+				fetchUrl('https://public.example.test', {
+					fetchImpl: async () => {
+						calls += 1;
+						return new Response(null, {
+							status: 302,
+							headers: { location: 'http://169.254.169.254/latest/meta-data/' },
+						});
+					},
+					lookupHost: async () => [{ address: '93.184.216.34' }],
+				}),
+			/Refusing to follow redirect/u,
+		);
+		// The redirect target is never fetched — only the original request runs.
+		assert.equal(calls, 1);
+	});
+
 	it('caps fetch_url response bodies', async () => {
 		await assert.rejects(
 			() =>

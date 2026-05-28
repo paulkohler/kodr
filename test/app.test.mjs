@@ -76,6 +76,19 @@ describe('parseArgs', () => {
 		assert.throws(() => parseArgs(['--wat']), CliError);
 	});
 
+	it('accepts flag values that start with -- or are empty', () => {
+		const dashed = parseArgs(['run', '-p', '--not-a-flag']);
+		assert.equal(dashed.prompt, '--not-a-flag');
+
+		const empty = parseArgs(['run', '-p', '']);
+		assert.equal(empty.prompt, '');
+	});
+
+	it('throws when a value-bearing flag has no following token', () => {
+		assert.throws(() => parseArgs(['run', '-p']), CliError);
+		assert.throws(() => parseArgs(['compare', '--models']), CliError);
+	});
+
 	it('--openrouter applies OpenRouter defaults', () => {
 		const options = parseArgs(['--openrouter'], {
 			OPENROUTER_API_KEY: 'or-test-key',
@@ -336,11 +349,67 @@ describe('run', () => {
 			);
 			assert.equal(raw.responses[0].id, 'chatcmpl_run');
 
-			const chatRequest = server.recordings[1].requestBody;
+			const chatRequest = server.recordings[0].requestBody;
 			assert.equal(chatRequest.messages[0].role, 'system');
 			assert.match(chatRequest.messages[0].content, /You are Kodr/u);
 			assert.equal(chatRequest.messages[1].content, 'Summarize the repo.');
 			assert.equal(chatRequest.model, 'qwen/qwen3.6-35b-a3b');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runs without querying /models when a model is provided', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				// A 404 for /models proves the run never depends on discovery.
+				{
+					method: 'GET',
+					url: '/v1/models',
+					status: 404,
+					body: { error: 'not found' },
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'ok', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_no_models',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-no-models-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'hi',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'explicit-model',
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			assert.equal(result.ok, true);
+			assert.equal(result.result.model, 'explicit-model');
+			// Only the chat completion is recorded; /models was never called.
+			assert.equal(server.recordings.length, 1);
+			assert.equal(server.recordings[0].url, '/v1/chat/completions');
 		} finally {
 			await server.close();
 		}
@@ -456,7 +525,7 @@ describe('run', () => {
 			);
 			assert.equal(raw.loopBudget.tokens, 11);
 
-			const continuationRequest = server.recordings[2].requestBody;
+			const continuationRequest = server.recordings[1].requestBody;
 			assert.equal(continuationRequest.messages[2].role, 'assistant');
 			assert.equal(continuationRequest.messages[2].content, 'First half ');
 			assert.equal(
@@ -576,7 +645,7 @@ describe('run', () => {
 
 			assert.equal(result.result.response, 'streamed answer');
 			assert.deepEqual(result.result.finishReasons, ['stop']);
-			assert.equal(server.recordings[1].requestBody.stream, true);
+			assert.equal(server.recordings[0].requestBody.stream, true);
 		} finally {
 			await server.close();
 		}
@@ -791,7 +860,7 @@ describe('run', () => {
 				},
 			);
 
-			const chatRequest = server.recordings[1].requestBody;
+			const chatRequest = server.recordings[0].requestBody;
 			assert.match(
 				chatRequest.messages[0].content,
 				/Available Markdown skills/u,
@@ -1031,7 +1100,7 @@ describe('run', () => {
 				},
 			);
 
-			const chatRequest = server.recordings[1].requestBody;
+			const chatRequest = server.recordings[0].requestBody;
 			assert.match(chatRequest.messages[0].content, /Project memory/u);
 			assert.match(chatRequest.messages[0].content, /Prefer patches/u);
 			assert.match(chatRequest.messages[0].content, /Private user memory/u);
