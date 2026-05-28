@@ -144,6 +144,34 @@ user looks. Surfacing them in `summary.json`, the CLI output, and
 `prompt-history` is its own piece of work, which is why it's filed as phase 41
 (Token Usage Reporting) rather than crammed in here.
 
+## Live run finding: the harness was right, the persona was wrong
+
+To exercise the streaming changes against a real model (`qwen/qwen3.6-35b-a3b`
+in LM Studio) I asked kodr to generate an Express notes API. The harness behaved
+exactly as designed: it streamed the response, **captured 22,053 tokens of usage
+on the streaming path** (zero before fix #5), skipped `GET /models` because a
+model was named (fix #3), extracted the proposal, and stayed in dry-run.
+
+But the proposal came back with `files: []` and a single info message:
+> "Reading roadmap.md to identify the first unchecked phase before implementing
+> the Express notes API example."
+
+The model wasn't generating an example — it was role-playing *me*. Run inside the
+kodr repo, the context pack handed it `AGENTS.md`, including the "Required Loop"
+that says read the roadmap and pick the first unchecked phase. The model adopted
+the kodr-maintainer persona and tried to follow the workflow instead of writing
+the app. This is the same context-pollution failure flagged back in phase 37.
+
+Re-running from a clean temp directory (no `AGENTS.md`, no roadmap in context)
+produced the real thing: six files, an `express` dependency in `package.json`,
+and a `node:test` suite that **passed all 8 HTTP tests** after `npm install`.
+
+The lesson is about provenance and context, not code: a self-hosting agent repo
+is a hostile context for generation runs, because its own process docs read as
+instructions to the model. Generation belongs in a clean workspace. (Examples
+are also allowed npm dependencies — the built-ins-only rule is for the kodr tool
+itself, not the apps it generates.)
+
 ## Takeaway
 
 Four of these five passed a green test suite. The lesson that keeps repeating in
