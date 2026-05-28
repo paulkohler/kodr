@@ -359,6 +359,89 @@ describe('run', () => {
 		}
 	});
 
+	it('prints a human-readable summary in non-JSON mode', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: proposalResponse({
+						files: [
+							{ path: 'src/index.mjs', content: 'export const x = 1;\n' },
+						],
+						messages: [{ level: 'info', content: 'Added a constant.' }],
+						scratchpad: 'Plan: add a module.',
+					}),
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-summary-'));
+			const stdout = captureStream();
+			await main(
+				[
+					'run',
+					'-p',
+					'Add a module.',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout },
+			);
+
+			// The summary names the proposed file, its create status, the dry-run
+			// mode, the model message, and how to apply — not just "Run ok".
+			assert.match(stdout.text, /^Run ok/u);
+			assert.match(stdout.text, /1 file\(s\), dry-run/u);
+			assert.match(stdout.text, /create\s+src\/index\.mjs/u);
+			assert.match(stdout.text, /\[info\] Added a constant\./u);
+			assert.match(stdout.text, /Re-run with --yes/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('prints the response text when the model returns no proposal', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: proposalResponseText(
+						'Just a plain prose answer, no JSON here.',
+					),
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-prose-'));
+			const stdout = captureStream();
+			await main(
+				[
+					'run',
+					'-p',
+					'Explain something.',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout },
+			);
+
+			assert.match(stdout.text, /Response:/u);
+			assert.match(stdout.text, /Just a plain prose answer/u);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('runs without querying /models when a model is provided', async () => {
 		const server = await startFakeModelServer({
 			responses: [

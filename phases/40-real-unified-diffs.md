@@ -18,11 +18,29 @@ proposal previews are readable and reviewable.
   replay flow still recognise the format.
 - Preserve the create-vs-modify distinction already encoded in the write status.
 
+## Algorithm choice and the large-file bound
+
+Use plain LCS (longest common subsequence) over line arrays, not Myers' O(ND)
+diff. LCS is ~30 lines, understandable in one sitting, and produces correct,
+readable diffs for source files — the right teaching choice for this repo. Myers
+yields marginally more "human" diffs in pathological cases but is more code than
+the project needs.
+
+The tradeoff: LCS is **O(m×n)** in time and memory (an `(m+1)×(n+1)` table). For
+the example apps kodr generates (hundreds of lines) that is negligible, but a
+very large file would blow up memory. So cap it: if either side exceeds a line
+threshold (e.g. **2,000 lines**), skip the LCS path and fall back to the current
+whole-file `-`/`+` dump. This keeps memory bounded and is a deliberate,
+documented limit rather than a silent failure mode — record it as a decision.
+
 ## Done Criteria
 
 - [ ] `makeDiff` produces hunked unified diffs with context lines.
 - [ ] Pure Node implementation, no new dependencies.
-- [ ] Tests cover insert-only, delete-only, mixed, and no-change cases.
+- [ ] Large-file bound: files over the line threshold fall back to the
+      whole-file `-`/`+` dump; the threshold is a named constant.
+- [ ] Tests cover insert-only, delete-only, mixed, no-change, and the
+      over-threshold fallback cases.
 - [ ] Existing safe-writes and replay tests updated for the new format.
 - [ ] Record decisions and any failures.
 - [ ] Blog post.
