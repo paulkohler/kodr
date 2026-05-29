@@ -35,12 +35,12 @@ documented limit rather than a silent failure mode — record it as a decision.
 
 ## Done Criteria
 
-- [ ] `makeDiff` produces hunked unified diffs with context lines.
-- [ ] Pure Node implementation, no new dependencies.
-- [ ] Large-file bound: files over the line threshold fall back to the
+- [x] `makeDiff` produces hunked unified diffs with context lines.
+- [x] Pure Node implementation, no new dependencies.
+- [x] Large-file bound: files over the line threshold fall back to the
       whole-file `-`/`+` dump; the threshold is a named constant.
-- [ ] Tests cover insert-only, delete-only, mixed, no-change, and the
+- [x] Tests cover insert-only, delete-only, mixed, no-change, and the
       over-threshold fallback cases.
-- [ ] Existing safe-writes and replay tests updated for the new format.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] Existing safe-writes and replay tests updated for the new format.
+- [x] Record decisions and any failures.
+- [x] Blog post.

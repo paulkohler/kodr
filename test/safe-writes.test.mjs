@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	jailedPath,
+	makeDiff,
 	prepareChanges,
 	preparePatches,
 	prepareWrites,
@@ -316,5 +317,69 @@ describe('safe writes', () => {
 			await readFile(join(cwd, 'README.md'), 'utf8'),
 			'hello world\n',
 		);
+	});
+});
+
+describe('makeDiff', () => {
+	const exists = (content) => ({ content, exists: true });
+
+	it('emits all additions for a newly created file', () => {
+		const diff = makeDiff(
+			'a.txt',
+			{ content: '', exists: false },
+			'one\ntwo\n',
+		);
+		assert.match(diff, /^--- a\.txt\n\+\+\+ a\.txt\n/u);
+		// New file: old side is empty (-0,0).
+		assert.match(diff, /@@ -0,0 \+1,3 @@/u);
+		assert.match(diff, /\+one/u);
+		assert.match(diff, /\+two/u);
+		// A deletion line starts with a single "-" (not the "---" header).
+		assert.ok(!/^-[^-]/mu.test(diff), 'no deletion lines for a new file');
+	});
+
+	it('emits only deletions when lines are removed', () => {
+		const diff = makeDiff('a.txt', exists('a\nb\nc\n'), 'a\nc\n');
+		assert.match(diff, /^@@ /mu);
+		assert.match(diff, /-b/u);
+		// An addition line starts with a single "+" (not the "+++" header).
+		assert.ok(!/^\+[^+]/mu.test(diff), 'no addition lines when only deleting');
+	});
+
+	it('shows a mixed change with surrounding context', () => {
+		const before = exists('one\ntwo\nthree\nfour\nfive\n');
+		const diff = makeDiff('a.txt', before, 'one\ntwo\nTHREE\nfour\nfive\n');
+		assert.match(diff, /-three/u);
+		assert.match(diff, /\+THREE/u);
+		// Context lines around the change are kept (prefixed with a space).
+		assert.match(diff, /\n two\n/u);
+		assert.match(diff, /\n four\n/u);
+	});
+
+	it('produces no hunks when content is unchanged', () => {
+		const diff = makeDiff('a.txt', exists('same\nlines\n'), 'same\nlines\n');
+		assert.equal(diff, '--- a.txt\n+++ a.txt\n');
+	});
+
+	it('splits distant changes into separate hunks', () => {
+		const before = exists(
+			Array.from({ length: 30 }, (_, i) => `line${i}`).join('\n'),
+		);
+		const afterLines = Array.from({ length: 30 }, (_, i) => `line${i}`);
+		afterLines[2] = 'CHANGED2';
+		afterLines[25] = 'CHANGED25';
+		const diff = makeDiff('a.txt', before, afterLines.join('\n'));
+		const hunkCount = (diff.match(/^@@ /gmu) || []).length;
+		assert.equal(hunkCount, 2);
+	});
+
+	it('falls back to a whole-file dump past the line bound', () => {
+		const big = `${Array.from({ length: 2001 }, (_, i) => `l${i}`).join('\n')}\n`;
+		const diff = makeDiff('big.txt', exists(big), `${big}extra\n`);
+		// Fallback shape: no hunk headers, just bulk -/+ lines.
+		assert.ok(!/@@ /u.test(diff), 'no hunk headers in fallback mode');
+		assert.match(diff, /^--- big\.txt\n\+\+\+ big\.txt\n/u);
+		assert.match(diff, /\n-l0\n/u);
+		assert.match(diff, /\n\+l0\n/u);
 	});
 });
