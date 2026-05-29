@@ -6,6 +6,7 @@ This repo is built as a learning tool. Preserve the process, not just the code.
 
 - Use Node.js 24 built-ins only.
 - Keep ESM.
+- Use globally installed Biome via `npm run format`; do not add Biome as a dev dependency.
 - Add native `node:test` coverage for each feature.
 - Prefer small commits.
 - Keep model endpoints OpenAI-compatible and local-first.
