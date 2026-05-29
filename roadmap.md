@@ -51,7 +51,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 46 TUI Apply Review
 - [x] 47 TUI Streaming Status
 - [x] 48 Session Export
-- [ ] 49 Channel Contract Tests
+- [x] 49 Channel Contract Tests
 - [ ] 50 Web Channel Sketch
 
 ## Phase Contract

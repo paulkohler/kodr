@@ -19,9 +19,9 @@ Add contract-style tests around the central channel handler:
 
 ## Done Criteria
 
-- [ ] Add channel contract tests independent of CLI/TUI presentation.
-- [ ] Cover artifact equivalence for CLI and TUI turns.
-- [ ] Cover unknown request rejection.
-- [ ] Cover option immutability or documented mutation behavior.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] Add channel contract tests independent of CLI/TUI presentation.
+- [x] Cover artifact equivalence for CLI and TUI turns.
+- [x] Cover unknown request rejection.
+- [x] Cover option immutability or documented mutation behavior.
+- [x] Record decisions and any failures.
+- [x] Blog post.
