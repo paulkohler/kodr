@@ -20,10 +20,10 @@ output or a rollup across runs. Make usage visible.
 
 ## Done Criteria
 
-- [ ] `summary.json` includes a structured `usage` object per run.
-- [ ] `kodr run` prints a human-readable usage line in non-JSON mode.
-- [ ] `kodr prompt-history` surfaces token totals.
-- [ ] Missing-usage runs degrade gracefully.
-- [ ] Tests cover usage capture, formatting, and the missing-usage path.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] `summary.json` includes a structured `usage` object per run.
+- [x] `kodr run` prints a human-readable usage line in non-JSON mode.
+- [x] `kodr prompt-history` surfaces token totals.
+- [x] Missing-usage runs degrade gracefully.
+- [x] Tests cover usage capture, formatting, and the missing-usage path.
+- [x] Record decisions and any failures.
+- [x] Blog post.

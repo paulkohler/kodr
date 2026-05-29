@@ -8,11 +8,13 @@ export class LoopBudgetError extends Error {
 
 export function createLoopBudget(options = {}) {
 	const state = {
+		completionTokens: 0,
 		costUsd: 0,
 		maxCostUsd: numberOrInfinity(options.maxCostUsd),
 		maxRetries: integerOrInfinity(options.maxRetries),
 		maxTokens: integerOrInfinity(options.maxTokens),
 		maxTurns: integerOrInfinity(options.maxTurns),
+		promptTokens: 0,
 		retries: 0,
 		stopReason: '',
 		tokens: 0,
@@ -36,6 +38,16 @@ export function createLoopBudget(options = {}) {
 			return snapshot(state);
 		},
 		recordUsage(usage = {}) {
+			const prompt = Number(usage.prompt_tokens || usage.promptTokens || 0);
+			const completion = Number(
+				usage.completion_tokens || usage.completionTokens || 0,
+			);
+			state.promptTokens += prompt;
+			state.completionTokens += completion;
+			// usageTokens() prefers total_tokens when present. Some providers report
+			// a total that differs from prompt+completion (cached tokens etc.), so
+			// state.tokens may not equal the breakdown sum. Intentional: budgets
+			// enforce the reported total; the split fields are display-only.
 			state.tokens += usageTokens(usage);
 			state.costUsd += Number(usage.costUsd || 0);
 			if (state.tokens > state.maxTokens) {
@@ -99,11 +111,13 @@ function numberOrInfinity(value) {
 
 function snapshot(state) {
 	return {
+		completionTokens: state.completionTokens,
 		costUsd: state.costUsd,
 		maxCostUsd: finiteOrNull(state.maxCostUsd),
 		maxRetries: finiteOrNull(state.maxRetries),
 		maxTokens: finiteOrNull(state.maxTokens),
 		maxTurns: finiteOrNull(state.maxTurns),
+		promptTokens: state.promptTokens,
 		retries: state.retries,
 		stopReason: state.stopReason,
 		tokens: state.tokens,

@@ -581,11 +581,13 @@ describe('run', () => {
 			assert.equal(result.result.response, 'First half second half.');
 			assert.deepEqual(result.result.finishReasons, ['length', 'stop']);
 			assert.deepEqual(result.result.loopBudget, {
+				completionTokens: 4,
 				costUsd: 0,
 				maxCostUsd: null,
 				maxRetries: 7,
 				maxTokens: 20,
 				maxTurns: 2,
+				promptTokens: 7,
 				retries: 1,
 				stopReason: 'finish_stop',
 				tokens: 11,
@@ -1914,6 +1916,195 @@ describe('prompt versioning', () => {
 		} finally {
 			await server.close();
 		}
+	});
+});
+
+describe('token usage reporting', () => {
+	it('writes usage object to summary.json when server sends usage', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'ok', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_usage',
+						object: 'chat.completion',
+						usage: {
+							prompt_tokens: 10,
+							completion_tokens: 5,
+							total_tokens: 15,
+						},
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-usage-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'hi',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			assert.deepEqual(result.result.usage, {
+				completionTokens: 5,
+				costUsd: 0,
+				promptTokens: 10,
+				tokens: 15,
+			});
+
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.deepEqual(summary.usage, {
+				completionTokens: 5,
+				costUsd: 0,
+				promptTokens: 10,
+				tokens: 15,
+			});
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('writes null usage when server omits usage', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'ok', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_no_usage',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-no-usage-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'hi',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			assert.equal(result.result.usage, null);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('shows usage breakdown in non-JSON run output', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'ok', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_usage_out',
+						object: 'chat.completion',
+						usage: {
+							prompt_tokens: 100,
+							completion_tokens: 50,
+							total_tokens: 150,
+						},
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-usage-out-'));
+			const stdout = captureStream();
+			await main(
+				[
+					'run',
+					'-p',
+					'hi',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout },
+			);
+
+			assert.match(stdout.text, /Tokens: 150 \(prompt 100 \/ completion 50\)/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('prompt-history shows token totals', async () => {
+		// Build a fake run dir with a summary that carries usage.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-history-tokens-'));
+		const runDir = join(cwd, '.kodr', 'runs', '2026-01-01T00-00-00.000Z');
+		await mkdir(runDir, { recursive: true });
+		await writeFile(
+			join(runDir, 'summary.json'),
+			JSON.stringify({
+				promptId: 'hello-world',
+				model: 'test-model',
+				ok: true,
+				timestamp: '2026-01-01T00:00:00.000Z',
+				finishReasons: ['stop'],
+				usage: {
+					tokens: 888,
+					promptTokens: 600,
+					completionTokens: 288,
+					costUsd: 0,
+				},
+			}),
+		);
+
+		const stdout = captureStream();
+		await main(['prompt-history', 'hello-world'], {
+			cwd,
+			env: {},
+			stderr: captureStream(),
+			stdout,
+		});
+
+		assert.match(stdout.text, /tokens=888/u);
 	});
 });
 

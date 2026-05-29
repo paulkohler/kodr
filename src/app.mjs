@@ -562,8 +562,9 @@ export async function main(argv, io) {
 				const status = run.ok ? 'ok' : 'fail';
 				const evalPart =
 					run.evalScore !== null ? ` eval=${run.evalScore.toFixed(2)}` : '';
+				const tokenPart = run.tokens > 0 ? ` tokens=${run.tokens}` : '';
 				io.stdout.write(
-					`  ${run.timestamp}  ${run.model}  [${status}]${evalPart}\n`,
+					`  ${run.timestamp}  ${run.model}  [${status}]${evalPart}${tokenPart}\n`,
 				);
 			}
 		}
@@ -775,6 +776,7 @@ async function runPrompt(options, io) {
 		responseChars: completion.text.length,
 		responseCount: completion.responses.length,
 		timestamp: new Date().toISOString(),
+		usage: usageFromBudget(completion.loopBudget),
 		workspaceFileCount: context.files.length,
 	};
 	let proposal = null;
@@ -970,6 +972,7 @@ async function writeRunFailure(runDir, details) {
 		responseCount: 0,
 		taskCounts: taskCounts(taskPlan),
 		timestamp: new Date().toISOString(),
+		usage: null,
 		workspaceFileCount: details.context.files.length,
 	};
 
@@ -1127,11 +1130,9 @@ function renderRunSummary(result) {
 	);
 	lines.push(`Model: ${result.model}`);
 
-	const tokens = result.loopBudget?.tokens || 0;
-	const cost = result.loopBudget?.costUsd || 0;
-	if (tokens > 0 || cost > 0) {
-		const costPart = cost > 0 ? `  Cost: $${cost.toFixed(4)}` : '';
-		lines.push(`Tokens: ${tokens}${costPart}`);
+	const usageLine = renderUsageLine(result.usage);
+	if (usageLine) {
+		lines.push(usageLine);
 	}
 
 	if (result.proposalError) {
@@ -1216,6 +1217,41 @@ function indentBlock(text) {
 		.split('\n')
 		.map((line) => `  ${line}`)
 		.join('\n');
+}
+
+// Extract a structured usage object from a loop-budget snapshot. Returns null
+// when the server sent no usage data (tokens === 0 and costUsd === 0).
+function usageFromBudget(budget) {
+	if (!budget) {
+		return null;
+	}
+	const { tokens, promptTokens, completionTokens, costUsd } = budget;
+	if (tokens === 0 && costUsd === 0) {
+		return null;
+	}
+	return {
+		completionTokens: completionTokens ?? 0,
+		costUsd: costUsd ?? 0,
+		promptTokens: promptTokens ?? 0,
+		tokens: tokens ?? 0,
+	};
+}
+
+// Format a usage object as a single human-readable line.
+// e.g. "Tokens: 1,234 (prompt 900 / completion 334)  Cost: $0.0021"
+function renderUsageLine(usage) {
+	if (!usage) {
+		return '';
+	}
+	const total = usage.tokens.toLocaleString();
+	let line = `Tokens: ${total}`;
+	if (usage.promptTokens > 0 || usage.completionTokens > 0) {
+		line += ` (prompt ${usage.promptTokens.toLocaleString()} / completion ${usage.completionTokens.toLocaleString()})`;
+	}
+	if (usage.costUsd > 0) {
+		line += `  Cost: $${usage.costUsd.toFixed(4)}`;
+	}
+	return line;
 }
 
 function proposalPaths(proposal) {

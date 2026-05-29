@@ -18,11 +18,13 @@ describe('loop budgets', () => {
 		budget.stop('finish_stop');
 
 		assert.deepEqual(budget.snapshot(), {
+			completionTokens: 3,
 			costUsd: 0,
 			maxCostUsd: null,
 			maxRetries: 1,
 			maxTokens: 10,
 			maxTurns: 2,
+			promptTokens: 2,
 			retries: 1,
 			stopReason: 'finish_stop',
 			tokens: 9,

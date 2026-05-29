@@ -42,6 +42,7 @@ export async function scanRunHistory(cwd, promptId) {
 			finishReasons: summary.finishReasons || [],
 			ok: summary.ok,
 			evalScore,
+			tokens: summary.usage?.tokens ?? 0,
 		});
 	}
 
