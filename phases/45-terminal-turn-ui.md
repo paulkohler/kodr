@@ -97,12 +97,12 @@ Supported slash commands:
 
 ## Done Criteria
 
-- [ ] Add `kodr tui`, `kodr tui --session <id>`, and `kodr tui --continue`.
-- [ ] Add a central channel-facing request function used by both CLI and TUI.
-- [ ] Implement the basic readline loop with slash commands.
-- [ ] Keep normal turns artifact-compatible with `kodr run`.
-- [ ] Tests cover argument parsing, slash command handling, channel routing, and
+- [x] Add `kodr tui`, `kodr tui --session <id>`, and `kodr tui --continue`.
+- [x] Add a central channel-facing request function used by both CLI and TUI.
+- [x] Implement the basic readline loop with slash commands.
+- [x] Keep normal turns artifact-compatible with `kodr run`.
+- [x] Tests cover argument parsing, slash command handling, channel routing, and
       session selection.
-- [ ] Document the TUI in `README.md`.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] Document the TUI in `README.md`.
+- [x] Record decisions and any failures.
+- [x] Blog post.

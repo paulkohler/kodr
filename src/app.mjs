@@ -38,6 +38,7 @@ import {
 	scanRunHistory,
 	scanSessions,
 } from './run-history.mjs';
+import { runTui } from './tui.mjs';
 import { VERSION } from './version.mjs';
 
 export { VERSION };
@@ -307,6 +308,8 @@ Usage:
   kodr run -p "task" --tools
   kodr run -p "follow up" --continue
   kodr run -p "follow up" --session <run-id>
+  kodr tui [--session <run-id>]
+  kodr tui --continue
   kodr run --show-files
   kodr run --show-context
   kodr run --show-skills
@@ -392,13 +395,21 @@ export async function main(argv, io) {
 			return { ok: true, command: 'run', context };
 		}
 
-		const result = await runPrompt(options, io);
+		const result = await handleChannelRequest(
+			{ kind: 'run-turn', options },
+			io,
+		);
 		if (options.json) {
 			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 		} else {
 			io.stdout.write(renderRunSummary(result));
 		}
 		return { ok: result.ok, command: 'run', result };
+	}
+
+	if (options.command === 'tui') {
+		const result = await runTui(options, io, handleChannelRequest);
+		return { ok: result.ok, command: 'tui', result };
 	}
 
 	if (options.command === 'replay') {
@@ -599,32 +610,15 @@ export async function main(argv, io) {
 		const sub = options.sessionSubcommand;
 
 		if (sub === 'list') {
-			const sessions = await scanSessions(io.cwd);
-			const list = [];
-			for (const [id, runs] of sessions) {
-				const last = runs.at(-1);
-				list.push({
-					sessionId: id,
-					turnCount: runs.length,
-					model: last?.model || '',
-					lastTimestamp: last?.timestamp || '',
-					ok: last?.ok ?? null,
-				});
-			}
-			list.sort((a, b) => a.lastTimestamp.localeCompare(b.lastTimestamp));
+			const list = await handleChannelRequest(
+				{ kind: 'session-list', options },
+				io,
+			);
 
 			if (options.json) {
 				io.stdout.write(`${JSON.stringify({ sessions: list }, null, 2)}\n`);
 			} else {
-				if (list.length === 0) {
-					io.stdout.write('No sessions found.\n');
-				}
-				for (const s of list) {
-					const status = s.ok === null ? '?' : s.ok ? 'ok' : 'fail';
-					io.stdout.write(
-						`${s.sessionId}  turns=${s.turnCount}  [${status}]  ${s.model}\n`,
-					);
-				}
+				io.stdout.write(renderSessionList(list));
 			}
 			return {
 				ok: true,
@@ -638,33 +632,15 @@ export async function main(argv, io) {
 			if (!options.sessionId) {
 				throw new CliError('kodr session show requires a session id');
 			}
-			const conv = await loadSessionConversation(io.cwd, options.sessionId);
-			if (!conv) {
-				throw new CliError(`Session not found: ${options.sessionId}`);
-			}
+			const conv = await handleChannelRequest(
+				{ kind: 'session-show', options, sessionId: options.sessionId },
+				io,
+			);
 
 			if (options.json) {
 				io.stdout.write(`${JSON.stringify(conv, null, 2)}\n`);
 			} else {
-				io.stdout.write(`Session: ${conv.sessionId}\n`);
-				for (const [index, turn] of conv.turns.entries()) {
-					const status =
-						turn.ok === null || turn.ok === undefined
-							? '?'
-							: turn.ok
-								? 'ok'
-								: 'fail';
-					const tokenPart = turn.tokens > 0 ? `  tokens=${turn.tokens}` : '';
-					io.stdout.write(
-						`\nTurn ${index + 1}  [${status}]  ${turn.model}${tokenPart}\n`,
-					);
-					io.stdout.write(
-						`  User: ${turn.user.slice(0, 120)}${turn.user.length > 120 ? '…' : ''}\n`,
-					);
-					io.stdout.write(
-						`  Assistant: ${turn.assistant.slice(0, 120)}${turn.assistant.length > 120 ? '…' : ''}\n`,
-					);
-				}
+				io.stdout.write(renderSessionConversation(conv));
 			}
 			return {
 				ok: true,
@@ -678,6 +654,78 @@ export async function main(argv, io) {
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);
+}
+
+export async function handleChannelRequest(request, io) {
+	if (request.kind === 'run-turn') {
+		return runPrompt(request.options, io);
+	}
+
+	if (request.kind === 'session-list') {
+		return listSessions(io.cwd);
+	}
+
+	if (request.kind === 'session-show') {
+		const conv = await loadSessionConversation(io.cwd, request.sessionId);
+		if (!conv) {
+			throw new CliError(`Session not found: ${request.sessionId}`);
+		}
+		return conv;
+	}
+
+	throw new CliError(`Unknown channel request: ${request.kind}`);
+}
+
+async function listSessions(cwd) {
+	const sessions = await scanSessions(cwd);
+	const list = [];
+	for (const [id, runs] of sessions) {
+		const last = runs.at(-1);
+		list.push({
+			sessionId: id,
+			turnCount: runs.length,
+			model: last?.model || '',
+			lastTimestamp: last?.timestamp || '',
+			ok: last?.ok ?? null,
+		});
+	}
+	list.sort((a, b) => a.lastTimestamp.localeCompare(b.lastTimestamp));
+	return list;
+}
+
+export function renderSessionList(list) {
+	if (list.length === 0) {
+		return 'No sessions found.\n';
+	}
+	return `${list
+		.map((session) => {
+			const status =
+				session.ok === null || session.ok === undefined
+					? '?'
+					: session.ok
+						? 'ok'
+						: 'fail';
+			return `${session.sessionId}  turns=${session.turnCount}  [${status}]  ${session.model}`;
+		})
+		.join('\n')}\n`;
+}
+
+export function renderSessionConversation(conversation) {
+	const lines = [`Session: ${conversation.sessionId}`];
+	for (const [index, turn] of conversation.turns.entries()) {
+		const status =
+			turn.ok === null || turn.ok === undefined ? '?' : turn.ok ? 'ok' : 'fail';
+		const tokenPart = turn.tokens > 0 ? `  tokens=${turn.tokens}` : '';
+		lines.push('');
+		lines.push(`Turn ${index + 1}  [${status}]  ${turn.model}${tokenPart}`);
+		lines.push(
+			`  User: ${turn.user.slice(0, 120)}${turn.user.length > 120 ? '…' : ''}`,
+		);
+		lines.push(
+			`  Assistant: ${turn.assistant.slice(0, 120)}${turn.assistant.length > 120 ? '…' : ''}`,
+		);
+	}
+	return `${lines.join('\n')}\n`;
 }
 
 function assignValue(options, flag, value) {

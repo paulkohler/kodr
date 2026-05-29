@@ -5,6 +5,7 @@ import { main } from '../src/app.mjs';
 main(process.argv.slice(2), {
 	cwd: process.cwd(),
 	env: process.env,
+	stdin: process.stdin,
 	stderr: process.stderr,
 	stdout: process.stdout,
 })

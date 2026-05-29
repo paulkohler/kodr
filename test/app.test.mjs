@@ -72,6 +72,16 @@ describe('parseArgs', () => {
 		assert.equal(options.out, 'cycle-run');
 	});
 
+	it('parses tui session flags', () => {
+		const session = parseArgs(['tui', '--session', 'run-1']);
+		assert.equal(session.command, 'tui');
+		assert.equal(session.sessionId, 'run-1');
+
+		const latest = parseArgs(['tui', '--continue']);
+		assert.equal(latest.command, 'tui');
+		assert.equal(latest.continueSession, true);
+	});
+
 	it('rejects unknown options', () => {
 		assert.throws(() => parseArgs(['--wat']), CliError);
 	});
