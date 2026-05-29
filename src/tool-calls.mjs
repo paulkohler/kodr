@@ -74,6 +74,7 @@ export async function completeWithToolCalls(
 	prompt,
 	systemPrompt,
 	registry,
+	{ initialMessages } = {},
 ) {
 	const budget = createLoopBudget({
 		maxCostUsd: options.maxCostUsd,
@@ -85,10 +86,12 @@ export async function completeWithToolCalls(
 	const apiTools = registry.toApiTools();
 	const responses = [];
 	const finishReasons = [];
-	const messages = [
-		{ role: 'system', content: systemPrompt },
-		{ role: 'user', content: prompt },
-	];
+	const messages = initialMessages
+		? [...initialMessages]
+		: [
+				{ role: 'system', content: systemPrompt },
+				{ role: 'user', content: prompt },
+			];
 
 	while (true) {
 		budget.beforeTurn();

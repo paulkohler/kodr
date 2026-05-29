@@ -2445,6 +2445,335 @@ describe('conversation transcripts', () => {
 	});
 });
 
+describe('session continuation', () => {
+	// Helper: runs a first prompt and returns its run dir.
+	async function firstRun(server, cwd, prompt = 'First task.') {
+		await main(
+			[
+				'run',
+				'-p',
+				prompt,
+				'--base-url',
+				server.baseUrl,
+				'--timeout-ms',
+				'1000',
+				'--json',
+			],
+			{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+		);
+		const lastRun = (
+			await readFile(join(cwd, '.kodr', 'last-run'), 'utf8')
+		).trim();
+		return lastRun;
+	}
+
+	it('--continue resumes the last run with frozen system prompt', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				// First run
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'First answer.', role: 'assistant' },
+							},
+						],
+						id: 'r1',
+						object: 'chat.completion',
+					},
+				},
+				// Second run (continuation)
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Second answer.', role: 'assistant' },
+							},
+						],
+						id: 'r2',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-'));
+			const parentDir = await firstRun(server, cwd);
+
+			const stdout = captureStream();
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Follow up.',
+					'--continue',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout },
+			);
+
+			assert.equal(result.ok, true);
+			assert.equal(result.result.response, 'Second answer.');
+
+			// The continuation's conversation starts from the parent's transcript,
+			// not a fresh system+user pair.
+			const conv = JSON.parse(
+				await readFile(join(result.result.runDir, 'conversation.json'), 'utf8'),
+			);
+			// parent had [system, user, assistant], continuation appends [user, assistant]
+			assert.equal(conv.length, 5);
+			assert.equal(conv[0].role, 'system');
+			assert.equal(conv[3].content, 'Follow up.');
+			assert.equal(conv[4].content, 'Second answer.');
+
+			// sessionId is inherited from the parent; parentRunDir points at it.
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.parentRunDir, parentDir);
+			assert.equal(summary.sessionId, basename(parentDir));
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('--session <id> loads a named session by run dir basename', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Turn one.', role: 'assistant' },
+							},
+						],
+						id: 'r1',
+						object: 'chat.completion',
+					},
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Turn two.', role: 'assistant' },
+							},
+						],
+						id: 'r2',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-id-'));
+			const parentDir = await firstRun(server, cwd);
+			const sessionId = basename(parentDir);
+
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Continue.',
+					'--session',
+					sessionId,
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			assert.equal(result.ok, true);
+			assert.equal(result.result.response, 'Turn two.');
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.sessionId, sessionId);
+			assert.equal(summary.parentRunDir, parentDir);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('--continue throws a clear error when no previous run exists', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-norun-'));
+		await assert.rejects(
+			() =>
+				main(
+					[
+						'run',
+						'-p',
+						'hi',
+						'--continue',
+						'--base-url',
+						'http://localhost:1234/v1',
+						'--timeout-ms',
+						'1000',
+					],
+					{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+				),
+			/no previous run found/u,
+		);
+	});
+
+	it('--session with unknown id throws a clear error', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-badid-'));
+		await assert.rejects(
+			() =>
+				main(
+					[
+						'run',
+						'-p',
+						'hi',
+						'--session',
+						'nonexistent-id',
+						'--base-url',
+						'http://localhost:1234/v1',
+						'--timeout-ms',
+						'1000',
+					],
+					{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+				),
+			/could not load conversation/u,
+		);
+	});
+
+	it('--continue and --session together throw a clear error', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-both-'));
+		await assert.rejects(
+			() =>
+				main(
+					[
+						'run',
+						'-p',
+						'hi',
+						'--continue',
+						'--session',
+						'some-id',
+						'--base-url',
+						'http://localhost:1234/v1',
+						'--timeout-ms',
+						'1000',
+					],
+					{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+				),
+			/--continue and --session cannot be used together/u,
+		);
+	});
+
+	it('emits a stderr warning when continuing with a different model', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'First.', role: 'assistant' },
+							},
+						],
+						id: 'r1',
+						object: 'chat.completion',
+					},
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Second.', role: 'assistant' },
+							},
+						],
+						id: 'r2',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-warn-'));
+			await firstRun(server, cwd);
+
+			const stderr = captureStream();
+			await main(
+				[
+					'run',
+					'-p',
+					'Follow up.',
+					'--continue',
+					'--model',
+					'other-model',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{ cwd, env: {}, stderr, stdout: captureStream() },
+			);
+
+			assert.match(
+				stderr.text,
+				/Warning: continuing session with model other-model/u,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('--session rejects ids with path traversal components', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-traversal-'));
+		await assert.rejects(
+			() =>
+				main(
+					[
+						'run',
+						'-p',
+						'hi',
+						'--session',
+						'../outside',
+						'--base-url',
+						'http://localhost:1234/v1',
+						'--timeout-ms',
+						'1000',
+					],
+					{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+				),
+			/could not load conversation/u,
+		);
+	});
+});
+
 function captureStream() {
 	return {
 		text: '',

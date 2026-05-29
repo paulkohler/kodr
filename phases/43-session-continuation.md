@@ -41,13 +41,13 @@ write/test state needs replaying.
 
 ## Done Criteria
 
-- [ ] `--continue` resolves and loads the last run's transcript.
-- [ ] `--session <id>` resolves and loads the named run's transcript.
-- [ ] New run extends `conversation.json`, carries `sessionId`, sets
+- [x] `--continue` resolves and loads the last run's transcript.
+- [x] `--session <id>` resolves and loads the named run's transcript.
+- [x] New run extends `conversation.json`, carries `sessionId`, sets
       `parentRunDir`.
-- [ ] System prompt is frozen from the parent (option A), not rebuilt.
-- [ ] Warns on model/provider mismatch; errors clearly on missing transcript.
-- [ ] Tests cover both resolvers, the chain linkage, freeze behavior, and the
+- [x] System prompt is frozen from the parent (option A), not rebuilt.
+- [x] Warns on model/provider mismatch; errors clearly on missing transcript.
+- [x] Tests cover both resolvers, the chain linkage, freeze behavior, and the
       error/warn paths.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] Record decisions and any failures.
+- [x] Blog post.

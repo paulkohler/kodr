@@ -12,12 +12,15 @@ export const OPENROUTER_EXTRA_HEADERS = {
 };
 
 // Run a prompt through the model, handling length-truncated continuations.
-// Returns { finishReasons, loopBudget, responses, text }.
+// Returns { finishReasons, loopBudget, messages, responses, text }.
+// Pass initialMessages to resume a prior conversation (session continuation);
+// otherwise pass systemPrompt + prompt and they are wrapped automatically.
 export async function completeWithContinuations(
 	options,
 	model,
 	prompt,
 	systemPrompt,
+	{ initialMessages } = {},
 ) {
 	const budget = createLoopBudget({
 		maxCostUsd: options.maxCostUsd,
@@ -28,10 +31,12 @@ export async function completeWithContinuations(
 	const responses = [];
 	const finishReasons = [];
 	const chunks = [];
-	const messages = [
-		{ content: systemPrompt, role: 'system' },
-		{ content: prompt, role: 'user' },
-	];
+	const messages = initialMessages
+		? [...initialMessages]
+		: [
+				{ content: systemPrompt, role: 'system' },
+				{ content: prompt, role: 'user' },
+			];
 
 	while (true) {
 		budget.beforeTurn();

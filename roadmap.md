@@ -45,7 +45,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 40 Real Unified Diffs
 - [x] 41 Token Usage Reporting
 - [x] 42 Conversation Transcripts
-- [ ] 43 Session Continuation
+- [x] 43 Session Continuation
 - [ ] 44 Session Browsing
 
 ## Phase Contract

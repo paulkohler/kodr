@@ -75,8 +75,10 @@ export function parseArgs(argv, env = {}) {
 		suitePath: '',
 		testCommand: '',
 		models: [],
+		continueSession: false,
 		promptId: '',
 		promptHistoryId: '',
+		sessionId: '',
 		tools: false,
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -151,6 +153,11 @@ export function parseArgs(argv, env = {}) {
 			continue;
 		}
 
+		if (arg === '--continue') {
+			options.continueSession = true;
+			continue;
+		}
+
 		if (arg === '--models') {
 			if (index + 1 >= argv.length) {
 				throw new CliError(`${arg} requires a value`);
@@ -182,7 +189,8 @@ export function parseArgs(argv, env = {}) {
 			arg === '--max-cost-usd' ||
 			arg === '--max-retries' ||
 			arg === '--max-tokens' ||
-			arg === '--max-turns'
+			arg === '--max-turns' ||
+			arg === '--session'
 		) {
 			// Consume the next token as the value unconditionally. An empty string
 			// or a value that starts with "--" (e.g. a literal prompt) is still a
@@ -285,6 +293,8 @@ Usage:
   kodr run -p "task" --yes [--test "npm test"] [--test-cwd path]
   kodr run -p "task" --stream
   kodr run -p "task" --tools
+  kodr run -p "follow up" --continue
+  kodr run -p "follow up" --session <run-id>
   kodr run --show-files
   kodr run --show-context
   kodr run --show-skills
@@ -590,6 +600,8 @@ function assignValue(options, flag, value) {
 		options.promptFile = value;
 	} else if (flag === '--prompt-id') {
 		options.promptId = value;
+	} else if (flag === '--session') {
+		options.sessionId = value;
 	} else if (flag === '--skill') {
 		options.skills.push(value);
 	} else if (flag === '--suite') {
@@ -670,18 +682,44 @@ async function runPrompt(options, io) {
 	const prompt = await loadPrompt(options, io.cwd);
 	const promptId = resolvePromptId(options, prompt);
 	const runDir = await createRunArtifacts(io.cwd, options.out);
-	const skills = await loadSkills(io.cwd, options.skills);
-	const memory = await loadMemory(io.cwd);
-	const context = await buildWorkspaceContext(io.cwd, {
-		memory,
-		skills,
-		toolsMode: options.tools,
-	});
+
+	// Resolve parent session (if --continue or --session was passed).
+	const parent = await resolveParentSession(options, io.cwd);
+
+	let skills;
+	let memory;
+	let context;
+	let initialMessages;
+
+	if (parent) {
+		// Continuation: freeze the system prompt from the parent transcript.
+		// The parent conversation ends with the model's last reply; append the new
+		// user turn and hand the whole history to the completion function.
+		const parentMessages = parent.conversation;
+		initialMessages = [...parentMessages, { role: 'user', content: prompt }];
+		// Build a minimal context for artifacts (context.md, workspaceFileCount).
+		memory = await loadMemory(io.cwd);
+		skills = await loadSkills(io.cwd, options.skills);
+		context = await buildWorkspaceContext(io.cwd, {
+			memory,
+			skills,
+			toolsMode: options.tools,
+		});
+	} else {
+		skills = await loadSkills(io.cwd, options.skills);
+		memory = await loadMemory(io.cwd);
+		context = await buildWorkspaceContext(io.cwd, {
+			memory,
+			skills,
+			toolsMode: options.tools,
+		});
+		initialMessages = [
+			{ role: 'system', content: context.systemPrompt },
+			{ role: 'user', content: prompt },
+		];
+	}
+
 	const registry = options.tools ? createBuiltinRegistry(io.cwd) : null;
-	const initialMessages = [
-		{ role: 'system', content: context.systemPrompt },
-		{ role: 'user', content: prompt },
-	];
 	const responsePath = join(runDir, 'response.md');
 	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
 	await writeText(join(runDir, 'prompt.md'), prompt);
@@ -706,6 +744,12 @@ async function runPrompt(options, io) {
 			);
 		}
 
+		if (parent && model !== parent.model) {
+			io.stderr.write(
+				`Warning: continuing session with model ${model} (parent used ${parent.model})\n`,
+			);
+		}
+
 		const rawRequest = {
 			messages: initialMessages,
 			model,
@@ -716,6 +760,7 @@ async function runPrompt(options, io) {
 		}
 		await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 
+		const contOpts = parent ? { initialMessages } : {};
 		completion = options.tools
 			? await completeWithToolCalls(
 					options,
@@ -723,12 +768,14 @@ async function runPrompt(options, io) {
 					prompt,
 					context.systemPrompt,
 					registry,
+					contOpts,
 				)
 			: await completeWithContinuations(
 					options,
 					model,
 					prompt,
 					context.systemPrompt,
+					contOpts,
 				);
 
 		await writeJson(join(runDir, 'raw-request.json'), {
@@ -752,7 +799,9 @@ async function runPrompt(options, io) {
 		);
 	}
 
-	const sessionId = basename(runDir);
+	// For continuations, inherit the parent's sessionId to keep the chain
+	// grouped; parentRunDir records the immediate predecessor.
+	const sessionId = parent ? parent.sessionId : basename(runDir);
 	const summary = {
 		artifacts: {
 			context: 'context.md',
@@ -773,7 +822,7 @@ async function runPrompt(options, io) {
 		loopBudget: completion.loopBudget,
 		model,
 		ok: true,
-		parentRunDir: null,
+		parentRunDir: parent ? parent.runDir : null,
 		promptChars: prompt.length,
 		promptId,
 		responseChars: completion.text.length,
@@ -1008,6 +1057,63 @@ async function verificationCwd(cwd, options) {
 
 	const testCwd = await jailedPath(cwd, options.testCwd);
 	return testCwd.absolute;
+}
+
+// Resolve a parent session for --continue or --session <id>.
+// Returns { conversation, model, runDir, sessionId } or null for a fresh run.
+async function resolveParentSession(options, cwd) {
+	const { continueSession, sessionId } = options;
+	if (!continueSession && !sessionId) {
+		return null;
+	}
+
+	if (continueSession && sessionId) {
+		throw new CliError('--continue and --session cannot be used together');
+	}
+
+	let runDir;
+	if (sessionId) {
+		// Strip directory components so --session ../escape cannot traverse outside
+		// .kodr/runs. Session ids are run dir basenames (timestamps), never paths.
+		runDir = join(cwd, '.kodr', 'runs', basename(sessionId));
+	} else {
+		// --continue: read .kodr/last-run
+		const lastRunPath = join(cwd, '.kodr', 'last-run');
+		let lastRunText;
+		try {
+			lastRunText = await readFile(lastRunPath, 'utf8');
+		} catch {
+			throw new CliError(
+				'--continue: no previous run found. Run kodr run first.',
+			);
+		}
+		runDir = lastRunText.trim();
+	}
+
+	let summary;
+	let conversation;
+	try {
+		summary = JSON.parse(await readFile(join(runDir, 'summary.json'), 'utf8'));
+		conversation = JSON.parse(
+			await readFile(join(runDir, 'conversation.json'), 'utf8'),
+		);
+	} catch {
+		const which = sessionId ? `--session ${sessionId}` : '--continue';
+		throw new CliError(
+			`${which}: could not load conversation from ${runDir}. The run may pre-date phase 42 or have failed before writing artifacts.`,
+		);
+	}
+
+	if (!Array.isArray(conversation) || conversation.length === 0) {
+		throw new CliError(`Session conversation is empty or invalid in ${runDir}`);
+	}
+
+	return {
+		conversation,
+		model: summary.model || '',
+		runDir,
+		sessionId: summary.sessionId || basename(runDir),
+	};
 }
 
 async function loadPrompt(options, cwd) {
