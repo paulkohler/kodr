@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { createRunArtifacts, writeJson, writeText } from './artifacts.mjs';
 import {
 	buildWorkspaceContext,
@@ -752,9 +752,11 @@ async function runPrompt(options, io) {
 		);
 	}
 
+	const sessionId = basename(runDir);
 	const summary = {
 		artifacts: {
 			context: 'context.md',
+			conversation: 'conversation.json',
 			messages: 'messages.json',
 			prompt: 'prompt.md',
 			rawRequest: 'raw-request.json',
@@ -771,10 +773,12 @@ async function runPrompt(options, io) {
 		loopBudget: completion.loopBudget,
 		model,
 		ok: true,
+		parentRunDir: null,
 		promptChars: prompt.length,
 		promptId,
 		responseChars: completion.text.length,
 		responseCount: completion.responses.length,
+		sessionId,
 		timestamp: new Date().toISOString(),
 		usage: usageFromBudget(completion.loopBudget),
 		workspaceFileCount: context.files.length,
@@ -808,6 +812,7 @@ async function runPrompt(options, io) {
 		};
 
 		await writeText(responsePath, completion.text);
+		await writeJson(join(runDir, 'conversation.json'), completion.messages);
 		await writeJson(join(runDir, 'messages.json'), []);
 		await writeText(join(runDir, 'scratchpad.md'), '');
 		await writeJson(join(runDir, 'raw-response.json'), {
@@ -818,6 +823,7 @@ async function runPrompt(options, io) {
 		await writeJson(join(runDir, 'tasks.json'), taskPlan);
 		await writeJson(join(runDir, 'writes.json'), writeResult);
 		await writeJson(join(runDir, 'tests.json'), null);
+		await writeLastRun(io.cwd, runDir);
 
 		return {
 			...summary,
@@ -909,6 +915,7 @@ async function runPrompt(options, io) {
 	summary.taskCounts = taskCounts(taskPlan);
 
 	await writeText(responsePath, completion.text);
+	await writeJson(join(runDir, 'conversation.json'), completion.messages);
 	await writeJson(join(runDir, 'messages.json'), proposalMessages);
 	await writeText(join(runDir, 'scratchpad.md'), scratchpad);
 	await writeJson(join(runDir, 'raw-response.json'), {
@@ -919,6 +926,7 @@ async function runPrompt(options, io) {
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);
 	await writeJson(join(runDir, 'writes.json'), writeResult);
 	await writeJson(join(runDir, 'tests.json'), testResult);
+	await writeLastRun(io.cwd, runDir);
 
 	return {
 		...summary,
@@ -966,10 +974,12 @@ async function writeRunFailure(runDir, details) {
 		error,
 		model: details.model,
 		ok: false,
+		parentRunDir: null,
 		promptChars: details.prompt.length,
 		promptId: details.promptId || '',
 		responseChars: 0,
 		responseCount: 0,
+		sessionId: basename(runDir),
 		taskCounts: taskCounts(taskPlan),
 		timestamp: new Date().toISOString(),
 		usage: null,
@@ -1217,6 +1227,16 @@ function indentBlock(text) {
 		.split('\n')
 		.map((line) => `  ${line}`)
 		.join('\n');
+}
+
+// Write the path of the most recent successful run dir to .kodr/last-run so
+// that --continue can find it without the user having to name the session.
+// Only called on successful completion; failed runs (writeRunFailure) do not
+// update the pointer so that --continue always resumes a usable transcript.
+async function writeLastRun(cwd, runDir) {
+	const kodrDir = join(cwd, '.kodr');
+	await mkdir(kodrDir, { recursive: true });
+	await writeFile(join(kodrDir, 'last-run'), `${runDir}\n`, 'utf8');
 }
 
 // Extract a structured usage object from a loop-budget snapshot. Returns null

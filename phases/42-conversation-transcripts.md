@@ -33,11 +33,11 @@ assistant's last message.
 
 ## Done Criteria
 
-- [ ] `conversation.json` written for every run, ending with the assistant turn.
-- [ ] Tool-call runs preserve `assistant`/`tool` messages in the transcript.
-- [ ] `summary.json` carries `sessionId` and `parentRunDir`.
-- [ ] `.kodr/last-run` pointer updated each run.
-- [ ] Tests cover transcript completeness for the buffered, continuation, and
+- [x] `conversation.json` written for every run, ending with the assistant turn.
+- [x] Tool-call runs preserve `assistant`/`tool` messages in the transcript.
+- [x] `summary.json` carries `sessionId` and `parentRunDir`.
+- [x] `.kodr/last-run` pointer updated each run.
+- [x] Tests cover transcript completeness for the buffered, continuation, and
       tool-call paths, plus the pointer write.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] Record decisions and any failures.
+- [x] Blog post.

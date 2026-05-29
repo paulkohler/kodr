@@ -55,12 +55,18 @@ export async function completeWithContinuations(
 
 		if (finishReason !== 'length') {
 			budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
+			const text = chunks.join('');
+			// Append the final assistant turn so the returned messages array is a
+			// complete conversation transcript (system → user → … → assistant).
+			// Intermediate chunks are appended as partial assistant turns within
+			// the length-continuation loop above; this entry holds the full text.
+			messages.push({ content: text, role: 'assistant' });
 			return {
 				finishReasons,
 				loopBudget: budget.snapshot(),
 				messages,
 				responses,
-				text: chunks.join(''),
+				text,
 			};
 		}
 

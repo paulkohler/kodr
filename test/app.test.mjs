@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { CliError, main, parseArgs, usage, VERSION } from '../src/app.mjs';
 import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
@@ -331,6 +331,7 @@ describe('run', () => {
 			assert.equal(summary.promptChars, 'Summarize the repo.'.length);
 			assert.deepEqual(summary.artifacts, {
 				context: 'context.md',
+				conversation: 'conversation.json',
 				messages: 'messages.json',
 				prompt: 'prompt.md',
 				rawRequest: 'raw-request.json',
@@ -2105,6 +2106,342 @@ describe('token usage reporting', () => {
 		});
 
 		assert.match(stdout.text, /tokens=888/u);
+	});
+});
+
+describe('conversation transcripts', () => {
+	it('conversation.json ends with the final assistant message', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Here is the plan.', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_conv',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-conv-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Write a plan.',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			const conv = JSON.parse(
+				await readFile(join(result.result.runDir, 'conversation.json'), 'utf8'),
+			);
+			// Transcript: system → user → assistant
+			assert.equal(conv.length, 3);
+			assert.equal(conv[0].role, 'system');
+			assert.equal(conv[1].role, 'user');
+			assert.equal(conv[1].content, 'Write a plan.');
+			assert.equal(conv[2].role, 'assistant');
+			assert.equal(conv[2].content, 'Here is the plan.');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('conversation.json includes continuation turns when length-stopped', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'length',
+								message: { content: 'Part one ', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_p1',
+						object: 'chat.completion',
+					},
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'part two.', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_p2',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-conv-cont-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Long task.',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			const conv = JSON.parse(
+				await readFile(join(result.result.runDir, 'conversation.json'), 'utf8'),
+			);
+			// system, user, assistant(part1), user(continue), assistant(final)
+			assert.equal(conv.length, 5);
+			assert.equal(conv[2].role, 'assistant');
+			assert.equal(conv[3].role, 'user');
+			assert.equal(conv[4].role, 'assistant');
+			assert.equal(conv[4].content, 'Part one part two.');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('summary.json carries sessionId matching run dir basename', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'ok', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_sid',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-conv-sid-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'hi',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.sessionId, basename(result.result.runDir));
+			assert.equal(summary.parentRunDir, null);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('writes .kodr/last-run pointing at the run dir', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'ok', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_lr',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-conv-lr-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'hi',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			const lastRun = (
+				await readFile(join(cwd, '.kodr', 'last-run'), 'utf8')
+			).trim();
+			assert.equal(lastRun, result.result.runDir);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('does not update .kodr/last-run when the model call fails', async () => {
+		// Queue an HTTP 500 so the run throws before writing last-run.
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 500,
+					body: { error: 'internal server error' },
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-conv-fail-'));
+			// Write a sentinel last-run value to verify it is not overwritten.
+			await mkdir(join(cwd, '.kodr'), { recursive: true });
+			await writeFile(
+				join(cwd, '.kodr', 'last-run'),
+				'/previous/run\n',
+				'utf8',
+			);
+
+			await assert.rejects(
+				() =>
+					main(
+						[
+							'run',
+							'-p',
+							'hi',
+							'--base-url',
+							server.baseUrl,
+							'--timeout-ms',
+							'1000',
+						],
+						{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+					),
+				/Model run failed/u,
+			);
+
+			const lastRun = (
+				await readFile(join(cwd, '.kodr', 'last-run'), 'utf8')
+			).trim();
+			assert.equal(lastRun, '/previous/run');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('conversation.json ends with assistant turn in --tools mode', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_1',
+											type: 'function',
+											function: { name: 'list_files', arguments: '{}' },
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_tc1',
+						object: 'chat.completion',
+					},
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Done.', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_tc2',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-conv-tools-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'List files.',
+					'--base-url',
+					server.baseUrl,
+					'--tools',
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			const conv = JSON.parse(
+				await readFile(join(result.result.runDir, 'conversation.json'), 'utf8'),
+			);
+			const last = conv.at(-1);
+			assert.equal(last.role, 'assistant');
+			assert.equal(last.content, 'Done.');
+		} finally {
+			await server.close();
+		}
 	});
 });
 

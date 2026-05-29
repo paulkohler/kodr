@@ -149,8 +149,10 @@ export async function completeWithToolCalls(
 			continue;
 		}
 
-		// Normal finish — return whatever text the model produced.
+		// Normal finish — append the final assistant turn to complete the
+		// transcript, then return.
 		const text = choice?.message?.content || '';
+		messages.push({ content: text, role: 'assistant' });
 		budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
 		return result(finishReasons, budget, responses, messages, text);
 	}
