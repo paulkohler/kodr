@@ -53,6 +53,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 48 Session Export
 - [x] 49 Channel Contract Tests
 - [x] 50 Web Channel Sketch
+- [x] 51 Structural Code Index
 
 ## Phase Contract
 

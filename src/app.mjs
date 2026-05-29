@@ -28,6 +28,7 @@ import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
 import { runComparison } from './compare.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
+import { inspectWorkspace } from './code-inspector.mjs';
 import {
 	completeWithContinuations,
 	OPENROUTER_BASE_URL,
@@ -67,6 +68,7 @@ export function parseArgs(argv, env = {}) {
 		dryRun: true,
 		extraHeaders: {},
 		help: false,
+		inspectSymbol: '',
 		json: false,
 		model: env.MODEL_ID || DEFAULT_MODEL_ID,
 		out: '',
@@ -205,7 +207,8 @@ export function parseArgs(argv, env = {}) {
 			arg === '--max-turns' ||
 			arg === '--session' ||
 			arg === '--host' ||
-			arg === '--port'
+			arg === '--port' ||
+			arg === '--symbol'
 		) {
 			// Consume the next token as the value unconditionally. An empty string
 			// or a value that starts with "--" (e.g. a literal prompt) is still a
@@ -334,6 +337,7 @@ Usage:
   kodr tui [--session <run-id>]
   kodr tui --continue
   kodr serve [--host 127.0.0.1] [--port 8787]
+  kodr inspect [--symbol name] [--json]
   kodr run --show-files
   kodr run --show-context
   kodr run --show-skills
@@ -450,6 +454,18 @@ export async function main(argv, io) {
 		io.stdout.write(`Serving: ${instance.url}\n`);
 		await instance.closed;
 		return { ok: true, command: 'serve', url: instance.url };
+	}
+
+	if (options.command === 'inspect') {
+		const index = await inspectWorkspace(io.cwd, {
+			symbol: options.inspectSymbol,
+		});
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(index, null, 2)}\n`);
+		} else {
+			io.stdout.write(renderInspection(index, options.inspectSymbol));
+		}
+		return { ok: true, command: 'inspect', index };
 	}
 
 	if (options.command === 'replay') {
@@ -839,6 +855,39 @@ export function renderSessionMarkdown(conversation) {
 	return `${lines.join('\n')}`;
 }
 
+export function renderInspection(index, symbolName = '') {
+	const lines = [
+		`Code inspection: ${index.files.length} files, ${index.symbols.length} symbols`,
+	];
+	const languages = Object.entries(index.languages)
+		.sort(([left], [right]) => left.localeCompare(right))
+		.map(([language, count]) => `${language}=${count}`)
+		.join(', ');
+	if (languages) {
+		lines.push(`Languages: ${languages}`);
+	}
+
+	for (const file of index.files) {
+		lines.push('');
+		lines.push(`${file.path} (${file.language})`);
+		for (const symbol of file.symbols) {
+			lines.push(
+				`  ${symbol.kind} ${symbol.name} lines ${symbol.lineStart}-${symbol.lineEnd}`,
+			);
+		}
+	}
+
+	if (symbolName) {
+		lines.push('');
+		lines.push(`References for ${symbolName}: ${index.references.length}`);
+		for (const reference of index.references) {
+			lines.push(`  ${reference.path}:${reference.line} ${reference.text}`);
+		}
+	}
+
+	return `${lines.join('\n')}\n`;
+}
+
 function fencedMarkdown(text) {
 	const fence = text.includes('```') ? '````' : '```';
 	return `${fence}\n${text}\n${fence}`;
@@ -888,6 +937,8 @@ function assignValue(options, flag, value) {
 		options.serveHost = value;
 	} else if (flag === '--port') {
 		options.servePort = Number(value);
+	} else if (flag === '--symbol') {
+		options.inspectSymbol = value;
 	}
 }
 

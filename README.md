@@ -67,6 +67,15 @@ Start a tiny local JSON HTTP channel for future web UI experiments:
 
 The server is local-only and dependency-free. It exposes `GET /sessions`, `GET /sessions/:id`, and `POST /turn`; each route flows through the same channel handler used by the CLI and TUI.
 
+Inspect source structure without calling a model:
+
+```sh
+./kodr inspect
+./kodr inspect --symbol runPrompt --json
+```
+
+The first inspector is a zero-dependency structural index for JavaScript, TypeScript, Python, Rust, and Go. It reports files, imports, symbols, chunks, and simple lexical references.
+
 ## Process
 
 Use [roadmap.md](./roadmap.md) as the phase index. Each phase has a spec under [phases/](./phases). Public learning notes live under [blog/](./blog). Small append-only records live under [process/](./process).

@@ -105,6 +105,13 @@ describe('parseArgs', () => {
 		assert.equal(options.servePort, 0);
 	});
 
+	it('parses inspect symbol flags', () => {
+		const options = parseArgs(['inspect', '--symbol', 'runPrompt']);
+
+		assert.equal(options.command, 'inspect');
+		assert.equal(options.inspectSymbol, 'runPrompt');
+	});
+
 	it('rejects unknown options', () => {
 		assert.throws(() => parseArgs(['--wat']), CliError);
 	});

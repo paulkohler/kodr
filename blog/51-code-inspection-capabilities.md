@@ -103,3 +103,31 @@ The first phase should prove:
 
 Once that works, Kodr can add optional external inspectors without making the
 base harness heavier.
+
+## Implementation Pass
+
+Phase 51 implements the first version as `kodr inspect`.
+
+The command is deliberately read-only and does not call a model. It walks the
+same deterministic file inventory as context packing, classifies supported
+source files, and emits a normalized index:
+
+- files with language, imports, line count, and symbols
+- flattened symbol list with paths and line spans
+- optional lexical references when `--symbol <name>` is provided
+
+The language adapters are small scanners:
+
+- JS/TS: imports, exported functions/classes, arrow functions, variables, and
+  common `test`/`it`/`describe` calls
+- Python: imports plus top-level classes, functions, and `test_` functions
+- Rust: `use`, `mod`, `fn`, `struct`, `enum`, `trait`, `impl`, and `#[test]`
+- Go: imports, `func`, `type`, and `Test*` functions in `*_test.go`
+
+The important design choice is the index shape, not parser completeness. Future
+external inspector plugins can produce the same normalized objects with richer
+data from tools like `gopls`, `rust-analyzer`, `pyright`, `tsserver`, or
+Tree-sitter.
+
+Verification covered fixture files for every target language, `kodr inspect
+--symbol`, and a live repo smoke test against Kodr's own source.
