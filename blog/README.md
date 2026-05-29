@@ -37,5 +37,6 @@ This blog records the build as a learning sequence. Keep posts terse and concret
 31. [Phase 30: Subagents](./30-subagents.md)
 32. [Phase 31: Local Markdown Search Example](./31-local-markdown-search.md)
 33. [Phase 32: Response Envelope](./32-response-envelope.md)
+34. [Design Note: Code Inspection Capabilities](./51-code-inspection-capabilities.md)
 
 Future posts should track the roadmap phases and include what changed, why, how it failed, and how it was verified.
