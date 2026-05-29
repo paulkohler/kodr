@@ -84,6 +84,7 @@ export function parseArgs(argv, env = {}) {
 		promptId: '',
 		promptHistoryId: '',
 		sessionId: '',
+		sessionFormat: 'markdown',
 		sessionSubcommand: '',
 		tools: false,
 		testCwd: '',
@@ -192,6 +193,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '--test-cwd' ||
 			arg === '--timeout-ms' ||
 			arg === '--transcript-file' ||
+			arg === '--format' ||
 			arg === '--max-cost-usd' ||
 			arg === '--max-retries' ||
 			arg === '--max-tokens' ||
@@ -319,6 +321,7 @@ Usage:
   kodr prompt-history <promptId> [--json]
   kodr session list [--json]
   kodr session show <sessionId> [--json]
+  kodr session export <sessionId> --format markdown
   kodr replay <run-dir>
 
 Local-model defaults:
@@ -650,7 +653,33 @@ export async function main(argv, io) {
 			};
 		}
 
-		throw new CliError(`kodr session requires a subcommand: list, show <id>`);
+		if (sub === 'export') {
+			if (!options.sessionId) {
+				throw new CliError('kodr session export requires a session id');
+			}
+			if (options.sessionFormat !== 'markdown') {
+				throw new CliError(
+					'kodr session export only supports --format markdown',
+				);
+			}
+			const conv = await handleChannelRequest(
+				{ kind: 'session-show', options, sessionId: options.sessionId },
+				io,
+			);
+			const markdown = renderSessionMarkdown(conv);
+			io.stdout.write(markdown);
+			return {
+				ok: true,
+				command: 'session',
+				subcommand: 'export',
+				conversation: conv,
+				format: options.sessionFormat,
+			};
+		}
+
+		throw new CliError(
+			`kodr session requires a subcommand: list, show <id>, export <id>`,
+		);
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);
@@ -739,6 +768,45 @@ export function renderSessionConversation(conversation) {
 	return `${lines.join('\n')}\n`;
 }
 
+export function renderSessionMarkdown(conversation) {
+	const lines = [
+		`# Kodr Session ${conversation.sessionId}`,
+		'',
+		`- Session ID: \`${conversation.sessionId}\``,
+		`- Turns: ${conversation.turns.length}`,
+		'',
+	];
+
+	for (const [index, turn] of conversation.turns.entries()) {
+		const status =
+			turn.ok === null || turn.ok === undefined ? '?' : turn.ok ? 'ok' : 'fail';
+		lines.push(`## Turn ${index + 1}`);
+		lines.push('');
+		lines.push(`- Model: \`${turn.model}\``);
+		lines.push(`- Status: ${status}`);
+		if (turn.tokens > 0) {
+			lines.push(`- Tokens: ${turn.tokens}`);
+		}
+		lines.push(`- Run: \`${turn.runDir}\``);
+		lines.push('');
+		lines.push('### User');
+		lines.push('');
+		lines.push(fencedMarkdown(turn.user));
+		lines.push('');
+		lines.push('### Assistant');
+		lines.push('');
+		lines.push(fencedMarkdown(turn.assistant));
+		lines.push('');
+	}
+
+	return `${lines.join('\n')}`;
+}
+
+function fencedMarkdown(text) {
+	const fence = text.includes('```') ? '````' : '```';
+	return `${fence}\n${text}\n${fence}`;
+}
+
 function assignValue(options, flag, value) {
 	if (flag === '--base-url') {
 		options.baseUrl = value.replace(/\/+$/u, '');
@@ -769,6 +837,8 @@ function assignValue(options, flag, value) {
 		options.timeoutMs = Number(value);
 	} else if (flag === '--transcript-file') {
 		options.transcriptFile = value;
+	} else if (flag === '--format') {
+		options.sessionFormat = value;
 	} else if (flag === '--max-cost-usd') {
 		options.maxCostUsd = value;
 	} else if (flag === '--max-retries') {

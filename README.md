@@ -53,6 +53,12 @@ When a dry-run TUI turn proposes writes, Kodr keeps a pending review. Use `/revi
 
 For slow local calls, the TUI prints request metadata and elapsed status. Pass `--stream` to show streamed assistant text as chunks arrive.
 
+Export a session conversation to Markdown for review or sharing:
+
+```sh
+./kodr session export <session-id> --format markdown
+```
+
 ## Process
 
 Use [roadmap.md](./roadmap.md) as the phase index. Each phase has a spec under [phases/](./phases). Public learning notes live under [blog/](./blog). Small append-only records live under [process/](./process).

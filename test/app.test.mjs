@@ -82,6 +82,21 @@ describe('parseArgs', () => {
 		assert.equal(latest.continueSession, true);
 	});
 
+	it('parses session export flags', () => {
+		const options = parseArgs([
+			'session',
+			'export',
+			'session-a',
+			'--format',
+			'markdown',
+		]);
+
+		assert.equal(options.command, 'session');
+		assert.equal(options.sessionSubcommand, 'export');
+		assert.equal(options.sessionId, 'session-a');
+		assert.equal(options.sessionFormat, 'markdown');
+	});
+
 	it('rejects unknown options', () => {
 		assert.throws(() => parseArgs(['--wat']), CliError);
 	});
@@ -3013,6 +3028,65 @@ describe('session browsing', () => {
 		}
 	});
 
+	it('session export prints deterministic markdown', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Exported answer.', role: 'assistant' },
+							},
+						],
+						id: 'r1',
+						object: 'chat.completion',
+						usage: { total_tokens: 7 },
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-export-'));
+			await main(
+				[
+					'run',
+					'-p',
+					'Export this.',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+			const sessionId = basename(
+				(await readFile(join(cwd, '.kodr', 'last-run'), 'utf8')).trim(),
+			);
+
+			const stdout = captureStream();
+			const result = await main(
+				['session', 'export', sessionId, '--format', 'markdown'],
+				{ cwd, env: {}, stderr: captureStream(), stdout },
+			);
+
+			assert.equal(result.subcommand, 'export');
+			assert.equal(result.format, 'markdown');
+			assert.match(stdout.text, new RegExp(`# Kodr Session ${sessionId}`, 'u'));
+			assert.match(stdout.text, /- Turns: 1/u);
+			assert.match(stdout.text, /- Tokens: 7/u);
+			assert.match(stdout.text, /### User/u);
+			assert.match(stdout.text, /Export this\./u);
+			assert.match(stdout.text, /Exported answer\./u);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('session list returns empty when no runs exist', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-empty-'));
 		const result = await main(['session', 'list'], {
@@ -3035,6 +3109,34 @@ describe('session browsing', () => {
 					stdout: captureStream(),
 				}),
 			/Session not found/u,
+		);
+	});
+
+	it('session export throws for unknown session', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-export-bad-'));
+		await assert.rejects(
+			() =>
+				main(['session', 'export', 'nonexistent-session'], {
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				}),
+			/Session not found/u,
+		);
+	});
+
+	it('session export rejects unsupported formats', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-export-format-'));
+		await assert.rejects(
+			() =>
+				main(['session', 'export', 'anything', '--format', 'html'], {
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				}),
+			/only supports --format markdown/u,
 		);
 	});
 

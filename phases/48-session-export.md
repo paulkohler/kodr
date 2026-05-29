@@ -27,9 +27,9 @@ The export should include:
 
 ## Done Criteria
 
-- [ ] Add `kodr session export <id> --format markdown`.
-- [ ] Markdown output is deterministic and readable.
-- [ ] Tests cover success and unknown-session errors.
-- [ ] README documents session export.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] Add `kodr session export <id> --format markdown`.
+- [x] Markdown output is deterministic and readable.
+- [x] Tests cover success and unknown-session errors.
+- [x] README documents session export.
+- [x] Record decisions and any failures.
+- [x] Blog post.
