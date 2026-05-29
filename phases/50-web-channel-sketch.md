@@ -22,11 +22,11 @@ frontend bundle. This is a channel sketch, not a full product UI.
 
 ## Done Criteria
 
-- [ ] Add local-only `kodr serve`.
-- [ ] Implement `GET /sessions`.
-- [ ] Implement `GET /sessions/:id`.
-- [ ] Implement `POST /turn`.
-- [ ] Ensure all routes use the central channel handler.
-- [ ] Tests cover route behavior and bad requests.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] Add local-only `kodr serve`.
+- [x] Implement `GET /sessions`.
+- [x] Implement `GET /sessions/:id`.
+- [x] Implement `POST /turn`.
+- [x] Ensure all routes use the central channel handler.
+- [x] Tests cover route behavior and bad requests.
+- [x] Record decisions and any failures.
+- [x] Blog post.

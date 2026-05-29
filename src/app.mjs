@@ -27,6 +27,7 @@ import { replayRun } from './replay.mjs';
 import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
 import { runComparison } from './compare.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
+import { startKodrServer } from './server.mjs';
 import {
 	completeWithContinuations,
 	OPENROUTER_BASE_URL,
@@ -46,6 +47,8 @@ export { VERSION };
 const DEFAULT_BASE_URL = 'http://localhost:1234/v1';
 const DEFAULT_MODEL_ID = 'qwen/qwen3.6-35b-a3b';
 const DEFAULT_TIMEOUT_MS = 600000;
+const DEFAULT_SERVE_HOST = '127.0.0.1';
+const DEFAULT_SERVE_PORT = 8787;
 const PROBE_PROMPT = 'Reply with exactly: kodr-probe-ok';
 
 const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';
@@ -86,6 +89,8 @@ export function parseArgs(argv, env = {}) {
 		sessionId: '',
 		sessionFormat: 'markdown',
 		sessionSubcommand: '',
+		serveHost: DEFAULT_SERVE_HOST,
+		servePort: DEFAULT_SERVE_PORT,
 		tools: false,
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -198,7 +203,9 @@ export function parseArgs(argv, env = {}) {
 			arg === '--max-retries' ||
 			arg === '--max-tokens' ||
 			arg === '--max-turns' ||
-			arg === '--session'
+			arg === '--session' ||
+			arg === '--host' ||
+			arg === '--port'
 		) {
 			// Consume the next token as the value unconditionally. An empty string
 			// or a value that starts with "--" (e.g. a literal prompt) is still a
@@ -267,6 +274,7 @@ export function parseArgs(argv, env = {}) {
 		);
 	}
 	validateLoopBudgetOptions(options);
+	validateServeOptions(options);
 
 	return options;
 }
@@ -295,6 +303,19 @@ function validateLoopBudgetOptions(options) {
 	}
 }
 
+function validateServeOptions(options) {
+	if (!options.serveHost.trim()) {
+		throw new CliError('--host must not be empty');
+	}
+	if (
+		!Number.isInteger(options.servePort) ||
+		options.servePort < 0 ||
+		options.servePort > 65535
+	) {
+		throw new CliError('--port must be an integer from 0 to 65535');
+	}
+}
+
 export function usage() {
 	return `kodr ${VERSION}
 
@@ -312,6 +333,7 @@ Usage:
   kodr run -p "follow up" --session <run-id>
   kodr tui [--session <run-id>]
   kodr tui --continue
+  kodr serve [--host 127.0.0.1] [--port 8787]
   kodr run --show-files
   kodr run --show-context
   kodr run --show-skills
@@ -346,6 +368,10 @@ OpenRouter:
                        Defaults to a content hash for -p prompts or the
                        filename slug for --prompt-file prompts.
   --suite path         Path to an eval suite JSON file for kodr eval.
+
+Web channel:
+  kodr serve           Start a local-only JSON HTTP channel.
+                       Routes: GET /sessions, GET /sessions/:id, POST /turn
 
 Implemented library primitives:
   workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
@@ -413,6 +439,17 @@ export async function main(argv, io) {
 	if (options.command === 'tui') {
 		const result = await runTui(options, io, handleChannelRequest);
 		return { ok: result.ok, command: 'tui', result };
+	}
+
+	if (options.command === 'serve') {
+		const instance = await startKodrServer({
+			channel: handleChannelRequest,
+			cwd: io.cwd,
+			options,
+		});
+		io.stdout.write(`Serving: ${instance.url}\n`);
+		await instance.closed;
+		return { ok: true, command: 'serve', url: instance.url };
 	}
 
 	if (options.command === 'replay') {
@@ -847,6 +884,10 @@ function assignValue(options, flag, value) {
 		options.maxTokens = Number(value);
 	} else if (flag === '--max-turns') {
 		options.maxTurns = Number(value);
+	} else if (flag === '--host') {
+		options.serveHost = value;
+	} else if (flag === '--port') {
+		options.servePort = Number(value);
 	}
 }
 

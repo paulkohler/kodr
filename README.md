@@ -59,6 +59,14 @@ Export a session conversation to Markdown for review or sharing:
 ./kodr session export <session-id> --format markdown
 ```
 
+Start a tiny local JSON HTTP channel for future web UI experiments:
+
+```sh
+./kodr serve
+```
+
+The server is local-only and dependency-free. It exposes `GET /sessions`, `GET /sessions/:id`, and `POST /turn`; each route flows through the same channel handler used by the CLI and TUI.
+
 ## Process
 
 Use [roadmap.md](./roadmap.md) as the phase index. Each phase has a spec under [phases/](./phases). Public learning notes live under [blog/](./blog). Small append-only records live under [process/](./process).

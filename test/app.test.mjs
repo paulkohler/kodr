@@ -97,6 +97,14 @@ describe('parseArgs', () => {
 		assert.equal(options.sessionFormat, 'markdown');
 	});
 
+	it('parses serve flags', () => {
+		const options = parseArgs(['serve', '--host', 'localhost', '--port', '0']);
+
+		assert.equal(options.command, 'serve');
+		assert.equal(options.serveHost, 'localhost');
+		assert.equal(options.servePort, 0);
+	});
+
 	it('rejects unknown options', () => {
 		assert.throws(() => parseArgs(['--wat']), CliError);
 	});
