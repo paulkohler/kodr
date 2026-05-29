@@ -21,9 +21,9 @@ staring at a frozen prompt while LM Studio processes a large request.
 
 ## Done Criteria
 
-- [ ] TUI prints start metadata for each model turn.
-- [ ] Long-running calls show elapsed status.
-- [ ] Streaming mode works in TUI without breaking artifacts.
-- [ ] Interrupt/EOF behavior is tested.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] TUI prints start metadata for each model turn.
+- [x] Long-running calls show elapsed status.
+- [x] Streaming mode works in TUI without breaking artifacts.
+- [x] Interrupt/EOF behavior is tested.
+- [x] Record decisions and any failures.
+- [x] Blog post.

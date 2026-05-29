@@ -149,4 +149,37 @@ describe('createChatCompletion streaming', () => {
 			await server.close();
 		}
 	});
+
+	it('calls onStreamContent for streamed text fragments', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				streamResponse(
+					sse([
+						{ choices: [{ delta: { content: 'A' } }] },
+						{ choices: [{ delta: { content: 'B' }, finish_reason: 'stop' }] },
+					]),
+				),
+			],
+		});
+		const chunks = [];
+
+		try {
+			await createChatCompletion(
+				{
+					...streamOptions(server.baseUrl),
+					onStreamContent(chunk) {
+						chunks.push(chunk);
+					},
+				},
+				{
+					messages: [{ role: 'user', content: 'hi' }],
+					model: 'test-model',
+				},
+			);
+
+			assert.deepEqual(chunks, ['A', 'B']);
+		} finally {
+			await server.close();
+		}
+	});
 });

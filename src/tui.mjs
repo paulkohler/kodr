@@ -85,7 +85,13 @@ export async function handleTuiLine(state, line, io, channel) {
 		state.pendingReview = null;
 	}
 	const options = turnOptions(state, text);
-	const result = await channel({ kind: 'run-turn', options }, io);
+	const status = startTurnStatus(io, state, options);
+	let result;
+	try {
+		result = await channel({ kind: 'run-turn', options }, io);
+	} finally {
+		status.stop();
+	}
 	state.continueNext = false;
 	state.lastRunDir = result.runDir || '';
 	state.sessionId = result.sessionId || state.sessionId;
@@ -96,7 +102,7 @@ export async function handleTuiLine(state, line, io, channel) {
 			result,
 		};
 	}
-	io.stdout.write(renderTurnResult(result));
+	io.stdout.write(renderTurnResult(result, { streamed: status.streamed }));
 	if (state.pendingReview) {
 		io.stdout.write(renderPendingReview(state.pendingReview));
 	}
@@ -262,7 +268,7 @@ async function handleSlashCommand(state, text, io, channel) {
 }
 
 function turnOptions(state, prompt) {
-	return {
+	const options = {
 		...state.baseOptions,
 		command: 'run',
 		continueSession: state.continueNext,
@@ -272,6 +278,50 @@ function turnOptions(state, prompt) {
 		sessionId: state.continueNext ? '' : state.sessionId,
 		tools: state.tools,
 		yes: state.apply,
+	};
+	if (options.stream) {
+		options.onStreamContent = (chunk) => {
+			state._activeStreamed = true;
+			state._activeStdout?.write(chunk);
+		};
+	}
+	return options;
+}
+
+function startTurnStatus(io, state, options) {
+	const startedAt = Date.now();
+	state._activeStreamed = false;
+	state._activeStdout = io.stdout;
+	io.stdout.write(
+		[
+			`assistant> request model=${options.model}`,
+			`provider=${state.provider}`,
+			`session=${options.sessionId || (options.continueSession ? 'latest' : 'new')}`,
+			`apply=${options.yes ? 'on' : 'dry-run'}`,
+			`tools=${options.tools ? 'on' : 'off'}`,
+			`timeoutMs=${options.timeoutMs}`,
+			`budgets=maxTurns:${options.maxTurns} maxRetries:${options.maxRetries} maxTokens:${options.maxTokens || '-'} maxCostUsd:${options.maxCostUsd || '-'}`,
+		].join(' ') + '\n',
+	);
+	if (options.stream) {
+		io.stdout.write('assistant> stream:\n');
+	}
+	const interval = setInterval(() => {
+		const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+		io.stdout.write(`assistant> elapsed=${elapsedSeconds}s\n`);
+	}, options.tuiStatusIntervalMs || 5000);
+	interval.unref?.();
+	return {
+		get streamed() {
+			return state._activeStreamed;
+		},
+		stop() {
+			clearInterval(interval);
+			if (state._activeStreamed) {
+				io.stdout.write('\n');
+			}
+			state._activeStdout = null;
+		},
 	};
 }
 
@@ -310,7 +360,7 @@ function renderStatus(state) {
 	].join('\n');
 }
 
-function renderTurnResult(result) {
+function renderTurnResult(result, options = {}) {
 	const lines = ['assistant>'];
 
 	const messages = result.proposal?.messages || [];
@@ -318,7 +368,7 @@ function renderTurnResult(result) {
 		lines.push(`  [${message.level}] ${message.content}`);
 	}
 
-	if (!result.proposal || result.proposalError) {
+	if ((!result.proposal || result.proposalError) && !options.streamed) {
 		const response = (result.response || '').trim();
 		if (response) {
 			lines.push(indent(response));

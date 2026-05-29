@@ -39,6 +39,7 @@ describe('terminal turn ui', () => {
 		assert.equal(calls[0].options.sessionId, '');
 		assert.equal(state.sessionId, 'run-1');
 		assert.match(stdout.text, /Plain response/u);
+		assert.match(stdout.text, /request model=test-model/u);
 	});
 
 	it('keeps slash commands out of the model channel', async () => {
@@ -254,6 +255,54 @@ describe('terminal turn ui', () => {
 			['run-turn', 'verify-command'],
 		);
 		assert.match(stdout.text, /tests=passed/u);
+	});
+
+	it('prints elapsed status while a turn is running', async () => {
+		const state = createTuiState({
+			model: 'test-model',
+			tuiStatusIntervalMs: 5,
+		});
+		const stdout = captureStream();
+
+		await handleTuiLine(state, 'slow turn', { stdout }, async () => {
+			await new Promise((resolve) => setTimeout(resolve, 12));
+			return {
+				applied: false,
+				ok: true,
+				response: 'done',
+				runDir: '/tmp/run-slow',
+				sessionId: 'run-slow',
+				writeResult: { writes: [] },
+			};
+		});
+
+		assert.match(stdout.text, /elapsed=0s/u);
+	});
+
+	it('prints streamed chunks from the run channel', async () => {
+		const state = createTuiState({
+			model: 'test-model',
+			stream: true,
+		});
+		const stdout = captureStream();
+
+		await handleTuiLine(state, 'stream turn', { stdout }, async (request) => {
+			request.options.onStreamContent('chunk-a');
+			request.options.onStreamContent(' chunk-b');
+			return {
+				applied: false,
+				ok: true,
+				response: 'chunk-a chunk-b',
+				runDir: '/tmp/run-stream',
+				sessionId: 'run-stream',
+				writeResult: { writes: [] },
+			};
+		});
+
+		assert.match(stdout.text, /assistant> stream:/u);
+		assert.match(stdout.text, /chunk-a chunk-b/u);
+		assert.equal(stdout.text.match(/chunk-a chunk-b/gu).length, 1);
+		assert.match(stdout.text, /chunk-a chunk-b\nassistant>/u);
 	});
 });
 

@@ -27,6 +27,7 @@ export async function createChatCompletion(options, body) {
 			},
 			extraHeaders: options.extraHeaders,
 			method: 'POST',
+			onStreamContent: options.onStreamContent,
 			timeoutMs: options.timeoutMs,
 		});
 	}
@@ -45,6 +46,7 @@ async function requestStreamJson(url, options) {
 	const content = await readServerSentEvents(
 		response,
 		`${options.method} ${url}`,
+		options.onStreamContent,
 	);
 
 	const message = {
@@ -158,7 +160,7 @@ function parseJson(text, label) {
 	}
 }
 
-async function readServerSentEvents(response, label) {
+async function readServerSentEvents(response, label, onStreamContent) {
 	const reader = response.body?.getReader();
 	if (!reader) {
 		throw new ModelClientError(`${label} returned no stream body`);
@@ -184,7 +186,7 @@ async function readServerSentEvents(response, label) {
 			if (!data || data === '[DONE]') {
 				continue;
 			}
-			applyStreamEvent(state, parseJson(data, label));
+			applyStreamEvent(state, parseJson(data, label), onStreamContent);
 		}
 	};
 
@@ -207,7 +209,7 @@ async function readServerSentEvents(response, label) {
 	}
 }
 
-function applyStreamEvent(state, parsed) {
+function applyStreamEvent(state, parsed, onStreamContent) {
 	if (parsed.id) {
 		state.id = parsed.id;
 	}
@@ -220,7 +222,11 @@ function applyStreamEvent(state, parsed) {
 		return;
 	}
 
-	state.text += choice.delta?.content || choice.message?.content || '';
+	const content = choice.delta?.content || choice.message?.content || '';
+	state.text += content;
+	if (content && onStreamContent) {
+		onStreamContent(content);
+	}
 	if (choice.finish_reason) {
 		state.finishReason = choice.finish_reason;
 	}

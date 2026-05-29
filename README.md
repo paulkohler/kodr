@@ -51,6 +51,8 @@ The TUI is line-oriented and dependency-free. Use `/help` inside it for slash co
 
 When a dry-run TUI turn proposes writes, Kodr keeps a pending review. Use `/review` to reprint it, `/accept` to apply it through the same run channel, `/reject` to discard it, and `/test` to run the configured test command.
 
+For slow local calls, the TUI prints request metadata and elapsed status. Pass `--stream` to show streamed assistant text as chunks arrive.
+
 ## Process
 
 Use [roadmap.md](./roadmap.md) as the phase index. Each phase has a spec under [phases/](./phases). Public learning notes live under [blog/](./blog). Small append-only records live under [process/](./process).
