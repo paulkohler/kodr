@@ -17,6 +17,7 @@ This repo is built as a learning tool. Preserve the process, not just the code.
 - Treat examples as Kodr samples with provenance, not hand-written fixtures.
 - If generation fails, diagnose whether the harness or example needs repair before stabilizing manually.
 - Blog posts should capture important harness and app failures discovered during the phase.
+- Route new user-facing surfaces through shared channel/request handling instead of duplicating CLI execution paths.
 
 ## Required Loop
 
