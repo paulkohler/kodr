@@ -2774,6 +2774,317 @@ describe('session continuation', () => {
 	});
 });
 
+describe('session browsing', () => {
+	it('session list shows known sessions', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'A1.', role: 'assistant' },
+							},
+						],
+						id: 'r1',
+						object: 'chat.completion',
+					},
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'A2.', role: 'assistant' },
+							},
+						],
+						id: 'r2',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-list-'));
+			// Two separate sessions (independent runs)
+			await main(
+				[
+					'run',
+					'-p',
+					'First session task.',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+			await main(
+				[
+					'run',
+					'-p',
+					'Second session task.',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			const stdout = captureStream();
+			const result = await main(['session', 'list'], {
+				cwd,
+				env: {},
+				stderr: captureStream(),
+				stdout,
+			});
+
+			assert.equal(result.command, 'session');
+			assert.equal(result.subcommand, 'list');
+			assert.equal(result.sessions.length, 2);
+			// Non-JSON output contains the session ids
+			assert.match(stdout.text, /turns=1/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('session list --json returns structured data', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'ok', role: 'assistant' },
+							},
+						],
+						id: 'r1',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-list-json-'));
+			await main(
+				[
+					'run',
+					'-p',
+					'task',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			const stdout = captureStream();
+			await main(['session', 'list', '--json'], {
+				cwd,
+				env: {},
+				stderr: captureStream(),
+				stdout,
+			});
+
+			const data = JSON.parse(stdout.text);
+			assert.ok(Array.isArray(data.sessions));
+			assert.equal(data.sessions[0].turnCount, 1);
+			assert.ok(data.sessions[0].sessionId.length > 0);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('session show prints conversation turns', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'First answer.', role: 'assistant' },
+							},
+						],
+						id: 'r1',
+						object: 'chat.completion',
+					},
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Second answer.', role: 'assistant' },
+							},
+						],
+						id: 'r2',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-show-'));
+			// First turn
+			await main(
+				[
+					'run',
+					'-p',
+					'Do something.',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+			const lastRun = (
+				await readFile(join(cwd, '.kodr', 'last-run'), 'utf8')
+			).trim();
+			const sessionId = basename(lastRun);
+			// Second turn
+			await main(
+				[
+					'run',
+					'-p',
+					'Continue it.',
+					'--continue',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			const stdout = captureStream();
+			const result = await main(['session', 'show', sessionId], {
+				cwd,
+				env: {},
+				stderr: captureStream(),
+				stdout,
+			});
+
+			assert.equal(result.subcommand, 'show');
+			assert.equal(result.conversation.sessionId, sessionId);
+			assert.equal(result.conversation.turns.length, 2);
+			assert.equal(result.conversation.turns[0].user, 'Do something.');
+			assert.equal(result.conversation.turns[0].assistant, 'First answer.');
+			assert.equal(result.conversation.turns[1].user, 'Continue it.');
+			assert.equal(result.conversation.turns[1].assistant, 'Second answer.');
+			assert.match(stdout.text, /Turn 1/u);
+			assert.match(stdout.text, /Do something\./u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('session list returns empty when no runs exist', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-empty-'));
+		const result = await main(['session', 'list'], {
+			cwd,
+			env: {},
+			stderr: captureStream(),
+			stdout: captureStream(),
+		});
+		assert.equal(result.sessions.length, 0);
+	});
+
+	it('session show throws for unknown session', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-show-bad-'));
+		await assert.rejects(
+			() =>
+				main(['session', 'show', 'nonexistent-session'], {
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				}),
+			/Session not found/u,
+		);
+	});
+
+	it('session without subcommand throws a helpful error', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-noarg-'));
+		await assert.rejects(
+			() =>
+				main(['session'], {
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				}),
+			/requires a subcommand/u,
+		);
+	});
+
+	it('session show without id argument throws a helpful error', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-show-noid-'));
+		await assert.rejects(
+			() =>
+				main(['session', 'show'], {
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				}),
+			/requires a session id/u,
+		);
+	});
+
+	it('session show returns null when no conversation.json exists in the run dir', async () => {
+		// Simulate a pre-phase-42 run: summary.json exists but conversation.json absent.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-oldrun-'));
+		const runDir = join(cwd, '.kodr', 'runs', '2000-01-01T00-00-00.000Z');
+		await mkdir(runDir, { recursive: true });
+		await writeFile(
+			join(runDir, 'summary.json'),
+			JSON.stringify({
+				sessionId: '2000-01-01T00-00-00.000Z',
+				model: 'old-model',
+				ok: true,
+				timestamp: '2000-01-01T00:00:00.000Z',
+				finishReasons: ['stop'],
+			}),
+		);
+
+		await assert.rejects(
+			() =>
+				main(['session', 'show', '2000-01-01T00-00-00.000Z'], {
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				}),
+			/Session not found/u,
+		);
+	});
+});
+
 function captureStream() {
 	return {
 		text: '',

@@ -33,7 +33,11 @@ import {
 	OPENROUTER_EXTRA_HEADERS,
 } from './completion.mjs';
 import { derivePromptId, promptIdFromFilename } from './prompt-id.mjs';
-import { scanRunHistory } from './run-history.mjs';
+import {
+	loadSessionConversation,
+	scanRunHistory,
+	scanSessions,
+} from './run-history.mjs';
 import { VERSION } from './version.mjs';
 
 export { VERSION };
@@ -79,6 +83,7 @@ export function parseArgs(argv, env = {}) {
 		promptId: '',
 		promptHistoryId: '',
 		sessionId: '',
+		sessionSubcommand: '',
 		tools: false,
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -220,6 +225,13 @@ export function parseArgs(argv, env = {}) {
 			positionals.length === 2
 		) {
 			options.promptHistoryId = positionals[1];
+		} else if (options.command === 'session' && positionals.length === 2) {
+			// Accepts: kodr session list  OR  kodr session show <id>
+			// The sub-command / id is captured via sessionId re-use.
+			options.sessionSubcommand = positionals[1];
+		} else if (options.command === 'session' && positionals.length === 3) {
+			options.sessionSubcommand = positionals[1];
+			options.sessionId = positionals[2];
 		} else if (positionals.length > 1) {
 			throw new CliError(
 				`Unexpected positional arguments: ${positionals.slice(1).join(' ')}`,
@@ -302,6 +314,8 @@ Usage:
   kodr compare -p "task" --models "m1,openrouter:m2" [--json]
   kodr eval --suite evals/suite.json [--json]
   kodr prompt-history <promptId> [--json]
+  kodr session list [--json]
+  kodr session show <sessionId> [--json]
   kodr replay <run-dir>
 
 Local-model defaults:
@@ -579,6 +593,88 @@ export async function main(argv, io) {
 			}
 		}
 		return { ok: true, command: 'prompt-history', result };
+	}
+
+	if (options.command === 'session') {
+		const sub = options.sessionSubcommand;
+
+		if (sub === 'list') {
+			const sessions = await scanSessions(io.cwd);
+			const list = [];
+			for (const [id, runs] of sessions) {
+				const last = runs.at(-1);
+				list.push({
+					sessionId: id,
+					turnCount: runs.length,
+					model: last?.model || '',
+					lastTimestamp: last?.timestamp || '',
+					ok: last?.ok ?? null,
+				});
+			}
+			list.sort((a, b) => a.lastTimestamp.localeCompare(b.lastTimestamp));
+
+			if (options.json) {
+				io.stdout.write(`${JSON.stringify({ sessions: list }, null, 2)}\n`);
+			} else {
+				if (list.length === 0) {
+					io.stdout.write('No sessions found.\n');
+				}
+				for (const s of list) {
+					const status = s.ok === null ? '?' : s.ok ? 'ok' : 'fail';
+					io.stdout.write(
+						`${s.sessionId}  turns=${s.turnCount}  [${status}]  ${s.model}\n`,
+					);
+				}
+			}
+			return {
+				ok: true,
+				command: 'session',
+				subcommand: 'list',
+				sessions: list,
+			};
+		}
+
+		if (sub === 'show') {
+			if (!options.sessionId) {
+				throw new CliError('kodr session show requires a session id');
+			}
+			const conv = await loadSessionConversation(io.cwd, options.sessionId);
+			if (!conv) {
+				throw new CliError(`Session not found: ${options.sessionId}`);
+			}
+
+			if (options.json) {
+				io.stdout.write(`${JSON.stringify(conv, null, 2)}\n`);
+			} else {
+				io.stdout.write(`Session: ${conv.sessionId}\n`);
+				for (const [index, turn] of conv.turns.entries()) {
+					const status =
+						turn.ok === null || turn.ok === undefined
+							? '?'
+							: turn.ok
+								? 'ok'
+								: 'fail';
+					const tokenPart = turn.tokens > 0 ? `  tokens=${turn.tokens}` : '';
+					io.stdout.write(
+						`\nTurn ${index + 1}  [${status}]  ${turn.model}${tokenPart}\n`,
+					);
+					io.stdout.write(
+						`  User: ${turn.user.slice(0, 120)}${turn.user.length > 120 ? '…' : ''}\n`,
+					);
+					io.stdout.write(
+						`  Assistant: ${turn.assistant.slice(0, 120)}${turn.assistant.length > 120 ? '…' : ''}\n`,
+					);
+				}
+			}
+			return {
+				ok: true,
+				command: 'session',
+				subcommand: 'show',
+				conversation: conv,
+			};
+		}
+
+		throw new CliError(`kodr session requires a subcommand: list, show <id>`);
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);

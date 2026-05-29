@@ -16,9 +16,9 @@ Make session chains browsable from the CLI, building on the `sessionId` /
 
 ## Done Criteria
 
-- [ ] `kodr session list` with structured + human output.
-- [ ] `kodr session show <id>` renders the ordered conversation.
-- [ ] Reuses existing run-history scanning.
-- [ ] Tests cover listing, show, and the empty/no-sessions case.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] `kodr session list` with structured + human output.
+- [x] `kodr session show <id>` renders the ordered conversation.
+- [x] Reuses existing run-history scanning.
+- [x] Tests cover listing, show, and the empty/no-sessions case.
+- [x] Record decisions and any failures.
+- [x] Blog post.
