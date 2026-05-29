@@ -49,6 +49,8 @@ Start a simple terminal turn UI when you want to keep taking turns in one sessio
 
 The TUI is line-oriented and dependency-free. Use `/help` inside it for slash commands such as `/sessions`, `/show <id>`, `/use <id>`, `/new`, `/apply on|off`, `/tools on|off`, `/model <id>`, and `/quit`.
 
+When a dry-run TUI turn proposes writes, Kodr keeps a pending review. Use `/review` to reprint it, `/accept` to apply it through the same run channel, `/reject` to discard it, and `/test` to run the configured test command.
+
 ## Process
 
 Use [roadmap.md](./roadmap.md) as the phase index. Each phase has a spec under [phases/](./phases). Public learning notes live under [blog/](./blog). Small append-only records live under [process/](./process).

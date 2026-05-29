@@ -50,10 +50,10 @@ proposal artifact directly. That keeps all writes flowing through the existing
 
 ## Done Criteria
 
-- [ ] TUI stores pending dry-run proposals with writes.
-- [ ] `/review`, `/accept`, `/reject`, and `/test` are implemented.
-- [ ] `/accept` applies through the shared run-turn channel.
-- [ ] Tests cover pending review state and slash command routing.
-- [ ] README documents the review commands.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
+- [x] TUI stores pending dry-run proposals with writes.
+- [x] `/review`, `/accept`, `/reject`, and `/test` are implemented.
+- [x] `/accept` applies through the shared run-turn channel.
+- [x] Tests cover pending review state and slash command routing.
+- [x] README documents the review commands.
+- [x] Record decisions and any failures.
+- [x] Blog post.

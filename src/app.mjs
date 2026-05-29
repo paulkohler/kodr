@@ -673,6 +673,17 @@ export async function handleChannelRequest(request, io) {
 		return conv;
 	}
 
+	if (request.kind === 'verify-command') {
+		if (!request.options.testCommand) {
+			throw new CliError('No test command configured');
+		}
+		return runVerification(
+			await verificationCwd(io.cwd, request.options),
+			request.options.testCommand,
+			{ timeoutMs: request.options.timeoutMs },
+		);
+	}
+
 	throw new CliError(`Unknown channel request: ${request.kind}`);
 }
 

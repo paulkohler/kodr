@@ -107,6 +107,32 @@ describe('terminal turn ui', () => {
 		assert.match(stdout.text, /assistant> bye/u);
 	});
 
+	it('exits cleanly when piped input ends after a turn', async () => {
+		const stdout = captureStream();
+		const result = await runTui(
+			{ model: 'test-model' },
+			{
+				stderr: captureStream(),
+				stdin: Readable.from(['one turn\n']),
+				stdout,
+			},
+			async () => {
+				return {
+					applied: false,
+					ok: true,
+					response: 'done',
+					runDir: '/tmp/run-eof',
+					sessionId: 'run-eof',
+					writeResult: { writes: [] },
+				};
+			},
+		);
+
+		assert.equal(result.ok, true);
+		assert.equal(result.reason, 'eof');
+		assert.match(stdout.text, /done/u);
+	});
+
 	it('lists and shows sessions through slash commands', async () => {
 		const state = createTuiState({ model: 'test-model' });
 		const stdout = captureStream();
@@ -143,7 +169,108 @@ describe('terminal turn ui', () => {
 		assert.match(stdout.text, /session-a/u);
 		assert.match(stdout.text, /assistant: hello/u);
 	});
+
+	it('stores pending reviews for dry-run write proposals', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+
+		await handleTuiLine(state, 'change a file', { stdout }, async () => {
+			return proposalResult({ applied: false });
+		});
+
+		assert.ok(state.pendingReview);
+		assert.equal(state.pendingReview.prompt, 'change a file');
+		assert.match(stdout.text, /pending review/u);
+		assert.match(stdout.text, /src\/index.mjs/u);
+	});
+
+	it('accepts a pending review through a second run-turn request', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+		const calls = [];
+
+		await handleTuiLine(state, 'change a file', { stdout }, async (request) => {
+			calls.push(request);
+			return proposalResult({ applied: false });
+		});
+		await handleTuiLine(state, '/accept', { stdout }, async (request) => {
+			calls.push(request);
+			return proposalResult({
+				applied: true,
+				runDir: '/tmp/run-applied',
+				sessionId: 'applied-session',
+			});
+		});
+
+		assert.equal(calls.length, 2);
+		assert.equal(calls[1].kind, 'run-turn');
+		assert.equal(calls[1].options.yes, true);
+		assert.equal(calls[1].options.dryRun, false);
+		assert.equal(state.pendingReview, null);
+		assert.equal(state.sessionId, 'applied-session');
+		assert.match(stdout.text, /applying pending review/u);
+	});
+
+	it('rejects and reprints pending reviews without model calls', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+		let calls = 0;
+
+		await handleTuiLine(state, 'change a file', { stdout }, async () => {
+			calls += 1;
+			return proposalResult({ applied: false });
+		});
+		await handleTuiLine(state, '/review', { stdout }, async () => {
+			calls += 1;
+		});
+		await handleTuiLine(state, '/reject', { stdout }, async () => {
+			calls += 1;
+		});
+
+		assert.equal(calls, 1);
+		assert.equal(state.pendingReview, null);
+		assert.match(stdout.text, /review rejected/u);
+	});
+
+	it('runs configured pending-review tests through the channel', async () => {
+		const state = createTuiState({
+			model: 'test-model',
+			testCommand: 'npm test',
+		});
+		const stdout = captureStream();
+		const calls = [];
+
+		await handleTuiLine(state, 'change a file', { stdout }, async (request) => {
+			calls.push(request);
+			return proposalResult({ applied: false });
+		});
+		await handleTuiLine(state, '/test', { stdout }, async (request) => {
+			calls.push(request);
+			return { command: 'npm test', ok: true };
+		});
+
+		assert.deepEqual(
+			calls.map((call) => call.kind),
+			['run-turn', 'verify-command'],
+		);
+		assert.match(stdout.text, /tests=passed/u);
+	});
 });
+
+function proposalResult(options = {}) {
+	return {
+		applied: options.applied ?? false,
+		ok: true,
+		proposal: {
+			messages: [{ content: 'Ready to apply.', level: 'info' }],
+		},
+		runDir: options.runDir || '/tmp/run-dry',
+		sessionId: options.sessionId || 'dry-session',
+		writeResult: {
+			writes: [{ path: 'src/index.mjs', status: 'modify' }],
+		},
+	};
+}
 
 function captureIo() {
 	return { stdout: captureStream() };
