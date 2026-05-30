@@ -196,6 +196,11 @@ describe('inspectWorkspace', () => {
 			),
 			['src/app.mjs:1', 'src/app.mjs:3', 'src/helper.py:1', 'src/helper.py:4'],
 		);
+		assert.ok(typeof index.totalFiles === 'number', 'totalFiles is a number');
+		assert.ok(
+			typeof index.totalSymbols === 'number',
+			'totalSymbols is a number',
+		);
 	});
 });
 

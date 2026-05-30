@@ -46,6 +46,9 @@ export async function inspectWorkspace(cwd, options = {}) {
 		index.references = findReferences(index, options.symbol);
 	}
 
+	index.totalFiles = index.files.length;
+	index.totalSymbols = index.symbols.length;
+
 	return index;
 }
 

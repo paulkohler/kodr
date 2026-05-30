@@ -138,6 +138,11 @@ export function parseArgs(argv, env = {}) {
 			continue;
 		}
 
+		if (arg === '--protect-existing') {
+			options.protectExisting = true;
+			continue;
+		}
+
 		if (arg === '--show-context') {
 			options.showContext = true;
 			continue;
@@ -336,6 +341,7 @@ Usage:
   kodr run --prompt-file prompt.md [--out .kodr/runs/name] [--prompt-id slug]
   kodr run -p "task" --dry-run
   kodr run -p "task" --yes [--test "npm test"] [--test-cwd path]
+  kodr run -p "task" --yes --protect-existing
   kodr run -p "task" --stream
   kodr run -p "task" --tools
   kodr run -p "task" --inspect-context
@@ -1255,6 +1261,7 @@ async function runPrompt(options, io) {
 		try {
 			writeResult = await prepareChanges(io.cwd, proposal, {
 				apply: options.yes,
+				protectExisting: options.protectExisting,
 			});
 		} catch (error) {
 			writeError = {

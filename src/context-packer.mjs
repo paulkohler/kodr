@@ -259,7 +259,7 @@ function renderSystemPrompt(context) {
 			'When responding to a run prompt, return one JSON object using this envelope:',
 			'{"status":"OK","messages":[{"level":"info","content":"short note"}],"files":[],"patches":[],"scratchpad":""}',
 			'Use status "OK" when you are proposing changes or have no changes to make. Use status "ERROR" when you cannot complete the request; include the reason in messages and do not include file changes.',
-			'Use "files" for full-file writes with {"path","content"} entries. Use "patches" for narrow repairs with {"path","search","replace"} entries; patch search text must match the current file exactly once.',
+			'Use "files" for full-file writes with {"path","content"} entries — only for new files or complete rewrites. Use "patches" for targeted edits to existing files with {"path","search","replace"} entries; prefer patches whenever you are adding or changing a small section of an existing file; patch search text must match the current file exactly once. Do not rewrite an entire existing file just to make a small change.',
 			'Use "messages" for short user-facing run notes. You may include a "scratchpad" string for short run-local notes, open questions, or next repair steps. Do not put secrets in messages or scratchpad content.',
 		].join(' '),
 	];

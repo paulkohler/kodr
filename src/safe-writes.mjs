@@ -21,6 +21,19 @@ export async function prepareChanges(cwd, proposal, options = {}) {
 	const apply = options.apply === true;
 	const timestamp =
 		options.timestamp || new Date().toISOString().replaceAll(':', '-');
+
+	if (options.protectExisting) {
+		for (const file of files) {
+			const jailed = await jailedPath(cwd, file.path);
+			const before = await readExisting(jailed.absolute);
+			if (before.exists) {
+				throw new SafeWriteError(
+					`Refusing to overwrite existing file via files[]: ${file.path} — use patches instead`,
+				);
+			}
+		}
+	}
+
 	const fileResult = await prepareWrites(cwd, files, {
 		apply,
 		timestamp,

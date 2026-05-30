@@ -28,14 +28,13 @@ new data is needed.
 
 ## Done Criteria
 
-- [ ] `inspectWorkspace` returns `totalFiles` equal to `index.files.length`.
-- [ ] `inspectWorkspace` returns `totalSymbols` equal to `index.symbols.length`.
-- [ ] Existing tests in `test/code-inspector.test.mjs` still pass.
-- [ ] New assertion added to `test/code-inspector.test.mjs` or
-      `test/inspect-command.test.mjs` that checks both new fields.
-- [ ] `npm run format` and `npm run check` pass.
-- [ ] Decisions recorded.
-- [ ] Roadmap marked complete and committed.
+- [x] `inspectWorkspace` returns `totalFiles` equal to `index.files.length`.
+- [x] `inspectWorkspace` returns `totalSymbols` equal to `index.symbols.length`.
+- [x] Existing tests in `test/code-inspector.test.mjs` still pass.
+- [x] New assertion added to `test/code-inspector.test.mjs` that checks both new fields.
+- [x] `npm run format` and `npm run check` pass.
+- [x] Decisions recorded.
+- [x] Roadmap marked complete and committed.
 
 ## Self-Dev Notes
 
