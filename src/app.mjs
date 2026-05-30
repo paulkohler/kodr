@@ -92,6 +92,7 @@ export function parseArgs(argv, env = {}) {
 		testCommand: '',
 		models: [],
 		continueSession: false,
+		priorScratchpadPath: '',
 		promptId: '',
 		promptHistoryId: '',
 		sessionId: '',
@@ -225,7 +226,8 @@ export function parseArgs(argv, env = {}) {
 			arg === '--host' ||
 			arg === '--port' ||
 			arg === '--symbol' ||
-			arg === '--languages'
+			arg === '--languages' ||
+			arg === '--prior-scratchpad'
 		) {
 			// Consume the next token as the value unconditionally. An empty string
 			// or a value that starts with "--" (e.g. a literal prompt) is still a
@@ -392,6 +394,9 @@ OpenRouter:
                        Defaults to a content hash for -p prompts or the
                        filename slug for --prompt-file prompts.
   --suite path         Path to an eval suite JSON file for kodr eval.
+  --prior-scratchpad   Path to a scratchpad file to inject into the user message.
+                       Use "last" to read from the most recent run's scratchpad.
+                       Truncated to 2000 characters. Skipped if empty.
 
 Web channel:
   kodr serve           Start a local-only JSON HTTP channel.
@@ -992,6 +997,8 @@ function assignValue(options, flag, value) {
 			.split(',')
 			.map((s) => s.trim())
 			.filter(Boolean);
+	} else if (flag === '--prior-scratchpad') {
+		options.priorScratchpadPath = value;
 	}
 }
 
@@ -1059,8 +1066,15 @@ async function runPrompt(options, io) {
 		}
 	}
 
-	const prompt = await loadPrompt(options, io.cwd);
-	const promptId = resolvePromptId(options, prompt);
+	const rawPrompt = await loadPrompt(options, io.cwd);
+	const priorScratchpad = await loadPriorScratchpad(
+		options.priorScratchpadPath,
+		io.cwd,
+	);
+	const prompt = priorScratchpad
+		? `${rawPrompt}\n\n## Prior scratchpad\n\n${priorScratchpad}`
+		: rawPrompt;
+	const promptId = resolvePromptId(options, rawPrompt);
 	const runDir = await createRunArtifacts(io.cwd, options.out);
 
 	// Resolve parent session (if --continue or --session was passed).
@@ -1733,6 +1747,43 @@ function indentBlock(text) {
 		.split('\n')
 		.map((line) => `  ${line}`)
 		.join('\n');
+}
+
+const PRIOR_SCRATCHPAD_MAX_CHARS = 2000;
+
+// Load prior scratchpad content from a file path or the magic "last" alias.
+// Returns empty string when the path is unset, the file is missing, or the
+// content is blank — so callers can always check truthiness.
+async function loadPriorScratchpad(pathOrAlias, cwd) {
+	if (!pathOrAlias) return '';
+
+	let filePath =
+		pathOrAlias === 'last' || pathOrAlias.startsWith('/')
+			? pathOrAlias
+			: join(cwd, pathOrAlias);
+	if (pathOrAlias === 'last') {
+		const lastRunPath = join(cwd, '.kodr', 'last-run');
+		let lastRunDir;
+		try {
+			lastRunDir = (await readFile(lastRunPath, 'utf8')).trim();
+		} catch {
+			return '';
+		}
+		filePath = join(lastRunDir, 'scratchpad.md');
+	}
+
+	let content;
+	try {
+		content = (await readFile(filePath, 'utf8')).trim();
+	} catch {
+		return '';
+	}
+	if (!content) return '';
+
+	if (content.length > PRIOR_SCRATCHPAD_MAX_CHARS) {
+		content = `${content.slice(0, PRIOR_SCRATCHPAD_MAX_CHARS)}\n... (truncated)`;
+	}
+	return content;
 }
 
 // Write the path of the most recent successful run dir to .kodr/last-run so

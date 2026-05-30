@@ -58,15 +58,14 @@ through. The convention is enforced only by prompt guidance.
 
 ## Done Criteria
 
-- [ ] `runPrompt` accepts `options.priorScratchpad` and injects it into context.
-- [ ] Workflow/session callers thread scratchpad between turns.
-- [ ] System prompt updated with structured scratchpad convention.
-- [ ] Tests: single-shot (no injection), multi-turn (injection present and
-      correctly placed), empty scratchpad skipped.
-- [ ] `npm run format` and `npm run check` pass.
-- [ ] Record decisions.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] `runPrompt` accepts `options.priorScratchpadPath` and injects content into user message.
+- [x] `last` alias resolves via `.kodr/last-run` pointer.
+- [x] System prompt updated with structured scratchpad convention.
+- [x] Tests: no injection, injection present, empty skipped, missing file skipped, truncation, `last` alias.
+- [x] `npm run format` and `npm run check` pass.
+- [x] Record decisions.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
 
 ## Self-Dev Notes
 
