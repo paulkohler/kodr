@@ -19,6 +19,7 @@ describe('loop budgets', () => {
 
 		assert.deepEqual(budget.snapshot(), {
 			completionTokens: 3,
+			cost: 0,
 			costUsd: 0,
 			maxCostUsd: null,
 			maxRetries: 1,
@@ -50,6 +51,17 @@ describe('loop budgets', () => {
 			() => budget.recordUsage({ costUsd: 0.02 }),
 			/cost_budget_exhausted/u,
 		);
+		assert.equal(budget.snapshot().cost, 0.02);
+		assert.equal(budget.snapshot().costUsd, 0.02);
+	});
+
+	it('accepts provider-neutral cost usage', () => {
+		const budget = createLoopBudget({ maxCostUsd: 0.05 });
+
+		budget.beforeTurn();
+		budget.recordUsage({ cost: 0.02 });
+
+		assert.equal(budget.snapshot().cost, 0.02);
 		assert.equal(budget.snapshot().costUsd, 0.02);
 	});
 });

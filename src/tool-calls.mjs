@@ -3,6 +3,7 @@ import { createChatCompletion } from './model-client.mjs';
 import { createLoopBudget, LoopBudgetError } from './loop-budgets.mjs';
 import { listContextFiles } from './context-packer.mjs';
 import { jailedPath } from './safe-writes.mjs';
+import { normalizeModelUsage } from './usage-normalizer.mjs';
 
 export class ToolCallError extends Error {
 	constructor(message) {
@@ -102,7 +103,11 @@ export async function completeWithToolCalls(
 			temperature: 0,
 			tools: apiTools,
 		});
-		budget.recordUsage(chatResponse.body?.usage);
+		budget.recordUsage(
+			normalizeModelUsage(options.provider, chatResponse.body?.usage, {
+				maxCostUsd: options.maxCostUsd,
+			}),
+		);
 
 		const choice = chatResponse.body?.choices?.[0];
 		const finishReason = choice?.finish_reason || '';

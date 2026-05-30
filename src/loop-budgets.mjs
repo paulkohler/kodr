@@ -9,6 +9,7 @@ export class LoopBudgetError extends Error {
 export function createLoopBudget(options = {}) {
 	const state = {
 		completionTokens: 0,
+		cost: 0,
 		costUsd: 0,
 		maxCostUsd: numberOrInfinity(options.maxCostUsd),
 		maxRetries: integerOrInfinity(options.maxRetries),
@@ -38,6 +39,7 @@ export function createLoopBudget(options = {}) {
 			return snapshot(state);
 		},
 		recordUsage(usage = {}) {
+			usage = usage || {};
 			const prompt = Number(usage.prompt_tokens || usage.promptTokens || 0);
 			const completion = Number(
 				usage.completion_tokens || usage.completionTokens || 0,
@@ -49,7 +51,9 @@ export function createLoopBudget(options = {}) {
 			// state.tokens may not equal the breakdown sum. Intentional: budgets
 			// enforce the reported total; the split fields are display-only.
 			state.tokens += usageTokens(usage);
-			state.costUsd += Number(usage.costUsd || 0);
+			const cost = Number(usage.cost ?? usage.costUsd ?? 0);
+			state.cost += cost;
+			state.costUsd += cost;
 			if (state.tokens > state.maxTokens) {
 				stop('token_budget_exhausted');
 			}
@@ -112,6 +116,7 @@ function numberOrInfinity(value) {
 function snapshot(state) {
 	return {
 		completionTokens: state.completionTokens,
+		cost: state.cost,
 		costUsd: state.costUsd,
 		maxCostUsd: finiteOrNull(state.maxCostUsd),
 		maxRetries: finiteOrNull(state.maxRetries),

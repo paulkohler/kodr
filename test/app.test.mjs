@@ -635,6 +635,7 @@ describe('run', () => {
 			assert.deepEqual(result.result.finishReasons, ['length', 'stop']);
 			assert.deepEqual(result.result.loopBudget, {
 				completionTokens: 4,
+				cost: 0,
 				costUsd: 0,
 				maxCostUsd: null,
 				maxRetries: 7,
@@ -2057,6 +2058,7 @@ describe('token usage reporting', () => {
 
 			assert.deepEqual(result.result.usage, {
 				completionTokens: 5,
+				cost: 0,
 				costUsd: 0,
 				promptTokens: 10,
 				tokens: 15,
@@ -2067,6 +2069,7 @@ describe('token usage reporting', () => {
 			);
 			assert.deepEqual(summary.usage, {
 				completionTokens: 5,
+				cost: 0,
 				costUsd: 0,
 				promptTokens: 10,
 				tokens: 15,
@@ -2114,6 +2117,67 @@ describe('token usage reporting', () => {
 			);
 
 			assert.equal(result.result.usage, null);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('maps OpenRouter usage cost into run usage', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'ok', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_openrouter_usage',
+						object: 'chat.completion',
+						usage: {
+							completion_tokens: 3,
+							cost: 0.00125,
+							prompt_tokens: 7,
+							total_tokens: 10,
+						},
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-openrouter-usage-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'hi',
+					'--openrouter',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{
+					cwd,
+					env: { OPENROUTER_API_KEY: 'or-test-key' },
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.deepEqual(result.result.usage, {
+				completionTokens: 3,
+				cost: 0.00125,
+				costUsd: 0.00125,
+				promptTokens: 7,
+				tokens: 10,
+			});
 		} finally {
 			await server.close();
 		}
@@ -2184,6 +2248,7 @@ describe('token usage reporting', () => {
 					tokens: 888,
 					promptTokens: 600,
 					completionTokens: 288,
+					cost: 0,
 					costUsd: 0,
 				},
 			}),

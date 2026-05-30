@@ -380,7 +380,7 @@ Local-model defaults:
   --max-turns N        Max model turns in a run. Default: 8
   --max-retries N      Max continuation retries after length stops. Default: 7
   --max-tokens N       Optional total token budget from model usage
-  --max-cost-usd N     Optional cost budget when usage includes costUsd
+  --max-cost-usd N     Optional cost budget when the provider reports USD usage
 
 OpenRouter:
   --openrouter         Use OpenRouter as the provider (base URL: ${OPENROUTER_BASE_URL})
@@ -1797,18 +1797,25 @@ async function writeLastRun(cwd, runDir) {
 }
 
 // Extract a structured usage object from a loop-budget snapshot. Returns null
-// when the server sent no usage data (tokens === 0 and costUsd === 0).
+// when the server sent no usage data (tokens === 0 and cost === 0).
 function usageFromBudget(budget) {
 	if (!budget) {
 		return null;
 	}
-	const { tokens, promptTokens, completionTokens, costUsd } = budget;
-	if (tokens === 0 && costUsd === 0) {
+	const {
+		tokens,
+		promptTokens,
+		completionTokens,
+		cost = 0,
+		costUsd = cost,
+	} = budget;
+	if (tokens === 0 && cost === 0) {
 		return null;
 	}
 	return {
 		completionTokens: completionTokens ?? 0,
-		costUsd: costUsd ?? 0,
+		cost,
+		costUsd,
 		promptTokens: promptTokens ?? 0,
 		tokens: tokens ?? 0,
 	};
@@ -1825,8 +1832,9 @@ function renderUsageLine(usage) {
 	if (usage.promptTokens > 0 || usage.completionTokens > 0) {
 		line += ` (prompt ${usage.promptTokens.toLocaleString()} / completion ${usage.completionTokens.toLocaleString()})`;
 	}
-	if (usage.costUsd > 0) {
-		line += `  Cost: $${usage.costUsd.toFixed(4)}`;
+	const cost = usage.cost ?? usage.costUsd ?? 0;
+	if (cost > 0) {
+		line += `  Cost: $${cost.toFixed(4)}`;
 	}
 	return line;
 }

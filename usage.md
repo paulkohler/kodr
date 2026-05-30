@@ -110,7 +110,11 @@ Kodr has explicit budgets for long local completions and continuation retries:
 ./kodr run -p "Large task" --max-cost-usd 0.25
 ```
 
-Use these when comparing models or running tasks that might drift.
+Use these when comparing models or running tasks that might drift. Local
+providers such as LM Studio and Ollama are treated as `cost: 0`. OpenRouter maps
+provider-reported `usage.cost` into Kodr's internal `cost` / `costUsd` fields.
+If a future provider does not have a cost mapping, `--max-cost-usd` should fail
+instead of silently enforcing the wrong budget.
 
 ### Inspect Workspace Context
 

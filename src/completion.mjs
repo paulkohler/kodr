@@ -4,6 +4,7 @@ import {
 	firstAssistantMessage,
 	firstFinishReason,
 } from './model-client.mjs';
+import { normalizeModelUsage } from './usage-normalizer.mjs';
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 export const OPENROUTER_EXTRA_HEADERS = {
@@ -45,7 +46,11 @@ export async function completeWithContinuations(
 			model,
 			temperature: 0,
 		});
-		budget.recordUsage(chatResponse.body?.usage);
+		budget.recordUsage(
+			normalizeModelUsage(options.provider, chatResponse.body?.usage, {
+				maxCostUsd: options.maxCostUsd,
+			}),
+		);
 		const content = firstAssistantMessage(chatResponse.body);
 		if (!content) {
 			throw new Error(
