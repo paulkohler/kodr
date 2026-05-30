@@ -11,15 +11,26 @@ The Phase 52 Express example showed the current gap: Kodr could edit
 
 ## Design
 
-Add a bounded install path for trusted workspace package managers:
+Add a bounded install path for trusted workspace package managers. Mirror the
+existing controlled-exec pattern in `src/verification-runner.mjs`
+(`parseVerificationCommand`, the spawn allowlist) rather than inventing a new
+execution path:
 
 - detect package metadata changes that require installation
-- support explicit `npm install` for the current workspace
+- support explicit `npm install`, preferring `npm ci` when a lockfile exists
+  (reproducible, offline-friendly)
 - record install stdout/stderr as run artifacts
-- keep install commands separate from arbitrary shell execution
+- keep install commands in an allowlist, separate from arbitrary shell execution
 - keep generated lockfiles map-only in model context
 - keep root format/check scripts from accidentally traversing nested
   `node_modules` trees under examples
+
+### Testing note
+
+`npm install` is networked and non-deterministic, which conflicts with this
+repo's offline/local-first test stance. Test the **policy/parse layer** with a
+fake command runner (mirroring the Phase 53 fake-command tests), not real
+installs.
 
 ## Non-Goals
 
@@ -29,7 +40,8 @@ Add a bounded install path for trusted workspace package managers:
 
 ## Done Criteria
 
-- [ ] Add a controlled dependency install step.
+- [ ] Add a controlled dependency install step reusing the allowlist pattern.
+- [ ] Prefer `npm ci` when a lockfile is present.
 - [ ] Record install artifacts.
 - [ ] Keep package manager lockfiles map-only in context.
 - [ ] Ensure root format/check scripts ignore nested `node_modules`.

@@ -4,20 +4,25 @@
 
 Make inspection useful to humans, not only model context assembly.
 
-Add CLI and TUI affordances for exploring symbols, references, files, and compact
-inspection context.
+Add CLI and TUI affordances for exploring symbols, references, and files. This is
+human ergonomics, not new small-model capability, so it is the lowest-priority
+phase in the 58–61 band — sequence it after the capability work lands.
 
 ## Design
 
-Extend the inspection surface with commands such as:
+`kodr inspect --symbol` and `--json` already exist (see `app.mjs`); this phase
+only adds the missing pieces:
 
-- `kodr inspect --file src/app.mjs`
-- `kodr inspect --symbol runPrompt`
+- `kodr inspect --file src/app.mjs` (file-focused CLI inspection)
 - TUI `/inspect symbol`
 - TUI `/refs symbol`
-- TUI `/context symbol`
 
-Keep output line-oriented and dependency-free.
+Do **not** add a `/context` slash command — it re-exposes the heavy context blob,
+matching the `inspect_context` tool dropped in Phase 58.
+
+Keep output line-oriented and dependency-free. Reuse the same built-in
+`inspectWorkspace` / `findReferences` engine as Phase 58 so model and human
+surfaces stay consistent.
 
 ## Non-Goals
 
@@ -27,8 +32,8 @@ Keep output line-oriented and dependency-free.
 
 ## Done Criteria
 
-- [ ] Add file-focused CLI inspection.
-- [ ] Add TUI slash commands for inspection and references.
+- [ ] Add file-focused CLI inspection (`--file`).
+- [ ] Add TUI `/inspect` and `/refs` slash commands.
 - [ ] Keep slash commands out of model channels.
 - [ ] Add tests for CLI and TUI inspection workflows.
 - [ ] Record decisions and any failures.

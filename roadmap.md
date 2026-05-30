@@ -64,6 +64,11 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [ ] 59 Patch Planning From Inspection
 - [ ] 60 CLI/TUI Inspection Workflow
 - [ ] 61 Dependency Install Workflow
+- [ ] 62 Token-Budget-Aware Context Assembly
+- [ ] 63 Multi-Turn Self-Healing Loop
+- [ ] 64 Self-Dev: Plan-Then-Execute Run
+- [ ] 65 Ranked Repo-Map
+- [ ] 66 Git-Aware Apply and Commit
 
 ## Phase Contract
 

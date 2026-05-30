@@ -7,15 +7,32 @@ workspace structurally before editing.
 
 ## Design
 
-Add tools backed by the structural index:
+Add a small, focused set of read-only tools backed by the existing structural
+index (`src/code-inspector.mjs`: `inspectWorkspace`, `inspectFile`,
+`findReferences`). Keep the surface deliberately tiny: small local models
+forget to call tools and pick the wrong one when choices overlap, so two clear
+tools beat four ambiguous ones.
 
-- `inspect_symbols`
-- `inspect_file`
-- `find_references`
-- `inspect_context`
+- `inspect_symbols` — list symbols for the workspace, or for a single file when
+  a `path` arg is given. Returns name, kind, and line range only.
+- `find_references` — find references to a named symbol across the index.
 
-The tools should be read-only, jailed to the workspace, and return compact
-results suitable for model use.
+Explicitly do **not** add an `inspect_file` raw-text tool: that overlaps with the
+existing built-in `read_file` (`src/tool-calls.mjs`) and would confuse small
+models. `inspect_symbols` returns the *structural* view (symbols + line ranges);
+`read_file` returns raw text. Drop the previously-considered `inspect_context`
+tool — it re-exposes the heavy Phase 52 context blob and fights the token
+budget.
+
+These tools use the built-in inspector only. They do not depend on the Phase 53
+external inspector registry (that wiring is deferred to Phase 65).
+
+## Bounds
+
+- Cap results at 200 symbols / 100 references per call.
+- Cap serialized JSON at ~8 KB; append an explicit `"...truncated"` marker when
+  exceeded.
+- Jail all paths to the workspace.
 
 ## Non-Goals
 
@@ -25,11 +42,12 @@ results suitable for model use.
 
 ## Done Criteria
 
-- [ ] Add read-only inspector tools to the built-in tool registry.
-- [ ] Return compact, bounded JSON results.
-- [ ] Enforce workspace jails and output limits.
-- [ ] Add tests for each tool.
-- [ ] Add prompt/system guidance for using inspector tools.
+- [ ] Add `inspect_symbols` and `find_references` to the built-in tool registry.
+- [ ] Return compact, bounded JSON results (caps above, with truncation marker).
+- [ ] Enforce workspace jails and the documented output limits.
+- [ ] Add tests for each tool, including a truncation/over-limit case.
+- [ ] Add system-prompt guidance naming the inspector tools, with a test
+      asserting the guidance is present.
 - [ ] Record decisions and any failures.
 - [ ] Blog post.
 - [ ] Mark roadmap complete and commit.
