@@ -8,6 +8,7 @@ import {
 	listContextFiles,
 	renderContextMarkdown,
 } from '../src/context-packer.mjs';
+import { inspectWorkspace } from '../src/code-inspector.mjs';
 
 describe('context packing', () => {
 	it('walks files deterministically and ignores generated directories', async () => {
@@ -88,6 +89,82 @@ describe('context packing', () => {
 		assert.match(context.systemPrompt, /Private user memory/u);
 		assert.match(renderContextMarkdown(context), /<project-memory/u);
 		assert.match(renderContextMarkdown(context), /<private-user-memory/u);
+	});
+
+	it('packs inspection-aware chunks around matching symbols and related tests', async () => {
+		const cwd = await mkWorkspace({
+			'src/app.mjs': [
+				"import { helper } from './helper.mjs';",
+				'',
+				'export function runPrompt(value) {',
+				'  return helper(value);',
+				'}',
+				'',
+				'export function unrelated() {',
+				'  return 1;',
+				'}',
+			].join('\n'),
+			'test/app.test.mjs': [
+				"import { runPrompt } from '../src/app.mjs';",
+				'',
+				"test('runPrompt returns helper output', () => {",
+				"  assert.equal(runPrompt('x'), 'x');",
+				'});',
+			].join('\n'),
+		});
+		const index = await inspectWorkspace(cwd);
+
+		const context = await buildWorkspaceContext(cwd, {
+			inspection: {
+				enabled: true,
+				index,
+				query: 'Change runPrompt to validate input',
+			},
+		});
+
+		assert.equal(context.inspection.mode, 'inspection-aware');
+		assert.equal(context.inspection.selectedSymbolCount, 2);
+		assert.equal(
+			context.files.some((file) => file.path.includes('#runPrompt')),
+			true,
+		);
+		assert.equal(
+			context.files.some((file) => file.metadata?.kind === 'related-test'),
+			true,
+		);
+		assert.doesNotMatch(
+			context.files.map((file) => file.content).join('\n'),
+			/export function unrelated/u,
+		);
+		assert.match(renderContextMarkdown(context), /Inspection context/u);
+		assert.match(context.systemPrompt, /Selected code chunks/u);
+	});
+
+	it('falls back to file summaries when inspection finds no matching symbols', async () => {
+		const cwd = await mkWorkspace({
+			'src/app.py': [
+				'import json',
+				'',
+				'def parse_payload(value):',
+				'    return json.loads(value)',
+			].join('\n'),
+		});
+		const index = await inspectWorkspace(cwd);
+
+		const context = await buildWorkspaceContext(cwd, {
+			inspection: {
+				enabled: true,
+				index,
+				query: 'Update missing symbol',
+			},
+		});
+
+		assert.deepEqual(context.files, []);
+		assert.equal(context.inspection.fileSummaries[0].path, 'src/app.py');
+		assert.match(
+			renderContextMarkdown(context),
+			/No symbol-specific chunks selected/u,
+		);
 	});
 });
 

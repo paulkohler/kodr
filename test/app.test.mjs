@@ -112,6 +112,18 @@ describe('parseArgs', () => {
 		assert.equal(options.inspectSymbol, 'runPrompt');
 	});
 
+	it('parses inspection-aware context flags', () => {
+		const options = parseArgs([
+			'run',
+			'-p',
+			'change runPrompt',
+			'--inspect-context',
+		]);
+
+		assert.equal(options.command, 'run');
+		assert.equal(options.inspectContext, true);
+	});
+
 	it('rejects unknown options', () => {
 		assert.throws(() => parseArgs(['--wat']), CliError);
 	});
@@ -889,6 +901,46 @@ describe('run', () => {
 			assert.match(stdout.text, /## AGENTS\.md/u);
 			assert.match(stdout.text, /Use local models/u);
 			assert.match(stdout.text, /## a\.txt/u);
+			assert.equal(server.recordings.length, 0);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('prints inspection-aware context without calling the model', async () => {
+		const server = await startFakeModelServer();
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-show-inspect-context-'));
+			await mkdir(join(cwd, 'src'), { recursive: true });
+			await writeFile(
+				join(cwd, 'src', 'app.mjs'),
+				'export function runPrompt() {\n  return true;\n}\n',
+				'utf8',
+			);
+			const stdout = captureStream();
+
+			const result = await main(
+				[
+					'run',
+					'--show-context',
+					'--inspect-context',
+					'-p',
+					'Change runPrompt',
+					'--base-url',
+					server.baseUrl,
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout,
+				},
+			);
+
+			assert.equal(result.ok, true);
+			assert.match(stdout.text, /Inspection context/u);
+			assert.match(stdout.text, /src\/app\.mjs#runPrompt/u);
 			assert.equal(server.recordings.length, 0);
 		} finally {
 			await server.close();

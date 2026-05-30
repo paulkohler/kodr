@@ -131,3 +131,35 @@ Tree-sitter.
 
 Verification covered fixture files for every target language, `kodr inspect
 --symbol`, and a live repo smoke test against Kodr's own source.
+
+## Inspection-Aware Context
+
+Phase 52 connects the structural index to context packing with an explicit
+`--inspect-context` flag.
+
+This does not replace the existing whole-file context path. The default remains
+unchanged. When the flag is present, Kodr builds the structural index before
+packing context and uses the prompt text as the selection query.
+
+The first selector is intentionally simple:
+
+- match prompt terms against symbol names
+- include matching symbol definitions
+- include nearby imports
+- include lexical reference windows
+- include related test chunks when discoverable
+- include compact file summaries as a fallback
+
+The fallback matters. If no symbol matches the prompt, Kodr still gives the model
+a summary of indexed files and symbols instead of pretending it found relevant
+code.
+
+This phase keeps the implementation portable and deterministic. It is still
+lexical, not semantic, but the context is now smaller and more targeted for code
+tasks that name existing functions, classes, tests, or files.
+
+The repo smoke test found one important bug in the Phase 51 scanner:
+`buildWorkspaceContext` was selected as a one-line chunk because indented
+variables inside the function were also indexed as symbols. Phase 52 tightened
+the JS/TS scanner to top-level lines for symbol boundaries, which made the same
+smoke test select the full `buildWorkspaceContext` function span.

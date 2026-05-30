@@ -69,6 +69,7 @@ export function parseArgs(argv, env = {}) {
 		extraHeaders: {},
 		help: false,
 		inspectSymbol: '',
+		inspectContext: false,
 		json: false,
 		model: env.MODEL_ID || DEFAULT_MODEL_ID,
 		out: '',
@@ -139,6 +140,11 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--show-context') {
 			options.showContext = true;
+			continue;
+		}
+
+		if (arg === '--inspect-context') {
+			options.inspectContext = true;
 			continue;
 		}
 
@@ -332,6 +338,7 @@ Usage:
   kodr run -p "task" --yes [--test "npm test"] [--test-cwd path]
   kodr run -p "task" --stream
   kodr run -p "task" --tools
+  kodr run -p "task" --inspect-context
   kodr run -p "follow up" --continue
   kodr run -p "follow up" --session <run-id>
   kodr tui [--session <run-id>]
@@ -423,7 +430,11 @@ export async function main(argv, io) {
 
 		if (options.showContext) {
 			const memory = await loadMemory(io.cwd);
-			const context = await buildWorkspaceContext(io.cwd, { memory });
+			const prompt = await loadOptionalPrompt(options, io.cwd);
+			const context = await buildWorkspaceContext(io.cwd, {
+				inspection: await createInspectionContext(io.cwd, options, prompt),
+				memory,
+			});
 			io.stdout.write(renderContextMarkdown(context));
 			return { ok: true, command: 'run', context };
 		}
@@ -1018,6 +1029,7 @@ async function runPrompt(options, io) {
 		memory = await loadMemory(io.cwd);
 		skills = await loadSkills(io.cwd, options.skills);
 		context = await buildWorkspaceContext(io.cwd, {
+			inspection: await createInspectionContext(io.cwd, options, prompt),
 			memory,
 			skills,
 			toolsMode: options.tools,
@@ -1526,6 +1538,24 @@ function extractProposal(text) {
 		}
 		throw error;
 	}
+}
+
+async function createInspectionContext(cwd, options, prompt) {
+	if (!options.inspectContext) {
+		return null;
+	}
+	return {
+		enabled: true,
+		index: await inspectWorkspace(cwd),
+		query: prompt,
+	};
+}
+
+async function loadOptionalPrompt(options, cwd) {
+	if (!options.prompt && !options.promptFile) {
+		return '';
+	}
+	return loadPrompt(options, cwd);
 }
 
 function parseProposalStatus(value) {

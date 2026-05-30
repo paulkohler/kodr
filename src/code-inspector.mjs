@@ -196,6 +196,9 @@ function extractSymbolStarts(path, lines, language) {
 function extractJsSymbols(lines) {
 	const symbols = [];
 	for (const [index, rawLine] of lines.entries()) {
+		if (/^\s/u.test(rawLine)) {
+			continue;
+		}
 		const line = rawLine.trim();
 		let match = line.match(
 			/^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/u,

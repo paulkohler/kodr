@@ -13,6 +13,9 @@ const DEFAULT_IGNORES = new Set([
 const DEFAULT_PER_FILE_BYTES = 20000;
 const DEFAULT_TOTAL_BYTES = 80000;
 const FILE_MAP_MAX_FILES = 200;
+const INSPECTION_MAX_CHUNKS = 12;
+const INSPECTION_CONTEXT_LINES = 2;
+const INSPECTION_SUMMARY_MAX_FILES = 80;
 
 export async function buildWorkspaceContext(cwd, options = {}) {
 	const perFileBytes = options.perFileBytes || DEFAULT_PER_FILE_BYTES;
@@ -42,6 +45,39 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			...context,
 			systemPrompt: renderSystemPrompt(context),
 			totalBytes: agents ? agents.includedBytes : 0,
+		};
+	}
+
+	if (options.inspection?.enabled) {
+		const agents = await loadAgents(cwd, files, perFileBytes);
+		const inspection = await buildInspectionContext(cwd, options.inspection);
+		const packedFiles = inspection.chunks.map((chunk) => ({
+			content: chunk.content,
+			includedBytes: Buffer.byteLength(chunk.content),
+			metadata: {
+				kind: chunk.kind,
+				lineEnd: chunk.lineEnd,
+				lineStart: chunk.lineStart,
+				name: chunk.name,
+				sourcePath: chunk.sourcePath,
+			},
+			path: chunk.path,
+			truncated: false,
+		}));
+		const totalBytes =
+			packedFiles.reduce((sum, file) => sum + file.includedBytes, 0) +
+			(agents ? agents.includedBytes : 0);
+		const context = {
+			agents,
+			files: packedFiles,
+			inspection,
+			memory,
+			skills,
+		};
+		return {
+			...context,
+			systemPrompt: renderSystemPrompt(context),
+			totalBytes,
 		};
 	}
 
@@ -88,6 +124,23 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 	};
 }
 
+async function loadAgents(cwd, files, perFileBytes) {
+	if (!files.includes('AGENTS.md')) {
+		return null;
+	}
+	const content = await readTextPrefix(`${cwd}/AGENTS.md`, perFileBytes);
+	if (content === null) {
+		return null;
+	}
+	const bytes = Buffer.byteLength(content);
+	return {
+		content,
+		includedBytes: bytes,
+		path: 'AGENTS.md',
+		truncated: bytes >= perFileBytes,
+	};
+}
+
 function renderLoadedSkills(skills) {
 	return skills
 		.map((skill) => {
@@ -130,6 +183,11 @@ export function renderContextMarkdown(context) {
 
 	if (context.fileMap) {
 		parts.push(`## File map\n\n${renderFileMapText(context.fileMap)}`);
+	} else if (context.inspection) {
+		parts.push(renderInspectionContextMarkdown(context.inspection));
+		for (const file of context.files) {
+			parts.push(`## ${file.path}\n\n\`\`\`\n${file.content}\n\`\`\``);
+		}
 	} else {
 		for (const file of context.files) {
 			parts.push(`## ${file.path}\n\n\`\`\`\n${file.content}\n\`\`\``);
@@ -188,6 +246,15 @@ function renderSystemPrompt(context) {
 		parts.push(
 			`Workspace files — use read_file to read any file:\n${renderFileMapText(context.fileMap)}`,
 		);
+	} else if (context.inspection) {
+		parts.push(
+			`Inspection-aware workspace context:\n${renderInspectionContextMarkdown(context.inspection)}`,
+		);
+		if (context.files.length > 0) {
+			parts.push(
+				`Selected code chunks:\n${renderSelectedChunks(context.files)}`,
+			);
+		}
 	} else if (context.files.length > 0) {
 		parts.push(`Workspace context:\n${renderContextMarkdown(context)}`);
 	}
@@ -224,6 +291,268 @@ function renderSystemPrompt(context) {
 	}
 
 	return parts.join('\n\n');
+}
+
+async function buildInspectionContext(cwd, inspection) {
+	const index = inspection.index || { files: [], symbols: [] };
+	const queryTerms = queryTokens(inspection.query || '');
+	const matches = matchingSymbols(index.symbols, queryTerms);
+	const chunks = await buildInspectionChunks(cwd, index, matches);
+	const summaries = buildFileSummaries(index.files);
+	return {
+		chunks,
+		fileSummaries: summaries,
+		mode: 'inspection-aware',
+		query: inspection.query || '',
+		selectedSymbolCount: matches.length,
+		totalFileCount: index.files.length,
+		totalSymbolCount: index.symbols.length,
+	};
+}
+
+async function buildInspectionChunks(cwd, index, matches) {
+	const chunks = [];
+	const seen = new Set();
+
+	for (const match of matches) {
+		await addSymbolChunk(cwd, index, chunks, seen, match, 'symbol');
+		await addImportChunk(cwd, index, chunks, seen, match.path);
+		await addReferenceChunks(cwd, index, chunks, seen, match.name);
+		await addRelatedTestChunks(cwd, index, chunks, seen, match);
+		if (chunks.length >= INSPECTION_MAX_CHUNKS) {
+			break;
+		}
+	}
+
+	return chunks.slice(0, INSPECTION_MAX_CHUNKS);
+}
+
+async function addSymbolChunk(cwd, index, chunks, seen, symbol, kind) {
+	const key = `${symbol.path}:${symbol.lineStart}-${symbol.lineEnd}:${kind}`;
+	if (seen.has(key)) {
+		return;
+	}
+	const lines = await fileLines(cwd, index, symbol.path);
+	if (!lines.length) {
+		return;
+	}
+	const lineStart = Math.max(1, symbol.lineStart);
+	const lineEnd = Math.min(lines.length, symbol.lineEnd);
+	const content = lines.slice(lineStart - 1, lineEnd).join('\n');
+	chunks.push({
+		content,
+		kind,
+		lineEnd,
+		lineStart,
+		name: symbol.name,
+		path: `${symbol.path}#${symbol.name}:${lineStart}-${lineEnd}`,
+		sourcePath: symbol.path,
+	});
+	seen.add(key);
+}
+
+async function addImportChunk(cwd, index, chunks, seen, path) {
+	const file = index.files.find((item) => item.path === path);
+	if (!file || file.imports.length === 0) {
+		return;
+	}
+	const lineStart = file.imports[0].line;
+	const lineEnd = file.imports.at(-1).line;
+	const key = `${path}:${lineStart}-${lineEnd}:imports`;
+	if (seen.has(key)) {
+		return;
+	}
+	const lines = await fileLines(cwd, index, path);
+	const content = lines.slice(lineStart - 1, lineEnd).join('\n');
+	chunks.push({
+		content,
+		kind: 'imports',
+		lineEnd,
+		lineStart,
+		name: 'imports',
+		path: `${path}#imports:${lineStart}-${lineEnd}`,
+		sourcePath: path,
+	});
+	seen.add(key);
+}
+
+async function addReferenceChunks(cwd, index, chunks, seen, symbolName) {
+	const boundary = new RegExp(`\\b${escapeRegExp(symbolName)}\\b`, 'u');
+	for (const file of index.files) {
+		const lines = await fileLines(cwd, index, file.path);
+		for (const [offset, text] of lines.entries()) {
+			if (!boundary.test(text)) {
+				continue;
+			}
+			const line = offset + 1;
+			const lineStart = Math.max(1, line - INSPECTION_CONTEXT_LINES);
+			const lineEnd = Math.min(lines.length, line + INSPECTION_CONTEXT_LINES);
+			const key = `${file.path}:${lineStart}-${lineEnd}:reference:${symbolName}`;
+			if (seen.has(key)) {
+				continue;
+			}
+			chunks.push({
+				content: lines.slice(lineStart - 1, lineEnd).join('\n'),
+				kind: 'reference',
+				lineEnd,
+				lineStart,
+				name: symbolName,
+				path: `${file.path}#ref-${symbolName}:${lineStart}-${lineEnd}`,
+				sourcePath: file.path,
+			});
+			seen.add(key);
+			if (chunks.length >= INSPECTION_MAX_CHUNKS) {
+				return;
+			}
+		}
+	}
+}
+
+async function addRelatedTestChunks(cwd, index, chunks, seen, match) {
+	for (const symbol of index.symbols) {
+		if (symbol.kind !== 'test') {
+			continue;
+		}
+		const testPath = symbol.path.toLowerCase();
+		const sameFile = symbol.path === match.path;
+		const testFile = testPath.includes('test') || testPath.endsWith('_test.go');
+		if (!sameFile && !testFile) {
+			continue;
+		}
+		const lines = await fileLines(cwd, index, symbol.path);
+		const body = lines
+			.slice(symbol.lineStart - 1, Math.min(lines.length, symbol.lineEnd))
+			.join('\n');
+		if (!body.includes(match.name) && !symbol.name.includes(match.name)) {
+			continue;
+		}
+		await addSymbolChunk(cwd, index, chunks, seen, symbol, 'related-test');
+		if (chunks.length >= INSPECTION_MAX_CHUNKS) {
+			return;
+		}
+	}
+}
+
+async function fileLines(cwd, index, path) {
+	const file = index.files.find((item) => item.path === path);
+	if (file?._contentLines) {
+		return file._contentLines.map((line) => line.text);
+	}
+	const content = await readTextPrefix(
+		`${cwd}/${path}`,
+		DEFAULT_PER_FILE_BYTES,
+	);
+	return content ? content.split(/\r?\n/u) : [];
+}
+
+function matchingSymbols(symbols, terms) {
+	if (terms.length === 0) {
+		return [];
+	}
+	const exactNames = terms.filter((term) => term.includes(':exact:'));
+	if (exactNames.length > 0) {
+		const exact = exactNames.map((term) => term.replace(':exact:', ''));
+		return symbols.filter((symbol) => {
+			const name = normalizeSymbolName(symbol.name);
+			return exact.some((term) => name === term || name.includes(term));
+		});
+	}
+	return symbols.filter((symbol) => {
+		const haystack = symbolTokens(symbol.name);
+		return terms.some((term) => haystack.includes(term));
+	});
+}
+
+function queryTokens(query) {
+	const exactIdentifiers = [...query.matchAll(/\b[A-Za-z_$][\w$]{2,}\b/gu)]
+		.map((match) => match[0])
+		.filter((token) => /[A-Z_]/u.test(token) || token.length >= 12)
+		.map((token) => `${normalizeSymbolName(token)}:exact:`);
+	if (exactIdentifiers.length > 0) {
+		return exactIdentifiers.slice(0, 10);
+	}
+	return normalizeTokens(query)
+		.filter((token) => token.length >= 3)
+		.slice(0, 20);
+}
+
+function symbolTokens(value) {
+	return normalizeTokens(value).join(' ');
+}
+
+function normalizeTokens(value) {
+	return value
+		.replaceAll(/([a-z0-9])([A-Z])/gu, '$1 $2')
+		.toLowerCase()
+		.split(/[^a-z0-9]+/u)
+		.filter(Boolean);
+}
+
+function normalizeSymbolName(value) {
+	return normalizeTokens(value).join('');
+}
+
+function buildFileSummaries(files) {
+	return files.slice(0, INSPECTION_SUMMARY_MAX_FILES).map((file) => ({
+		importCount: file.imports.length,
+		language: file.language,
+		lineCount: file.lineCount,
+		path: file.path,
+		symbols: file.symbols.slice(0, 12).map((symbol) => ({
+			kind: symbol.kind,
+			lineStart: symbol.lineStart,
+			name: symbol.name,
+		})),
+	}));
+}
+
+function renderInspectionContextMarkdown(inspection) {
+	const lines = [
+		`## Inspection context`,
+		'',
+		`Mode: ${inspection.mode}`,
+		`Files indexed: ${inspection.totalFileCount}`,
+		`Symbols indexed: ${inspection.totalSymbolCount}`,
+		`Selected symbols: ${inspection.selectedSymbolCount}`,
+		'',
+		'### File summaries',
+	];
+	for (const file of inspection.fileSummaries) {
+		const symbols = file.symbols
+			.map((symbol) => `${symbol.kind} ${symbol.name}@${symbol.lineStart}`)
+			.join(', ');
+		lines.push(
+			`- ${file.path} (${file.language}, ${file.lineCount} lines, ${file.importCount} imports)${symbols ? `: ${symbols}` : ''}`,
+		);
+	}
+	if (inspection.chunks.length === 0) {
+		lines.push('');
+		lines.push(
+			'No symbol-specific chunks selected; use file summaries as fallback.',
+		);
+	}
+	return lines.join('\n');
+}
+
+function renderSelectedChunks(files) {
+	return files
+		.map((file) => {
+			const meta = file.metadata || {};
+			return [
+				`## ${file.path}`,
+				`Source: ${meta.sourcePath || file.path}`,
+				`Kind: ${meta.kind || 'chunk'}`,
+				`Lines: ${meta.lineStart || '?'}-${meta.lineEnd || '?'}`,
+				'```',
+				file.content,
+				'```',
+			].join('\n');
+		})
+		.join('\n\n');
+}
+
+function escapeRegExp(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 async function walk(root, dir, files) {

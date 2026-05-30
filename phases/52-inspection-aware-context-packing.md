@@ -30,11 +30,11 @@ before changing the default behavior for every run.
 
 ## Done Criteria
 
-- [ ] Add an explicit inspection-aware context path.
-- [ ] Use structural symbols and references to select chunks.
-- [ ] Include related tests when discoverable.
-- [ ] Preserve existing full-file context behavior.
-- [ ] Add tests for chunk selection and fallback behavior.
-- [ ] Record decisions and any failures.
-- [ ] Blog post or update the inspection design note.
-- [ ] Mark roadmap complete and commit.
+- [x] Add an explicit inspection-aware context path.
+- [x] Use structural symbols and references to select chunks.
+- [x] Include related tests when discoverable.
+- [x] Preserve existing full-file context behavior.
+- [x] Add tests for chunk selection and fallback behavior.
+- [x] Record decisions and any failures.
+- [x] Blog post or update the inspection design note.
+- [x] Mark roadmap complete and commit.

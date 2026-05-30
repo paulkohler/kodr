@@ -76,6 +76,12 @@ Inspect source structure without calling a model:
 
 The first inspector is a zero-dependency structural index for JavaScript, TypeScript, Python, Rust, and Go. It reports files, imports, symbols, chunks, and simple lexical references.
 
+Use inspection-aware context packing for a model run when you want Kodr to send matching symbols, nearby imports, references, related tests, and compact file summaries instead of the default whole-file context:
+
+```sh
+./kodr run -p "Change runPrompt validation" --inspect-context
+```
+
 ## Process
 
 Use [roadmap.md](./roadmap.md) as the phase index. Each phase has a spec under [phases/](./phases). Public learning notes live under [blog/](./blog). Small append-only records live under [process/](./process).
