@@ -38,11 +38,11 @@ not full integrations with language servers.
 
 ## Done Criteria
 
-- [ ] Add an external inspector registry module.
-- [ ] Add command discovery and timeout handling.
-- [ ] Normalize external results into the structural index shape.
-- [ ] Fall back cleanly to the built-in inspector.
-- [ ] Add tests with fake external commands.
-- [ ] Record decisions and any failures.
-- [ ] Blog post or update the inspection design note.
-- [ ] Mark roadmap complete and commit.
+- [x] Add an external inspector registry module.
+- [x] Add command discovery and timeout handling.
+- [x] Normalize external results into the structural index shape.
+- [x] Fall back cleanly to the built-in inspector.
+- [x] Add tests with fake external commands.
+- [x] Record decisions and any failures.
+- [x] Blog post or update the inspection design note.
+- [x] Mark roadmap complete and commit.

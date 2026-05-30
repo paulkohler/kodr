@@ -55,7 +55,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 50 Web Channel Sketch
 - [x] 51 Structural Code Index
 - [x] 52 Inspection-Aware Context Packing
-- [ ] 53 External Inspector Registry
+- [x] 53 External Inspector Registry
 - [ ] 54 Inspector Tool Calls
 - [ ] 55 Patch Planning From Inspection
 - [ ] 56 CLI/TUI Inspection Workflow
