@@ -29,6 +29,7 @@ import { runComparison } from './compare.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './code-inspector.mjs';
+import { checkAvailability, REGISTRY } from './external-inspector-registry.mjs';
 import {
 	completeWithContinuations,
 	OPENROUTER_BASE_URL,
@@ -351,6 +352,7 @@ Usage:
   kodr tui --continue
   kodr serve [--host 127.0.0.1] [--port 8787]
   kodr inspect [--symbol name] [--json]
+  kodr registry [--json]
   kodr run --show-files
   kodr run --show-context
   kodr run --show-skills
@@ -483,6 +485,26 @@ export async function main(argv, io) {
 			io.stdout.write(renderInspection(index, options.inspectSymbol));
 		}
 		return { ok: true, command: 'inspect', index };
+	}
+
+	if (options.command === 'registry') {
+		const results = await Promise.all(
+			REGISTRY.map(async (entry) => ({
+				available: await checkAvailability(entry.command),
+				languages: entry.languages,
+				name: entry.name,
+			})),
+		);
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
+		} else {
+			for (const entry of results) {
+				const mark = entry.available ? '✓' : '✗';
+				const langs = entry.languages.join(',');
+				io.stdout.write(`${entry.name.padEnd(36)}${langs.padEnd(24)}${mark}\n`);
+			}
+		}
+		return { ok: true, command: 'registry', results };
 	}
 
 	if (options.command === 'replay') {

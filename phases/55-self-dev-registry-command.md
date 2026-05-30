@@ -36,15 +36,15 @@ are in the current workspace.
 
 ## Done Criteria
 
-- [ ] `kodr registry` command added to `src/app.mjs`.
-- [ ] Help text updated in `app.mjs`.
-- [ ] `--json` flag supported.
-- [ ] Test in `test/` that invokes `main(['registry', '--json'], ...)` and
+- [x] `kodr registry` command added to `src/app.mjs`.
+- [x] Help text updated in `app.mjs`.
+- [x] `--json` flag supported.
+- [x] Test in `test/registry-command.test.mjs` that invokes `main(['registry', '--json'], ...)` and
       asserts the result shape (array, each entry has `name`, `languages`,
       `available`).
-- [ ] `npm run format` and `npm run check` pass.
-- [ ] Decisions recorded.
-- [ ] Roadmap marked complete and committed.
+- [x] `npm run format` and `npm run check` pass.
+- [x] Decisions recorded.
+- [x] Roadmap marked complete and committed.
 
 ## Self-Dev Notes
 

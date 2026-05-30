@@ -41,6 +41,18 @@ export function parseVerificationCommand(command) {
 	if (
 		parts.length === 3 &&
 		parts[0] === 'node' &&
+		parts[1] === '--test' &&
+		isSafeRelativeFile(parts[2])
+	) {
+		return {
+			args: ['--test', parts[2]],
+			bin: 'node',
+		};
+	}
+
+	if (
+		parts.length === 3 &&
+		parts[0] === 'node' &&
 		parts[1] === '--check' &&
 		isSafeRelativeFile(parts[2])
 	) {
