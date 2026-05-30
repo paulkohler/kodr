@@ -53,6 +53,56 @@ describe('context packing', () => {
 		assert.doesNotMatch(renderContextMarkdown(context), /binary/u);
 	});
 
+	it('lists package locks without packing their contents by default', async () => {
+		const cwd = await mkWorkspace({
+			'package-lock.json': '{"packages":{"node_modules/express":{}}}',
+			'package.json': '{"dependencies":{"express":"^5.1.0"}}',
+			'src/app.mjs': 'export function createApp() {}',
+		});
+
+		const files = await listContextFiles(cwd);
+		const context = await buildWorkspaceContext(cwd);
+		const markdown = renderContextMarkdown(context);
+
+		assert.deepEqual(files, [
+			'package-lock.json',
+			'package.json',
+			'src/app.mjs',
+		]);
+		assert.deepEqual(
+			context.files.map((file) => file.path),
+			['package.json', 'src/app.mjs'],
+		);
+		assert.deepEqual(context.omittedFiles, [
+			{
+				path: 'package-lock.json',
+				reason: 'lockfile listed but not packed by default',
+			},
+		]);
+		assert.match(markdown, /Listed but not packed/u);
+		assert.match(markdown, /package-lock\.json/u);
+		assert.doesNotMatch(markdown, /node_modules\/express/u);
+	});
+
+	it('lists package locks in tools-mode file maps for explicit reads', async () => {
+		const cwd = await mkWorkspace({
+			'package-lock.json': '{"lockfileVersion":3}',
+			'package.json': '{}',
+		});
+
+		const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+
+		assert.equal(
+			context.fileMap.entries.some(
+				(entry) => entry.path === 'package-lock.json',
+			),
+			true,
+		);
+		assert.deepEqual(context.files, []);
+		assert.match(context.systemPrompt, /package-lock\.json/u);
+		assert.doesNotMatch(context.systemPrompt, /lockfileVersion/u);
+	});
+
 	it('renders memory scopes without listing private memory as a workspace file', async () => {
 		const cwd = await mkWorkspace({
 			'.kodr/memory/user.md': 'Use concise replies.',
