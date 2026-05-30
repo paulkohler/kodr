@@ -1,4 +1,4 @@
-# Phase 59: Patch Planning From Inspection
+# Phase 62: Patch Planning From Inspection
 
 ## Goal
 
@@ -34,7 +34,7 @@ Phase 57's scratchpad is currently only injected via the explicit
 `--prior-scratchpad` flag into `runPrompt`; it is **not** auto-forwarded inside
 the `workflow.mjs` / `cycles.mjs` loops. For a plan to actually reach the model
 on the editing turn, this phase must wire that forwarding (plan + scratchpad)
-into the workflow loop. This forwarding is also the foundation Phase 63 builds
+into the workflow loop. This forwarding is also the foundation Phase 70 builds
 on.
 
 ## Non-Goals

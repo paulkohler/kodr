@@ -1,4 +1,4 @@
-# Phase 63: Multi-Turn Self-Healing Loop
+# Phase 70: Multi-Turn Self-Healing Loop
 
 ## Goal
 
@@ -12,18 +12,18 @@ across turns is what lets a forgetful local model actually converge.
 
 Wire the `workflow.mjs` / `cycles.mjs` loop to:
 
-- auto-forward the prior scratchpad and inspection-derived plan (Phases 57/59)
+- auto-forward the prior scratchpad and inspection-derived plan (Phases 57/62)
   into the next turn without an explicit flag
 - capture a workspace snapshot diff after each turn as the progress/failure
   signal
 - feed verification failure output back into the next turn's prompt
 - stay bounded by the existing loop budget (Phase 33)
 
-Builds directly on the turn-forwarding wiring introduced in Phase 59.
+Builds directly on the turn-forwarding wiring introduced in Phase 62.
 
 ## Non-Goals
 
-- No git integration (that is Phase 66).
+- No git integration (that is Phase 72).
 - No new model providers or streaming changes.
 
 ## Done Criteria

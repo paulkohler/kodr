@@ -1,4 +1,4 @@
-# Phase 62: Token-Budget-Aware Context Assembly
+# Phase 59: Token-Budget-Aware Context Assembly
 
 ## Goal
 
@@ -23,7 +23,6 @@ is hit, emitting a summary of what was dropped.
 
 ## Non-Goals
 
-- No tree-sitter / PageRank-grade ranking yet (that is Phase 65).
 - No model call to decide relevance.
 
 ## Done Criteria

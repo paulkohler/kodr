@@ -1,4 +1,4 @@
-# Phase 58: Inspector Tool Calls
+# Phase 60: Inspector Tool Calls
 
 ## Goal
 
@@ -24,8 +24,8 @@ models. `inspect_symbols` returns the *structural* view (symbols + line ranges);
 tool — it re-exposes the heavy Phase 52 context blob and fights the token
 budget.
 
-These tools use the built-in inspector only. They do not depend on the Phase 53
-external inspector registry (that wiring is deferred to Phase 65).
+These tools consume the same normalized inspection index as the ranked repo-map.
+They do not add any new external inspector behavior in this phase.
 
 ## Bounds
 

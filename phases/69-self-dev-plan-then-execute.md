@@ -1,8 +1,8 @@
-# Phase 64: Self-Dev: Plan-Then-Execute Run
+# Phase 69: Self-Dev: Plan-Then-Execute Run
 
 ## Goal
 
-Validate the 58–63 arc end-to-end by running Kodr against a real multi-step task
+Validate the 58–68 arc end-to-end by running Kodr against a real multi-step task
 with the local model: write a plan to the scratchpad, then execute it across
 turns using the inspector tools, producing a real multi-file patch.
 

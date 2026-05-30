@@ -60,15 +60,22 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 55 Self-Dev: Registry Command
 - [x] 56 Self-Dev: Language Filter on Inspect
 - [x] 57 Persistent Planning Scratchpad
-- [ ] 58 Inspector Tool Calls
-- [ ] 59 Patch Planning From Inspection
-- [ ] 60 CLI/TUI Inspection Workflow
-- [ ] 61 Dependency Install Workflow
-- [ ] 62 Token-Budget-Aware Context Assembly
-- [ ] 63 Multi-Turn Self-Healing Loop
-- [ ] 64 Self-Dev: Plan-Then-Execute Run
-- [ ] 65 Ranked Repo-Map
-- [ ] 66 Git-Aware Apply and Commit
+- [ ] 58 Ranked Repo-Map
+- [ ] 59 Token-Budget-Aware Context Assembly
+- [ ] 60 Inspector Tool Calls
+- [ ] 61 CLI/TUI Inspection Workflow
+- [ ] 62 Patch Planning From Inspection
+- [ ] 63 Dependency Install Workflow
+- [ ] 64 Skill Resource References
+- [ ] 65 Interactive TUI Permission Prompts
+- [ ] 66 Skill Code Execution
+- [ ] 67 Model Profile And Capability Registry
+- [ ] 68 Session Compaction And Summaries
+- [ ] 69 Self-Dev: Plan-Then-Execute Run
+- [ ] 70 Multi-Turn Self-Healing Loop
+- [ ] 71 Undo/Redo Run Reverts
+- [ ] 72 Git-Aware Apply and Commit
+- [ ] 73 Optional LSP Adapter
 
 ## Phase Contract
 
