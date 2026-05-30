@@ -1,0 +1,61 @@
+{
+  "artifacts": {
+    "context": "context.md",
+    "conversation": "conversation.json",
+    "messages": "messages.json",
+    "prompt": "prompt.md",
+    "rawRequest": "raw-request.json",
+    "rawResponse": "raw-response.json",
+    "response": "response.md",
+    "scratchpad": "scratchpad.md",
+    "summary": "summary.json",
+    "tasks": "tasks.json",
+    "tests": "tests.json",
+    "writes": "writes.json"
+  },
+  "baseUrl": "http://localhost:1234/v1",
+  "finishReasons": [
+    "stop"
+  ],
+  "loopBudget": {
+    "completionTokens": 2624,
+    "costUsd": 0,
+    "maxCostUsd": null,
+    "maxRetries": 7,
+    "maxTokens": null,
+    "maxTurns": 8,
+    "promptTokens": 21697,
+    "retries": 0,
+    "stopReason": "finish_stop",
+    "tokens": 24321,
+    "turns": 1
+  },
+  "model": "qwen/qwen3-14b",
+  "ok": true,
+  "parentRunDir": null,
+  "promptChars": 1565,
+  "promptId": "prompt",
+  "responseChars": 8468,
+  "responseCount": 1,
+  "sessionId": ".kodr-run",
+  "timestamp": "2026-05-30T08:15:29.870Z",
+  "usage": {
+    "completionTokens": 2624,
+    "costUsd": 0,
+    "promptTokens": 21697,
+    "tokens": 24321
+  },
+  "workspaceFileCount": 51,
+  "applied": true,
+  "proposalMessageCount": 1,
+  "proposalFound": true,
+  "proposalStatus": "OK",
+  "tested": false,
+  "writeCount": 3,
+  "taskCounts": {
+    "completed": 6,
+    "failed": 0,
+    "in_progress": 0,
+    "pending": 1
+  }
+}
