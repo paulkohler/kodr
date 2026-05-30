@@ -7,6 +7,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { execFile } from 'node:child_process';
 
 export class SafeWriteError extends Error {
 	constructor(message) {
@@ -24,11 +25,9 @@ export async function prepareChanges(cwd, proposal, options = {}) {
 
 	if (options.protectExisting) {
 		for (const file of files) {
-			const jailed = await jailedPath(cwd, file.path);
-			const before = await readExisting(jailed.absolute);
-			if (before.exists) {
+			if (await isGitTracked(cwd, file.path)) {
 				throw new SafeWriteError(
-					`Refusing to overwrite existing file via files[]: ${file.path} — use patches instead`,
+					`Refusing to overwrite git-tracked file via files[]: ${file.path} — use patches instead`,
 				);
 			}
 		}
@@ -536,4 +535,12 @@ function unescapePatchString(value) {
 		.replaceAll('\\t', '\t')
 		.replaceAll('\\"', '"')
 		.replaceAll('\\\\', '\\');
+}
+
+async function isGitTracked(cwd, filePath) {
+	return new Promise((resolve) => {
+		execFile('git', ['ls-files', '--error-unmatch', filePath], { cwd }, (err) =>
+			resolve(err === null),
+		);
+	});
 }

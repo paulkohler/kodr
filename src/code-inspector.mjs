@@ -13,6 +13,9 @@ export async function inspectWorkspace(cwd, options = {}) {
 		if (language === 'unknown') {
 			continue;
 		}
+		if (options.languages && !options.languages.includes(language)) {
+			continue;
+		}
 
 		const content = await readInspectableFile(`${cwd}/${path}`);
 		if (content === null) {

@@ -6,6 +6,31 @@ import { describe, it } from 'node:test';
 import { main } from '../src/app.mjs';
 
 describe('inspect command', () => {
+	it('filters files by --languages flag', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-inspect-languages-'));
+		await writeFixtureAt(cwd, 'src/main.go', 'package main\nfunc Run() {}\n');
+		await writeFixtureAt(cwd, 'src/app.py', 'def hello(): pass\n');
+		const stdout = capture();
+
+		const result = await main(['inspect', '--languages', 'go', '--json'], {
+			cwd,
+			env: {},
+			stderr: capture(),
+			stdout,
+		});
+		const body = JSON.parse(stdout.output);
+
+		assert.equal(result.ok, true);
+		assert.equal(
+			body.files.every((f) => f.language === 'go'),
+			true,
+		);
+		assert.equal(
+			body.files.some((f) => f.language === 'python'),
+			false,
+		);
+	});
+
 	it('prints a structural index as JSON', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-inspect-command-'));
 		await writeFixture(
@@ -43,6 +68,12 @@ function capture() {
 			this.output += chunk;
 		},
 	};
+}
+
+async function writeFixtureAt(cwd, path, content) {
+	const absolute = join(cwd, path);
+	await mkdir(dirname(absolute), { recursive: true });
+	await writeFile(absolute, content);
 }
 
 async function writeFixture(cwd, path, content) {

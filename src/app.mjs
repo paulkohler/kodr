@@ -22,7 +22,10 @@ import {
 	taskCounts,
 	updateTasksFromRun,
 } from './task-plan.mjs';
-import { runVerification } from './verification-runner.mjs';
+import {
+	parseVerificationCommand,
+	runVerification,
+} from './verification-runner.mjs';
 import { replayRun } from './replay.mjs';
 import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
 import { runComparison } from './compare.mjs';
@@ -70,6 +73,7 @@ export function parseArgs(argv, env = {}) {
 		extraHeaders: {},
 		help: false,
 		inspectSymbol: '',
+		inspectLanguages: [],
 		inspectContext: false,
 		json: false,
 		model: env.MODEL_ID || DEFAULT_MODEL_ID,
@@ -220,7 +224,8 @@ export function parseArgs(argv, env = {}) {
 			arg === '--session' ||
 			arg === '--host' ||
 			arg === '--port' ||
-			arg === '--symbol'
+			arg === '--symbol' ||
+			arg === '--languages'
 		) {
 			// Consume the next token as the value unconditionally. An empty string
 			// or a value that starts with "--" (e.g. a literal prompt) is still a
@@ -477,6 +482,10 @@ export async function main(argv, io) {
 
 	if (options.command === 'inspect') {
 		const index = await inspectWorkspace(io.cwd, {
+			languages:
+				options.inspectLanguages.length > 0
+					? options.inspectLanguages
+					: undefined,
 			symbol: options.inspectSymbol,
 		});
 		if (options.json) {
@@ -978,6 +987,11 @@ function assignValue(options, flag, value) {
 		options.servePort = Number(value);
 	} else if (flag === '--symbol') {
 		options.inspectSymbol = value;
+	} else if (flag === '--languages') {
+		options.inspectLanguages = value
+			.split(',')
+			.map((s) => s.trim())
+			.filter(Boolean);
 	}
 }
 
@@ -1035,6 +1049,16 @@ async function probe(options, io) {
 }
 
 async function runPrompt(options, io) {
+	// Validate test command before spending tokens — a bad command would leave
+	// writes on disk with no way to run the test step.
+	if (options.testCommand) {
+		try {
+			parseVerificationCommand(options.testCommand);
+		} catch (err) {
+			throw new CliError(`Invalid --test command: ${err.message}`);
+		}
+	}
+
 	const prompt = await loadPrompt(options, io.cwd);
 	const promptId = resolvePromptId(options, prompt);
 	const runDir = await createRunArtifacts(io.cwd, options.out);

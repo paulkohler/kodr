@@ -22,17 +22,16 @@ If `--languages` is omitted the behaviour is unchanged.
 
 ## Done Criteria
 
-- [ ] `--languages` flag parsed in `src/app.mjs` and passed as `options.languages`
+- [x] `--languages` flag parsed in `src/app.mjs` and passed as `options.languages`
       (string array) to `inspectWorkspace`.
-- [ ] `inspectWorkspace` in `src/code-inspector.mjs` filters files by language
+- [x] `inspectWorkspace` in `src/code-inspector.mjs` filters files by language
       when `options.languages` is provided.
-- [ ] `languages` count map in the index reflects only the kept languages.
-- [ ] Existing tests still pass.
-- [ ] New test covering `--languages` filtering added to
-      `test/inspect-command.test.mjs` or `test/code-inspector.test.mjs`.
-- [ ] `npm run format` and `npm run check` pass.
-- [ ] Decisions recorded.
-- [ ] Roadmap marked complete and committed.
+- [x] `languages` count map in the index reflects only the kept languages (via existing `countLanguages`).
+- [x] Existing tests still pass.
+- [x] New test covering `--languages` filtering added to `test/inspect-command.test.mjs`.
+- [x] `npm run format` and `npm run check` pass.
+- [x] Decisions recorded.
+- [x] Roadmap marked complete and committed.
 
 ## Self-Dev Notes
 
