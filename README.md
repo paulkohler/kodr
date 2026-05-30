@@ -39,6 +39,8 @@ Point a run at a local OpenAI-compatible model. Writes stay dry-run until you pa
 
 Each run records inspectable artifacts under `.kodr/runs/...` (see [Run Artifacts](#run-artifacts)).
 
+For a fuller command-by-command guide, see [usage.md](./usage.md).
+
 Start a simple terminal turn UI when you want to keep taking turns in one session:
 
 ```sh
