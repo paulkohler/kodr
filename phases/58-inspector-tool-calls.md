@@ -1,4 +1,4 @@
-# Phase 54: Inspector Tool Calls
+# Phase 58: Inspector Tool Calls
 
 ## Goal
 

@@ -59,10 +59,11 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 54 Self-Dev: Inspect Output Totals
 - [x] 55 Self-Dev: Registry Command
 - [x] 56 Self-Dev: Language Filter on Inspect
-- [ ] 57 Inspector Tool Calls
-- [ ] 58 Patch Planning From Inspection
-- [ ] 59 CLI/TUI Inspection Workflow
-- [ ] 60 Dependency Install Workflow
+- [ ] 57 Persistent Planning Scratchpad
+- [ ] 58 Inspector Tool Calls
+- [ ] 59 Patch Planning From Inspection
+- [ ] 60 CLI/TUI Inspection Workflow
+- [ ] 61 Dependency Install Workflow
 
 ## Phase Contract
 

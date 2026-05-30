@@ -1,4 +1,4 @@
-# Phase 56: CLI/TUI Inspection Workflow
+# Phase 60: CLI/TUI Inspection Workflow
 
 ## Goal
 
