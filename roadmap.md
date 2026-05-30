@@ -59,6 +59,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [ ] 54 Inspector Tool Calls
 - [ ] 55 Patch Planning From Inspection
 - [ ] 56 CLI/TUI Inspection Workflow
+- [ ] 57 Dependency Install Workflow
 
 ## Phase Contract
 

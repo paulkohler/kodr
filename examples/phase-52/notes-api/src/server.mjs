@@ -1,10 +1,9 @@
-import { createServer } from 'node:http';
 import { createApp } from './app.mjs';
 
 const port = Number(process.env.PORT || 3000);
 const notesFile = process.env.NOTES_FILE || 'notes.json';
-const server = createServer(createApp({ notesFile }));
+const app = createApp({ notesFile });
 
-server.listen(port, () => {
+app.listen(port, () => {
 	console.log(`Notes API listening on http://127.0.0.1:${port}`);
 });

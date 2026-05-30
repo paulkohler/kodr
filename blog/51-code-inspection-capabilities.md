@@ -163,3 +163,25 @@ The repo smoke test found one important bug in the Phase 51 scanner:
 variables inside the function were also indexed as symbols. Phase 52 tightened
 the JS/TS scanner to top-level lines for symbol boundaries, which made the same
 smoke test select the full `buildWorkspaceContext` function span.
+
+## Express Example Trial
+
+The first real Phase 52 trial was an Express migration for
+`examples/phase-52/notes-api`.
+
+Kodr handled the main migration: it added Express to `package.json`, rewrote the
+app as an Express app, updated server startup, added an in-memory store path for
+tests, and expanded the API tests.
+
+The trial found three useful failures:
+
+- `package-lock.json` entered default context after `npm install`; lockfiles are
+  now map-only by default.
+- The first Express proposal added a custom body stream listener after
+  `express.json()`, which hung tests because the stream had already been
+  consumed.
+- Kodr could edit package metadata but could not run `npm install`; Phase 57 was
+  added to design a controlled dependency install workflow.
+
+The final repair used a shorter `createApp`-targeted inspection prompt and the
+example tests passed.

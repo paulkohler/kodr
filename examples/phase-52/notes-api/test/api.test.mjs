@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { createApp } from '../src/app.mjs';
+import { NoteStore } from '../src/store.mjs';
 
 describe('notes api', () => {
 	it('creates, lists, reads, updates, and deletes notes', async (t) => {
@@ -81,12 +82,36 @@ describe('notes api', () => {
 		const stored = JSON.parse(await readFile(fixture.notesFile, 'utf8'));
 		assert.equal(stored[0].title, 'Persisted');
 	});
+
+	it('returns 404 for unknown routes', async (t) => {
+		const fixture = await startFixture(t);
+
+		const notFound = await fixture.request('/unknown');
+		assert.equal(notFound.status, 404);
+		assert.equal(notFound.body.error, 'Not found');
+	});
+
+	it('uses in-memory store when provided', async (t) => {
+		const store = new NoteStore(':memory:');
+		const fixture = await startFixture(t, { store });
+
+		const created = await fixture.request('/notes', {
+			body: { body: 'Mem body', title: 'Mem note' },
+			method: 'POST',
+		});
+		assert.equal(created.status, 201);
+
+		const listed = await fixture.request('/notes');
+		assert.equal(listed.body.notes.length, 1);
+		assert.equal(listed.body.notes[0].title, 'Mem note');
+	});
 });
 
-async function startFixture(t) {
+async function startFixture(t, options = {}) {
 	const dir = await mkdtemp(join(tmpdir(), 'notes-api-'));
 	const notesFile = join(dir, 'notes.json');
-	const server = createServer(createApp({ notesFile }));
+	const app = createApp({ notesFile, ...options });
+	const server = createServer(app);
 	await listen(server);
 
 	t.after(async () => {

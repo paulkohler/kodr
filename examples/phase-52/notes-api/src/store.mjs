@@ -3,6 +3,11 @@ import { dirname, resolve } from 'node:path';
 
 export class NoteStore {
 	constructor(path) {
+		if (path === ':memory:') {
+			this._memory = [];
+			this.path = null;
+			return;
+		}
 		this.path = resolve(path);
 	}
 
@@ -61,6 +66,9 @@ export class NoteStore {
 	}
 
 	async read() {
+		if (this.path === null) {
+			return this._memory;
+		}
 		try {
 			const parsed = JSON.parse(await readFile(this.path, 'utf8'));
 			if (!Array.isArray(parsed)) {
@@ -76,6 +84,10 @@ export class NoteStore {
 	}
 
 	async write(notes) {
+		if (this.path === null) {
+			this._memory = notes;
+			return;
+		}
 		await mkdir(dirname(this.path), { recursive: true });
 		await writeFile(this.path, `${JSON.stringify(notes, null, 2)}\n`, 'utf8');
 	}
