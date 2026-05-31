@@ -1451,6 +1451,7 @@ async function runStagedPrompt({
 	const allWrites = [];
 	let scratchpad = '';
 	let writeError = null;
+	let runError = null;
 	let lastProposal = null;
 	let lastText = '';
 	let done = false;
@@ -1656,6 +1657,13 @@ async function runStagedPrompt({
 	if (writeError) {
 		writeResult.error = writeError;
 	}
+	if (done && !writeError && !testResult && writeResult.applied) {
+		runError = {
+			message:
+				'Staged execution reached STAGED_DONE after applying writes, but no verification command ran. Re-run with --test or use the dependency install workflow when the project needs packages.',
+			name: 'StagedUnverifiedError',
+		};
+	}
 	const proposal = lastProposal;
 	let taskPlan = createTaskPlan(
 		prompt,
@@ -1682,7 +1690,7 @@ async function runStagedPrompt({
 		finishReasons,
 		loopBudget,
 		model,
-		ok: writeError ? false : testResult ? testResult.ok : done,
+		ok: writeError || runError ? false : testResult ? testResult.ok : done,
 		parentRunDir: null,
 		promptChars: prompt.length,
 		promptId,
@@ -1691,6 +1699,7 @@ async function runStagedPrompt({
 		proposalStatus: proposal?.status || '',
 		responseChars: completion.text.length,
 		responseCount: responses.length,
+		runError,
 		sessionId: basename(runDir),
 		staged: {
 			auto: options.staged === 'auto',
@@ -1707,6 +1716,9 @@ async function runStagedPrompt({
 	};
 	if (writeError) {
 		summary.writeError = writeError;
+	}
+	if (!runError) {
+		delete summary.runError;
 	}
 	if (!done && !writeError && !testResult) {
 		summary.writeError = {
@@ -2160,6 +2172,13 @@ function renderRunSummary(result) {
 			lines.push('');
 			lines.push(
 				`Write error (${result.writeError.name}): ${result.writeError.message}`,
+			);
+		}
+
+		if (result.runError) {
+			lines.push('');
+			lines.push(
+				`Run error (${result.runError.name}): ${result.runError.message}`,
 			);
 		}
 

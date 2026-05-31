@@ -77,4 +77,26 @@ describe('task planning', () => {
 			'completed',
 		);
 	});
+
+	it('marks verification failed for run-level errors without failing edits', () => {
+		const plan = createTaskPlan('build API', ['src/server.js']);
+		const updated = updateTasksFromRun(plan, {
+			ok: false,
+			proposalFound: true,
+			runError: {
+				message: 'Verification did not run.',
+				name: 'StagedUnverifiedError',
+			},
+			tested: false,
+		});
+
+		assert.equal(
+			updated.tasks.find((task) => task.path === 'src/server.js').status,
+			'completed',
+		);
+		assert.equal(
+			updated.tasks.find((task) => task.id === 'verify').status,
+			'failed',
+		);
+	});
 });

@@ -93,6 +93,10 @@ export function updateTasksFromRun(plan, result) {
 		next = updateTask(next, 'verify', 'failed', 'Change preparation failed.');
 	}
 
+	if (result.runError) {
+		next = updateTask(next, 'verify', 'failed', result.runError.message);
+	}
+
 	if (result.tested) {
 		next = updateTask(
 			next,

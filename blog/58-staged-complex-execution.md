@@ -34,3 +34,17 @@ for the next stage. The next prompt explicitly says no files changed and asks
 for concrete files or patches. The stage budget is also derived from
 `--max-turns` with a cap, so a user who gives a slow local model a larger turn
 budget gets more staged attempts.
+
+The fourth Nemotron run showed the next false positive. The model used the
+staged loop properly: it planned, made several bounded file updates, and ended
+with `STAGED_DONE`. Kodr reported success because the stage marker was present.
+But no verification command ran, and when the generated app was checked
+manually, `npm test` failed immediately because the test file used Jest-style
+globals instead of importing from `node:test`.
+
+That is not an example to patch by hand. It is a harness rule: a local model
+can say it is done, but applied staged work is only complete when verification
+has run. Kodr now marks applied staged runs that reach `STAGED_DONE` without
+verification as `StagedUnverifiedError`. The files still land when `--yes` is
+used, but the run is machine-visible as failed and ready for the dependency
+install and repair phases.

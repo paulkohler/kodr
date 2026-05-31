@@ -1245,6 +1245,7 @@ describe('run', () => {
 
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'kodr-staged-run-'));
+			const stdout = captureStream();
 			const result = await main(
 				[
 					'run',
@@ -1261,11 +1262,12 @@ describe('run', () => {
 					cwd,
 					env: {},
 					stderr: captureStream(),
-					stdout: captureStream(),
+					stdout,
 				},
 			);
 
-			assert.equal(result.result.ok, true);
+			assert.equal(result.result.ok, false);
+			assert.equal(result.result.runError.name, 'StagedUnverifiedError');
 			assert.equal(result.result.staged.auto, true);
 			assert.equal(result.result.staged.stages.length, 4);
 			assert.equal(result.result.responseCount, 4);
@@ -1278,7 +1280,11 @@ describe('run', () => {
 				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
 			);
 			assert.equal(summary.staged.done, true);
+			assert.equal(summary.ok, false);
+			assert.equal(summary.runError.name, 'StagedUnverifiedError');
 			assert.equal(summary.writeCount, 1);
+			assert.match(stdout.text, /^Run failed — staged/u);
+			assert.match(stdout.text, /StagedUnverifiedError/u);
 			assert.equal(server.recordings.length, 4);
 			assert.match(
 				server.recordings[0].requestBody.messages[1].content,
