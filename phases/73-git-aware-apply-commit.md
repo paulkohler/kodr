@@ -7,7 +7,7 @@ applied changes with a generated message.
 
 Auto-commit is a signature Aider feature and makes Kodr usable for real
 iterative work — clean per-turn commits and easy revert. It also gives the
-Phase 70 self-healing loop a natural rollback boundary.
+Phase 71 self-healing loop a natural rollback boundary.
 
 ## Design
 

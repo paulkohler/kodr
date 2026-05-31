@@ -18,10 +18,10 @@ only adds the missing pieces:
 - TUI `/refs symbol`
 
 Do **not** add a `/context` slash command — it re-exposes the heavy context blob,
-matching the `inspect_context` tool dropped in Phase 60.
+matching the `inspect_context` tool dropped in Phase 61.
 
 Keep output line-oriented and dependency-free. Reuse the same built-in
-`inspectWorkspace` / `findReferences` engine as Phase 60 so model and human
+`inspectWorkspace` / `findReferences` engine as Phase 61 so model and human
 surfaces stay consistent.
 
 ## Non-Goals

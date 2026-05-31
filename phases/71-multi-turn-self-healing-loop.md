@@ -25,7 +25,7 @@ Builds directly on the turn-forwarding wiring introduced in Phase 62.
 
 ## Non-Goals
 
-- No git integration (that is Phase 72).
+- No git integration (that is Phase 73).
 - No new model providers or streaming changes.
 
 ## Done Criteria
