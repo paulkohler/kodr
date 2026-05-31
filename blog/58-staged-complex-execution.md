@@ -22,3 +22,15 @@ the model explicitly reaches `STAGED_DONE`, or verification proves the work.
 
 This keeps simple runs simple, but prevents the harness from treating one giant
 local-model proposal as a completed complex app.
+
+The first staged Nemotron retry exposed a second staging bug. The model produced
+a good plan, then returned a no-op implementation turn with `files: []` while
+claiming the stage was complete. Kodr failed the run, which was better than a
+false positive, but it stopped too early and reported the applied run as
+`dry-run`.
+
+Staged execution now treats no-op implementation turns as corrective feedback
+for the next stage. The next prompt explicitly says no files changed and asks
+for concrete files or patches. The stage budget is also derived from
+`--max-turns` with a cap, so a user who gives a slow local model a larger turn
+budget gets more staged attempts.

@@ -1250,6 +1250,7 @@ async function runPrompt(options, io) {
 			writes: 'writes.json',
 		},
 		baseUrl: options.baseUrl,
+		applyRequested: options.yes,
 		finishReasons: completion.finishReasons,
 		loopBudget: completion.loopBudget,
 		model,
@@ -1438,7 +1439,10 @@ async function runStagedPrompt({
 	skills,
 }) {
 	const maxStageWrites = 5;
-	const maxExecutionStages = 4;
+	const maxExecutionStages = Math.max(
+		1,
+		Math.min(8, Number(options.maxTurns || 8) - 1),
+	);
 	const stageRecords = [];
 	const responses = [];
 	const finishReasons = [];
@@ -1450,6 +1454,7 @@ async function runStagedPrompt({
 	let lastProposal = null;
 	let lastText = '';
 	let done = false;
+	let noProgressTurns = 0;
 
 	const planCompletion = await completeWithToolCalls(
 		options,
@@ -1483,8 +1488,12 @@ async function runStagedPrompt({
 			'## Kodr staged execution',
 			`You are in implementation stage ${stageIndex} of ${maxExecutionStages}.`,
 			`Implement one coherent slice only, with at most ${maxStageWrites} total file writes or patches.`,
+			'The workspace does not change unless you include files or patches in this response. Do not claim a stage is complete unless this response includes the corresponding files or patches.',
 			'Prefer tests and runnable support files early. If existing files need small edits, use patches instead of full rewrites.',
 			'If all work is complete, return status OK with no files or patches and include a message containing STAGED_DONE.',
+			noProgressTurns > 0
+				? `Previous implementation turn made no file changes. Correct that now by returning 1-${maxStageWrites} files or patches.`
+				: '',
 			scratchpad ? `\n## Current staged plan\n${scratchpad}` : '',
 		].join('\n');
 
@@ -1574,10 +1583,21 @@ async function runStagedPrompt({
 			stageRecords.push({
 				done,
 				name: `implement-${stageIndex}`,
+				noProgress: !done,
 				paths,
 				responseChars: completion.text.length,
 			});
-			break;
+			if (done) {
+				break;
+			}
+			noProgressTurns += 1;
+			scratchpad = [
+				scratchpad,
+				`No-progress feedback: implementation stage ${stageIndex} returned no files or patches and did not include STAGED_DONE. The next stage must return concrete file or patch changes.`,
+			]
+				.filter(Boolean)
+				.join('\n\n');
+			continue;
 		}
 
 		let writeResult;
@@ -1601,6 +1621,7 @@ async function runStagedPrompt({
 		}
 
 		allWrites.push(...writeResult.writes);
+		noProgressTurns = 0;
 		stageRecords.push({
 			applied: writeResult.applied,
 			name: `implement-${stageIndex}`,
@@ -1642,6 +1663,7 @@ async function runStagedPrompt({
 	);
 	const summary = {
 		applied: writeResult.applied,
+		applyRequested: options.yes,
 		artifacts: {
 			context: 'context.md',
 			conversation: 'conversation.json',
@@ -1688,7 +1710,8 @@ async function runStagedPrompt({
 	}
 	if (!done && !writeError && !testResult) {
 		summary.writeError = {
-			message: 'Staged execution reached its stage budget before STAGED_DONE',
+			message:
+				'Staged execution reached its stage budget without concrete changes or STAGED_DONE',
 			name: 'StagedIncompleteError',
 		};
 		summary.ok = false;
@@ -2105,7 +2128,11 @@ function renderRunSummary(result) {
 		appendResponseBlock(lines, result.response);
 	} else if (result.proposal) {
 		const writes = result.writeResult?.writes || [];
-		const mode = result.applied ? 'applied' : 'dry-run (no changes written)';
+		const mode = result.applied
+			? 'applied'
+			: result.applyRequested
+				? 'not applied'
+				: 'dry-run (no changes written)';
 		lines.push('');
 		lines.push(
 			`Proposal: ${result.proposalStatus || 'OK'} — ${writes.length} file(s), ${mode}`,

@@ -23,6 +23,10 @@ but did not shape model behavior.
 - Apply implementation in bounded slices, with a maximum number of touched paths
   per stage.
 - Refresh workspace context between implementation stages.
+- Derive the stage budget from `--max-turns` with a conservative cap so slow
+  local runs can spend more than four stages when explicitly budgeted.
+- Treat no-op implementation turns as feedback for the next stage instead of
+  immediate success or immediate completion.
 - Mark the run incomplete if the stage budget is exhausted before the model
   explicitly reports completion.
 - Record staged execution details in run artifacts.
@@ -34,6 +38,7 @@ but did not shape model behavior.
 - [x] Staged runs include a plan turn before implementation turns.
 - [x] Each implementation turn is capped to a small path count.
 - [x] Context is rebuilt between implementation turns.
+- [x] No-op implementation turns are retried with corrective feedback.
 - [x] Run artifacts record stage metadata and incomplete staged runs fail.
 - [x] Tests cover staged execution.
 - [x] Blog and process logs capture the learning from the Nemotron run.

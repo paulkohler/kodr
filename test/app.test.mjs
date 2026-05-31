@@ -1207,6 +1207,16 @@ describe('run', () => {
 				},
 				{
 					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Stage 1 complete.', level: 'info' }],
+						scratchpad: '',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				{
+					body: proposalResponse({
 						files: [
 							{
 								content: 'export const staged = true;\n',
@@ -1257,8 +1267,9 @@ describe('run', () => {
 
 			assert.equal(result.result.ok, true);
 			assert.equal(result.result.staged.auto, true);
-			assert.equal(result.result.staged.stages.length, 3);
-			assert.equal(result.result.responseCount, 3);
+			assert.equal(result.result.staged.stages.length, 4);
+			assert.equal(result.result.responseCount, 4);
+			assert.equal(result.result.staged.stages[1].noProgress, true);
 			assert.equal(
 				await readFile(join(cwd, 'src', 'staged.mjs'), 'utf8'),
 				'export const staged = true;\n',
@@ -1268,13 +1279,17 @@ describe('run', () => {
 			);
 			assert.equal(summary.staged.done, true);
 			assert.equal(summary.writeCount, 1);
-			assert.equal(server.recordings.length, 3);
+			assert.equal(server.recordings.length, 4);
 			assert.match(
 				server.recordings[0].requestBody.messages[1].content,
 				/Return a plan only/u,
 			);
 			assert.match(
-				server.recordings[1].requestBody.messages[1].content,
+				server.recordings[2].requestBody.messages[1].content,
+				/Previous implementation turn made no file changes/u,
+			);
+			assert.match(
+				server.recordings[2].requestBody.messages[1].content,
 				/at most 5 total file writes/u,
 			);
 		} finally {
