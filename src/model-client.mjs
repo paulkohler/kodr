@@ -1,7 +1,8 @@
 export class ModelClientError extends Error {
-	constructor(message) {
-		super(message);
+	constructor(message, details = {}) {
+		super(message, details.cause ? { cause: details.cause } : undefined);
 		this.name = 'ModelClientError';
+		this.details = sanitizeErrorDetails(details);
 	}
 }
 
@@ -108,7 +109,13 @@ async function requestJson(url, options) {
 	const text = await response.text();
 
 	return {
-		body: parseJson(text, `${options.method} ${url}`),
+		body: parseJson(text, `${options.method} ${url}`, {
+			phase: 'parse-json',
+			responseTextBytes: Buffer.byteLength(text),
+			responseTextSample: sampleText(text),
+			status: response.status,
+			url,
+		}),
 		status: response.status,
 		url,
 	};
@@ -128,10 +135,12 @@ async function requestRaw(url, options) {
 		headers.authorization = `Bearer ${options.apiKey}`;
 	}
 
+	const bodyText = options.body ? JSON.stringify(options.body) : undefined;
+	const startedAt = Date.now();
 	let response;
 	try {
 		response = await fetch(url, {
-			body: options.body ? JSON.stringify(options.body) : undefined,
+			body: bodyText,
 			headers,
 			method: options.method,
 			signal: AbortSignal.timeout(options.timeoutMs),
@@ -139,6 +148,15 @@ async function requestRaw(url, options) {
 	} catch (error) {
 		throw new ModelClientError(
 			`${options.method} ${url} failed: ${error.message}`,
+			{
+				cause: error,
+				elapsedMs: Date.now() - startedAt,
+				method: options.method,
+				phase: 'fetch',
+				requestBodyBytes: bodyText ? Buffer.byteLength(bodyText) : 0,
+				timeoutMs: options.timeoutMs,
+				url,
+			},
 		);
 	}
 
@@ -146,17 +164,31 @@ async function requestRaw(url, options) {
 		const text = await response.text();
 		throw new ModelClientError(
 			`${options.method} ${url} returned HTTP ${response.status}: ${text}`,
+			{
+				elapsedMs: Date.now() - startedAt,
+				method: options.method,
+				phase: 'http-response',
+				requestBodyBytes: bodyText ? Buffer.byteLength(bodyText) : 0,
+				responseTextBytes: Buffer.byteLength(text),
+				responseTextSample: sampleText(text),
+				status: response.status,
+				timeoutMs: options.timeoutMs,
+				url,
+			},
 		);
 	}
 
 	return response;
 }
 
-function parseJson(text, label) {
+function parseJson(text, label, details = {}) {
 	try {
 		return JSON.parse(text);
-	} catch {
-		throw new ModelClientError(`${label} returned invalid JSON`);
+	} catch (error) {
+		throw new ModelClientError(`${label} returned invalid JSON`, {
+			cause: error,
+			...details,
+		});
 	}
 }
 
@@ -191,7 +223,20 @@ async function readServerSentEvents(response, label, onStreamContent) {
 	};
 
 	while (true) {
-		const { done, value } = await reader.read();
+		let done;
+		let value;
+		try {
+			({ done, value } = await reader.read());
+		} catch (error) {
+			throw new ModelClientError(
+				`${label} stream read failed: ${error.message}`,
+				{
+					cause: error,
+					phase: 'stream-read',
+					status: response.status,
+				},
+			);
+		}
 		buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
 		const events = buffer.split('\n\n');
 		buffer = events.pop() || '';
@@ -207,6 +252,44 @@ async function readServerSentEvents(response, label, onStreamContent) {
 			return finalizeStreamState(state);
 		}
 	}
+}
+
+function sanitizeErrorDetails(details) {
+	const sanitized = {};
+	for (const [key, value] of Object.entries(details)) {
+		if (key === 'cause') {
+			const cause = serializeCause(value);
+			if (cause) {
+				sanitized.cause = cause;
+			}
+			continue;
+		}
+		if (value !== undefined) {
+			sanitized[key] = value;
+		}
+	}
+	return sanitized;
+}
+
+function serializeCause(error) {
+	if (!error || typeof error !== 'object') {
+		return null;
+	}
+	const cause = {
+		message: typeof error.message === 'string' ? error.message : '',
+		name: typeof error.name === 'string' ? error.name : '',
+	};
+	if (typeof error.code === 'string') {
+		cause.code = error.code;
+	}
+	if (error.cause && typeof error.cause === 'object') {
+		cause.cause = serializeCause(error.cause);
+	}
+	return cause;
+}
+
+function sampleText(text) {
+	return text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
 }
 
 function applyStreamEvent(state, parsed, onStreamContent) {

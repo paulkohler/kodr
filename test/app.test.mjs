@@ -837,9 +837,20 @@ describe('run', () => {
 			assert.equal(summary.ok, false);
 			assert.equal(summary.artifacts.error, 'error.json');
 			assert.match(summary.error.message, /HTTP 500/u);
+			assert.equal(summary.error.details.status, 500);
+			assert.equal(summary.error.details.phase, 'http-response');
+			assert.equal(typeof summary.rawRequestBytes, 'number');
+			assert.equal(summary.rawRequestBytes > 0, true);
 			assert.equal(
 				await readFile(join(cwd, 'failed-run', 'prompt.md'), 'utf8'),
 				'Build an example.',
+			);
+			const error = JSON.parse(
+				await readFile(join(cwd, 'failed-run', 'error.json'), 'utf8'),
+			);
+			assert.equal(
+				error.details.responseTextSample,
+				'{"error":"model unavailable"}',
 			);
 		} finally {
 			await server.close();

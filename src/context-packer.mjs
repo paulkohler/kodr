@@ -3,7 +3,6 @@ import { relative, sep } from 'node:path';
 
 const DEFAULT_IGNORES = new Set([
 	'.git',
-	'.kodr',
 	'node_modules',
 	'dist',
 	'build',
@@ -601,7 +600,7 @@ async function walk(root, dir, files) {
 	);
 
 	for (const entry of sorted) {
-		if (DEFAULT_IGNORES.has(entry.name)) {
+		if (shouldIgnoreEntry(entry.name)) {
 			continue;
 		}
 
@@ -624,6 +623,10 @@ async function walk(root, dir, files) {
 
 		files.push(relativePath);
 	}
+}
+
+function shouldIgnoreEntry(name) {
+	return DEFAULT_IGNORES.has(name) || /^\.kodr(?:$|-)/u.test(name);
 }
 
 async function readTextPrefix(path, maxBytes) {

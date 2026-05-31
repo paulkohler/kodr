@@ -14,6 +14,8 @@ describe('context packing', () => {
 	it('walks files deterministically and ignores generated directories', async () => {
 		const cwd = await mkWorkspace({
 			'.kodr/hidden.txt': 'hidden',
+			'.kodr-nemotron-test2/error.json': '{}',
+			'.kodr-repair-1/context.md': 'old context',
 			'a.txt': 'a',
 			'b.txt': 'b',
 			'node_modules/pkg/index.js': 'ignored',

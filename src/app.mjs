@@ -1121,6 +1121,7 @@ async function runPrompt(options, io) {
 
 	let model;
 	let completion;
+	let rawRequest;
 
 	try {
 		// Only hit GET /models when no model was named. Some OpenAI-compatible
@@ -1145,7 +1146,7 @@ async function runPrompt(options, io) {
 			);
 		}
 
-		const rawRequest = {
+		rawRequest = {
 			messages: initialMessages,
 			model,
 			url: `${options.baseUrl}/chat/completions`,
@@ -1186,6 +1187,7 @@ async function runPrompt(options, io) {
 			model: model || options.model || '',
 			prompt,
 			promptId,
+			rawRequest,
 			rawRequestTools: registry ? registry.toApiTools() : null,
 			responsePath,
 		});
@@ -1388,11 +1390,8 @@ async function runPrompt(options, io) {
 
 async function writeRunFailure(runDir, details) {
 	const taskPlan = createTaskPlan(details.prompt);
-	const error = {
-		message: details.error.message,
-		name: details.error.name,
-	};
-	const rawRequest = {
+	const error = serializeRunError(details.error);
+	const rawRequest = details.rawRequest || {
 		messages: details.initialMessages || [],
 		model: details.model,
 		url: `${details.baseUrl}/chat/completions`,
@@ -1422,6 +1421,7 @@ async function writeRunFailure(runDir, details) {
 		parentRunDir: null,
 		promptChars: details.prompt.length,
 		promptId: details.promptId || '',
+		rawRequestBytes: Buffer.byteLength(JSON.stringify(rawRequest)),
 		responseChars: 0,
 		responseCount: 0,
 		sessionId: basename(runDir),
@@ -1444,6 +1444,40 @@ async function writeRunFailure(runDir, details) {
 		applied: false,
 		writes: [],
 	});
+}
+
+function serializeRunError(error) {
+	const serialized = {
+		message: error?.message || 'Unknown error',
+		name: error?.name || 'Error',
+	};
+	if (error?.details && Object.keys(error.details).length > 0) {
+		serialized.details = error.details;
+	}
+	if (error?.cause) {
+		serialized.cause = serializeErrorCause(error.cause);
+	}
+	if (error?.stack) {
+		serialized.stack = error.stack;
+	}
+	return serialized;
+}
+
+function serializeErrorCause(error) {
+	if (!error || typeof error !== 'object') {
+		return null;
+	}
+	const serialized = {
+		message: typeof error.message === 'string' ? error.message : '',
+		name: typeof error.name === 'string' ? error.name : '',
+	};
+	if (typeof error.code === 'string') {
+		serialized.code = error.code;
+	}
+	if (error.cause) {
+		serialized.cause = serializeErrorCause(error.cause);
+	}
+	return serialized;
 }
 
 async function verificationCwd(cwd, options) {

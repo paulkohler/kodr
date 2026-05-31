@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { describe, it } from 'node:test';
-import { createChatCompletion } from '../src/model-client.mjs';
+import {
+	createChatCompletion,
+	ModelClientError,
+} from '../src/model-client.mjs';
 import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
 
 // Build a Server-Sent Events body from a list of chunk objects, terminated by
@@ -181,5 +185,41 @@ describe('createChatCompletion streaming', () => {
 		} finally {
 			await server.close();
 		}
+	});
+});
+
+describe('createChatCompletion errors', () => {
+	it('preserves transport failure details', async () => {
+		const server = createServer();
+		await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+		const { port } = server.address();
+		await new Promise((resolve, reject) => {
+			server.close((error) => (error ? reject(error) : resolve()));
+		});
+
+		await assert.rejects(
+			() =>
+				createChatCompletion(
+					{
+						baseUrl: `http://127.0.0.1:${port}/v1`,
+						extraHeaders: {},
+						stream: false,
+						timeoutMs: 1000,
+					},
+					{
+						messages: [{ role: 'user', content: 'hi' }],
+						model: 'test-model',
+					},
+				),
+			(error) => {
+				assert.equal(error instanceof ModelClientError, true);
+				assert.equal(error.details.phase, 'fetch');
+				assert.equal(error.details.method, 'POST');
+				assert.equal(error.details.timeoutMs, 1000);
+				assert.equal(error.details.requestBodyBytes > 0, true);
+				assert.equal(error.details.cause.name, 'TypeError');
+				return true;
+			},
+		);
 	});
 });

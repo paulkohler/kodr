@@ -49,3 +49,27 @@ This was a better failure. It shows that model choice matters, but also that the
 harness needs path-aware repair pressure: when the prompt names
 `tests/utils.js`, a created sibling `utils.js` is probably wrong and should be
 flagged before we call the repair successful.
+
+## Nemotron Take 2 Transport Failure
+
+A fresh take2 run failed before producing a usable assistant response:
+
+```text
+Model run failed: POST http://localhost:1234/v1/chat/completions failed: fetch failed
+```
+
+The Kodr artifacts did not explain enough. `context.md` and `raw-request.json`
+were small, so this was not a packed-context problem. The LM Studio
+`server.log` had the missing evidence: the model generated a very large hidden
+reasoning trace with empty assistant content, then the client disconnected after
+several minutes. The server reported no truncation, so this also did not look
+like a max-output-token failure.
+
+The harness fix is to preserve structured transport details in failed run
+artifacts: request phase, elapsed time, timeout, request body size, HTTP status
+and response samples when present, and nested cause metadata from `fetch`.
+
+The same run exposed a separate context hygiene issue. Because the output
+directory was named `.kodr-nemotron-test2`, Kodr listed prior run artifacts as
+workspace files. That is confusing even when byte budgets keep the prompt small,
+so `.kodr` and `.kodr-*` directories are now excluded from context discovery.
