@@ -29,3 +29,23 @@ This trial also confirmed two harness concerns:
 
 The app is left unfixed as a Kodr sample. Fixing it by hand would turn the
 example into a false positive. The useful artifact is the failure trail.
+
+## Nemotron Repair Attempt
+
+After Docker was started, I reran the repair with
+`nvidia/nemotron-3-nano-omni`, `--tools`, and `--max-turns 50`. This model did
+better than qwen on one dimension: it produced an actual patch instead of a
+scratchpad-only no-op.
+
+The patch was still incomplete. It fixed the recursive helper in
+`tests/health.test.js` and removed the duplicate README sections, but it created
+a new root-level `utils.js` instead of patching `tests/utils.js`. The users and
+documents tests still import the old recursive helper, so they continued to
+crash with out-of-memory failures. The health assertions passed, but the test
+file still left event-loop work pending, likely because server or Postgres pool
+lifecycle was not closed cleanly.
+
+This was a better failure. It shows that model choice matters, but also that the
+harness needs path-aware repair pressure: when the prompt names
+`tests/utils.js`, a created sibling `utils.js` is probably wrong and should be
+flagged before we call the repair successful.

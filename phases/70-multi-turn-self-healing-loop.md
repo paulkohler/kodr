@@ -37,6 +37,8 @@ Builds directly on the turn-forwarding wiring introduced in Phase 62.
       diff empty twice).
 - [ ] OK/no-op proposals that only add scratchpad content are forwarded once,
       then counted as no-progress if they repeat.
+- [ ] Repair proposals are checked against failing stack traces/requested paths;
+      creating a similarly named sibling file does not count as convergence.
 - [ ] Snapshot diff captured per turn as an artifact.
 - [ ] Add tests.
 - [ ] Record decisions and any failures.

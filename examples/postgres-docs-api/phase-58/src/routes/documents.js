@@ -18,11 +18,9 @@ router.post('/', async (req, res, next) => {
 		const docStatus = status || 'draft';
 		const validStatuses = ['draft', 'published', 'archived'];
 		if (!validStatuses.includes(docStatus)) {
-			return res
-				.status(400)
-				.json({
-					error: 'Invalid status. Must be one of: draft, published, archived',
-				});
+			return res.status(400).json({
+				error: 'Invalid status. Must be one of: draft, published, archived',
+			});
 		}
 
 		const result = await query(
@@ -155,11 +153,9 @@ router.patch('/:id', async (req, res, next) => {
 		if (status !== undefined) {
 			const validStatuses = ['draft', 'published', 'archived'];
 			if (!validStatuses.includes(status)) {
-				return res
-					.status(400)
-					.json({
-						error: 'Invalid status. Must be one of: draft, published, archived',
-					});
+				return res.status(400).json({
+					error: 'Invalid status. Must be one of: draft, published, archived',
+				});
 			}
 			updates.push(`status = $${paramIndex++}`);
 			values.push(status);

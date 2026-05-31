@@ -8,7 +8,7 @@ const BASE_URL =
 
 async function fetch(path, options = {}) {
 	const url = new URL(path, BASE_URL);
-	const res = await fetch(url.toString(), {
+	const res = await globalThis.fetch(url.toString(), {
 		method: options.method || 'GET',
 		headers: { 'Content-Type': 'application/json', ...options.headers },
 		body: options.body ? JSON.stringify(options.body) : undefined,

@@ -57,3 +57,59 @@ Kodr repair attempts were made instead of hand-editing the generated solution:
 The generated app is intentionally left as Kodr produced it. The failures are
 learning artifacts for improving repair loops, dependency/service setup, and
 proposal validation.
+
+## Nemotron Repair Trial
+
+After Docker was started locally, a second model repair was attempted with
+`nvidia/nemotron-3-nano-omni`:
+
+```sh
+/Users/paul/src/koder-by-codex/kodr run \
+  -p "Repair the generated Express/Postgres example so its own npm test can run without recursive fetch/OOM failures. Use tools to inspect tests/health.test.js, tests/utils.js, tests/users.test.js, tests/documents.test.js, src/app.js, and README.md. Then produce patches or file updates. Specific known issue: a helper named fetch recursively calls itself; call globalThis.fetch or rename the helper to request. Also remove duplicated README sections. Keep changes scoped to this example. Return changed files or patches, not scratchpad-only." \
+  --yes \
+  --out .kodr-repair-nemotron-1 \
+  --tools \
+  --model nvidia/nemotron-3-nano-omni \
+  --max-turns 50 \
+  --max-retries 3 \
+  --timeout-ms 600000
+```
+
+Result: Nemotron produced and applied a three-file proposal:
+
+- modified `tests/health.test.js`
+- modified `README.md`
+- created `utils.js` at the example root
+
+This was partial progress. `tests/health.test.js` stopped recursively calling
+itself, and the duplicate README sections were removed. However,
+`tests/users.test.js` and `tests/documents.test.js` still import
+`tests/utils.js`, which retained the recursive `fetch` helper. The new root
+`utils.js` was not imported by the tests.
+
+With Docker running, the driver used a temporary Docker config to avoid a
+`docker-credential-desktop get` hang while pulling the public Postgres image:
+
+```sh
+tmp_config=$(mktemp -d)
+printf '{}\n' > "$tmp_config/config.json"
+DOCKER_CONFIG="$tmp_config" docker-compose up -d
+```
+
+Migration required an explicit `DATABASE_URL` because the generated app did not
+load `.env` itself:
+
+```sh
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/documents npm run migrate
+```
+
+Post-repair tests still failed:
+
+- `documents.test.js`: OOM from recursive helper path
+- `users.test.js`: OOM from recursive helper path
+- `health.test.js`: assertions passed, but the process still had pending event
+  loop work, likely from server/pool lifecycle
+
+This is useful contrast: Nemotron made a concrete patch where qwen repair
+attempts produced no-op scratchpads or exhausted turns, but the repair still did
+not converge because it patched the wrong helper path.

@@ -1,0 +1,47 @@
+{
+	"task": "Repair the generated Express/Postgres example so its own npm test can run without recursive fetch/OOM failures. Use tools to inspect tests/health.test.js, tests/utils.js, tests/users.test.js, tests/documents.test.js, src/app.js, and README.md. Then produce patches or file updates. Specific known issue: a helper named fetch recursively calls itself; call globalThis.fetch or rename the helper to request. Also remove duplicated README sections. Keep changes scoped to this example. Return changed files or patches, not scratchpad-only.",
+	"tasks": [
+		{
+			"description": "Understand the user request",
+			"id": "understand-request",
+			"status": "completed"
+		},
+		{
+			"description": "Inspect workspace context",
+			"id": "inspect-context",
+			"status": "completed"
+		},
+		{
+			"description": "Prepare changes for utils.js",
+			"id": "edit-utils-js",
+			"status": "completed",
+			"path": "utils.js",
+			"note": "Proposal included this path."
+		},
+		{
+			"description": "Prepare changes for tests/health.test.js",
+			"id": "edit-tests-health-test-js",
+			"status": "completed",
+			"path": "tests/health.test.js",
+			"note": "Proposal included this path."
+		},
+		{
+			"description": "Prepare changes for README.md",
+			"id": "edit-readme-md",
+			"status": "completed",
+			"path": "README.md",
+			"note": "Proposal included this path."
+		},
+		{
+			"description": "Run requested verification",
+			"id": "verify",
+			"status": "pending"
+		},
+		{
+			"description": "Update learning artifacts",
+			"id": "document",
+			"status": "completed",
+			"note": "Run artifacts were written."
+		}
+	]
+}
