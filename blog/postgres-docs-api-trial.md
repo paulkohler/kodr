@@ -73,3 +73,15 @@ The same run exposed a separate context hygiene issue. Because the output
 directory was named `.kodr-nemotron-test2`, Kodr listed prior run artifacts as
 workspace files. That is confusing even when byte budgets keep the prompt small,
 so `.kodr` and `.kodr-*` directories are now excluded from context discovery.
+
+A retry with the richer diagnostics exposed the real cutoff:
+`UND_ERR_HEADERS_TIMEOUT` after about 300 seconds, despite `--timeout-ms
+600000`. This was not Kodr's abort timeout. It was Node's fetch implementation
+using undici's default response-header timeout. LM Studio can spend several
+minutes generating before it sends any HTTP response headers, especially with a
+reasoning-heavy model, so fetch can fail while the model is visibly still
+generating.
+
+The transport now uses built-in `node:http` and `node:https` directly. That
+keeps the project zero-dependency and makes Kodr's configured timeout the
+timeout that actually governs slow local model requests.

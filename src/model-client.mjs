@@ -1,3 +1,7 @@
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { Readable } from 'node:stream';
+
 export class ModelClientError extends Error {
 	constructor(message, details = {}) {
 		super(message, details.cause ? { cause: details.cause } : undefined);
@@ -139,11 +143,11 @@ async function requestRaw(url, options) {
 	const startedAt = Date.now();
 	let response;
 	try {
-		response = await fetch(url, {
-			body: bodyText,
+		response = await requestWithNodeHttp(url, {
+			bodyText,
 			headers,
 			method: options.method,
-			signal: AbortSignal.timeout(options.timeoutMs),
+			timeoutMs: options.timeoutMs,
 		});
 	} catch (error) {
 		throw new ModelClientError(
@@ -179,6 +183,92 @@ async function requestRaw(url, options) {
 	}
 
 	return response;
+}
+
+function requestWithNodeHttp(url, options) {
+	return new Promise((resolve, reject) => {
+		const parsed = new URL(url);
+		const transport = parsed.protocol === 'https:' ? httpsRequest : httpRequest;
+		let settled = false;
+		let response = null;
+		let timeoutId = null;
+
+		const fail = (error) => {
+			if (!settled) {
+				settled = true;
+				clearTimeout(timeoutId);
+				reject(error);
+				return;
+			}
+			response?.destroy(error);
+		};
+
+		const request = transport(
+			{
+				headers: options.headers,
+				hostname: parsed.hostname,
+				method: options.method,
+				path: `${parsed.pathname}${parsed.search}`,
+				port: parsed.port || undefined,
+				protocol: parsed.protocol,
+			},
+			(incoming) => {
+				response = incoming;
+				incoming.on('end', () => clearTimeout(timeoutId));
+				incoming.on('close', () => clearTimeout(timeoutId));
+				settled = true;
+				resolve(toModelResponse(incoming));
+			},
+		);
+
+		timeoutId = setTimeout(() => {
+			const error = new Error(`request timed out after ${options.timeoutMs}ms`);
+			error.name = 'TimeoutError';
+			error.code = 'KODR_REQUEST_TIMEOUT';
+			request.destroy(error);
+			fail(error);
+		}, options.timeoutMs);
+		timeoutId.unref?.();
+
+		request.on('error', fail);
+		request.on('close', () => {
+			if (!settled) {
+				clearTimeout(timeoutId);
+			}
+		});
+
+		if (options.bodyText) {
+			request.write(options.bodyText);
+		}
+		request.end();
+	});
+}
+
+function toModelResponse(incoming) {
+	return {
+		get body() {
+			return Readable.toWeb(incoming);
+		},
+		ok: incoming.statusCode >= 200 && incoming.statusCode < 300,
+		status: incoming.statusCode,
+		text() {
+			return readIncomingText(incoming);
+		},
+	};
+}
+
+function readIncomingText(incoming) {
+	return new Promise((resolve, reject) => {
+		incoming.setEncoding('utf8');
+		let text = '';
+		incoming.on('data', (chunk) => {
+			text += chunk;
+		});
+		incoming.on('end', () => {
+			resolve(text);
+		});
+		incoming.on('error', reject);
+	});
 }
 
 function parseJson(text, label, details = {}) {

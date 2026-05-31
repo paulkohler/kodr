@@ -217,9 +217,87 @@ describe('createChatCompletion errors', () => {
 				assert.equal(error.details.method, 'POST');
 				assert.equal(error.details.timeoutMs, 1000);
 				assert.equal(error.details.requestBodyBytes > 0, true);
-				assert.equal(error.details.cause.name, 'TypeError');
+				assert.equal(typeof error.details.cause.name, 'string');
 				return true;
 			},
 		);
+	});
+
+	it('waits for slow response headers within the configured timeout', async () => {
+		const server = createServer((request, response) => {
+			request.resume();
+			setTimeout(() => {
+				response.writeHead(200, { 'content-type': 'application/json' });
+				response.end(
+					JSON.stringify({
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'slow ok', role: 'assistant' },
+							},
+						],
+					}),
+				);
+			}, 75);
+		});
+		await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+		const { port } = server.address();
+
+		try {
+			const response = await createChatCompletion(
+				{
+					baseUrl: `http://127.0.0.1:${port}/v1`,
+					extraHeaders: {},
+					stream: false,
+					timeoutMs: 1000,
+				},
+				{
+					messages: [{ role: 'user', content: 'hi' }],
+					model: 'test-model',
+				},
+			);
+
+			assert.equal(response.body.choices[0].message.content, 'slow ok');
+		} finally {
+			await new Promise((resolve, reject) => {
+				server.close((error) => (error ? reject(error) : resolve()));
+			});
+		}
+	});
+
+	it('enforces the configured request timeout while waiting for headers', async () => {
+		const server = createServer((request) => {
+			request.resume();
+		});
+		await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+		const { port } = server.address();
+
+		try {
+			await assert.rejects(
+				() =>
+					createChatCompletion(
+						{
+							baseUrl: `http://127.0.0.1:${port}/v1`,
+							extraHeaders: {},
+							stream: false,
+							timeoutMs: 25,
+						},
+						{
+							messages: [{ role: 'user', content: 'hi' }],
+							model: 'test-model',
+						},
+					),
+				(error) => {
+					assert.equal(error instanceof ModelClientError, true);
+					assert.equal(error.details.cause.code, 'KODR_REQUEST_TIMEOUT');
+					assert.equal(error.details.timeoutMs, 25);
+					return true;
+				},
+			);
+		} finally {
+			await new Promise((resolve, reject) => {
+				server.close((error) => (error ? reject(error) : resolve()));
+			});
+		}
 	});
 });
