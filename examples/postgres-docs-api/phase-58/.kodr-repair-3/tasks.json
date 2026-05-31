@@ -1,0 +1,26 @@
+{
+	"task": "Repair only these generated files: tests/health.test.js, tests/utils.js, tests/users.test.js, tests/documents.test.js, README.md. The failing test helper is named fetch and recursively calls itself; rename helpers to request or call globalThis.fetch. Ensure tests do not start duplicate servers unnecessarily and README appears once. Produce changed files or patches only.",
+	"tasks": [
+		{
+			"description": "Understand the user request",
+			"id": "understand-request",
+			"status": "completed"
+		},
+		{
+			"description": "Inspect workspace context",
+			"id": "inspect-context",
+			"status": "completed"
+		},
+		{
+			"description": "Run requested verification",
+			"id": "verify",
+			"status": "pending"
+		},
+		{
+			"description": "Update learning artifacts",
+			"id": "document",
+			"status": "completed",
+			"note": "Run artifacts were written."
+		}
+	]
+}

@@ -12,6 +12,7 @@ Each example should be treated as a Kodr sample, not just a hand-written fixture
 - CSV expense analyzer: reads CSV files, groups spending by month and category, and emits reports.
 - SQLite habit tracker: tracks daily habit completion with migrations and persistence tests.
 - Local Markdown search app: indexes Markdown files and searches them with a ranking dependency.
+- Postgres documents API: Express.js API backed by Docker-hosted Postgres with users, settings, documents, versions, tags, and integration tests.
 - React Kanban board: a Vite app with columns, cards, and local persistence.
 
 ## First Trial
@@ -33,3 +34,9 @@ The fourth trial is the CSV expense analyzer because it adds quoted text parsing
 ## Fifth Trial
 
 The fifth trial is the Local Markdown search app because it adds untrusted document content, indexing, ranking, snippets, CLI output, and naturally subagent-shaped work.
+
+## Sixth Trial
+
+The sixth trial is the Postgres documents API under [`postgres-docs-api/phase-58`](./postgres-docs-api/phase-58). It is intentionally more realistic than the earlier examples: Express.js, Postgres through Docker Compose, migrations, integration tests, environment configuration, and several related REST resources.
+
+This trial should stress Kodr's ability to plan and modify a multi-file service, manage package installation needs, handle generated lockfiles sensibly, and recover from database/test setup failures. The seed workspace includes an `AGENTS.md` so Kodr receives stable local guidance without overloading the user prompt.

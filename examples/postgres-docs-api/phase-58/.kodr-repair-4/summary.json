@@ -1,0 +1,38 @@
+{
+	"artifacts": {
+		"context": "context.md",
+		"error": "error.json",
+		"messages": "messages.json",
+		"prompt": "prompt.md",
+		"rawRequest": "raw-request.json",
+		"rawResponse": "raw-response.json",
+		"response": "response.md",
+		"scratchpad": "scratchpad.md",
+		"summary": "summary.json",
+		"tasks": "tasks.json",
+		"tests": "tests.json",
+		"writes": "writes.json"
+	},
+	"baseUrl": "http://localhost:1234/v1",
+	"error": {
+		"message": "Loop budget stopped: turn_budget_exhausted",
+		"name": "LoopBudgetError"
+	},
+	"model": "qwen/qwen3.6-35b-a3b",
+	"ok": false,
+	"parentRunDir": null,
+	"promptChars": 463,
+	"promptId": "6bdf568a",
+	"responseChars": 0,
+	"responseCount": 0,
+	"sessionId": ".kodr-repair-4",
+	"taskCounts": {
+		"completed": 2,
+		"failed": 0,
+		"in_progress": 0,
+		"pending": 2
+	},
+	"timestamp": "2026-05-31T03:40:17.694Z",
+	"usage": null,
+	"workspaceFileCount": 0
+}

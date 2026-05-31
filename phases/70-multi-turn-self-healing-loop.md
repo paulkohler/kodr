@@ -17,6 +17,8 @@ Wire the `workflow.mjs` / `cycles.mjs` loop to:
 - capture a workspace snapshot diff after each turn as the progress/failure
   signal
 - feed verification failure output back into the next turn's prompt
+- treat OK envelopes with zero files/patches plus a non-empty scratchpad as
+  no-progress repair turns, not successful convergence
 - stay bounded by the existing loop budget (Phase 33)
 
 Builds directly on the turn-forwarding wiring introduced in Phase 62.
@@ -33,6 +35,8 @@ Builds directly on the turn-forwarding wiring introduced in Phase 62.
 - [ ] Verification failure text is injected into the subsequent turn.
 - [ ] Loop terminates on success, budget exhaustion, or no-progress (snapshot
       diff empty twice).
+- [ ] OK/no-op proposals that only add scratchpad content are forwarded once,
+      then counted as no-progress if they repeat.
 - [ ] Snapshot diff captured per turn as an artifact.
 - [ ] Add tests.
 - [ ] Record decisions and any failures.
