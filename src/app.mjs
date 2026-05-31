@@ -32,6 +32,7 @@ import { runComparison } from './compare.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './code-inspector.mjs';
+import { runDependencyInstall } from './dependency-installer.mjs';
 import { checkAvailability, REGISTRY } from './external-inspector-registry.mjs';
 import {
 	completeWithContinuations,
@@ -75,6 +76,7 @@ export function parseArgs(argv, env = {}) {
 		inspectSymbol: '',
 		inspectLanguages: [],
 		inspectContext: false,
+		installDependencies: false,
 		json: false,
 		model: env.MODEL_ID || DEFAULT_MODEL_ID,
 		out: '',
@@ -182,6 +184,11 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--tools') {
 			options.tools = true;
+			continue;
+		}
+
+		if (arg === '--install') {
+			options.installDependencies = true;
 			continue;
 		}
 
@@ -359,7 +366,7 @@ Usage:
   kodr run -p "task" [--json]
   kodr run --prompt-file prompt.md [--out .kodr/runs/name] [--prompt-id slug]
   kodr run -p "task" --dry-run
-  kodr run -p "task" --yes [--test "npm test"] [--test-cwd path]
+  kodr run -p "task" --yes [--install] [--test "npm test"] [--test-cwd path]
   kodr run -p "task" --yes --protect-existing
   kodr run -p "task" --tools --yes --staged
   kodr run -p "task" --stream
@@ -411,6 +418,8 @@ OpenRouter:
                        Truncated to 2000 characters. Skipped if empty.
   --staged             Force plan-first staged execution for complex work.
   --no-staged          Disable automatic staged execution.
+  --install            Run controlled dependency install after applied writes.
+                       Uses npm ci when package-lock.json exists, otherwise npm install.
 
 Web channel:
   kodr serve           Start a local-only JSON HTTP channel.
@@ -1245,6 +1254,7 @@ async function runPrompt(options, io) {
 			response: 'response.md',
 			scratchpad: 'scratchpad.md',
 			summary: 'summary.json',
+			install: 'install.json',
 			tasks: 'tasks.json',
 			tests: 'tests.json',
 			writes: 'writes.json',
@@ -1302,6 +1312,7 @@ async function runPrompt(options, io) {
 			responses: completion.responses,
 		});
 		await writeJson(join(runDir, 'summary.json'), summary);
+		await writeJson(join(runDir, 'install.json'), null);
 		await writeJson(join(runDir, 'tasks.json'), taskPlan);
 		await writeJson(join(runDir, 'writes.json'), writeResult);
 		await writeJson(join(runDir, 'tests.json'), null);
@@ -1373,8 +1384,24 @@ async function runPrompt(options, io) {
 			};
 		}
 	}
+	const installResult =
+		options.installDependencies && options.yes && !writeError
+			? await runDependencyInstall(await verificationCwd(io.cwd, options), {
+					timeoutMs: options.timeoutMs,
+				})
+			: null;
+	const runError =
+		installResult && !installResult.ok
+			? {
+					message: `Dependency install failed: ${installResult.command}`,
+					name: 'DependencyInstallError',
+				}
+			: null;
+	const dependencyInstallRequired = hasDependencyMetadataWrites(
+		writeResult.writes,
+	);
 	const testResult =
-		options.testCommand && options.yes && !writeError
+		options.testCommand && options.yes && !writeError && !runError
 			? await runVerification(
 					await verificationCwd(io.cwd, options),
 					options.testCommand,
@@ -1385,10 +1412,16 @@ async function runPrompt(options, io) {
 			: null;
 
 	summary.applied = writeResult.applied;
-	summary.ok = writeError ? false : testResult ? testResult.ok : true;
+	summary.dependencyInstallRequired = dependencyInstallRequired;
+	summary.installed = installResult !== null;
+	summary.ok =
+		writeError || runError ? false : testResult ? testResult.ok : true;
 	summary.proposalMessageCount = proposalMessages.length;
 	summary.proposalFound = proposal !== null;
 	summary.proposalStatus = proposal?.status || '';
+	if (runError) {
+		summary.runError = runError;
+	}
 	summary.tested = testResult !== null;
 	if (writeError) {
 		summary.writeError = writeError;
@@ -1406,6 +1439,7 @@ async function runPrompt(options, io) {
 		responses: completion.responses,
 	});
 	await writeJson(join(runDir, 'summary.json'), summary);
+	await writeJson(join(runDir, 'install.json'), installResult);
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);
 	await writeJson(join(runDir, 'writes.json'), writeResult);
 	await writeJson(join(runDir, 'tests.json'), testResult);
@@ -1417,6 +1451,7 @@ async function runPrompt(options, io) {
 		response: completion.text,
 		responsePath,
 		runDir,
+		installResult,
 		scratchpad,
 		testResult,
 		taskPlan,
@@ -1632,8 +1667,21 @@ async function runStagedPrompt({
 		});
 	}
 
+	const installResult =
+		options.installDependencies && options.yes && !writeError
+			? await runDependencyInstall(await verificationCwd(io.cwd, options), {
+					timeoutMs: options.timeoutMs,
+				})
+			: null;
+	if (installResult && !installResult.ok) {
+		runError = {
+			message: `Dependency install failed: ${installResult.command}`,
+			name: 'DependencyInstallError',
+		};
+	}
+	const dependencyInstallRequired = hasDependencyMetadataWrites(allWrites);
 	const testResult =
-		options.testCommand && options.yes && !writeError
+		options.testCommand && options.yes && !writeError && !runError
 			? await runVerification(
 					await verificationCwd(io.cwd, options),
 					options.testCommand,
@@ -1682,6 +1730,7 @@ async function runStagedPrompt({
 			response: 'response.md',
 			scratchpad: 'scratchpad.md',
 			summary: 'summary.json',
+			install: 'install.json',
 			tasks: 'tasks.json',
 			tests: 'tests.json',
 			writes: 'writes.json',
@@ -1690,6 +1739,7 @@ async function runStagedPrompt({
 		finishReasons,
 		loopBudget,
 		model,
+		dependencyInstallRequired,
 		ok: writeError || runError ? false : testResult ? testResult.ok : done,
 		parentRunDir: null,
 		promptChars: prompt.length,
@@ -1699,6 +1749,7 @@ async function runStagedPrompt({
 		proposalStatus: proposal?.status || '',
 		responseChars: completion.text.length,
 		responseCount: responses.length,
+		installed: installResult !== null,
 		runError,
 		sessionId: basename(runDir),
 		staged: {
@@ -1746,6 +1797,7 @@ async function runStagedPrompt({
 		stages: stageRecords,
 	});
 	await writeJson(join(runDir, 'summary.json'), summary);
+	await writeJson(join(runDir, 'install.json'), installResult);
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);
 	await writeJson(join(runDir, 'writes.json'), writeResult);
 	await writeJson(join(runDir, 'tests.json'), testResult);
@@ -1757,6 +1809,7 @@ async function runStagedPrompt({
 		response: completion.text,
 		responsePath,
 		runDir,
+		installResult,
 		scratchpad,
 		testResult,
 		taskPlan,
@@ -1843,6 +1896,7 @@ async function writeRunFailure(runDir, details) {
 			response: 'response.md',
 			scratchpad: 'scratchpad.md',
 			summary: 'summary.json',
+			install: 'install.json',
 			tasks: 'tasks.json',
 			tests: 'tests.json',
 			writes: 'writes.json',
@@ -1871,6 +1925,7 @@ async function writeRunFailure(runDir, details) {
 	await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 	await writeJson(join(runDir, 'raw-response.json'), { responses: [] });
 	await writeJson(join(runDir, 'summary.json'), summary);
+	await writeJson(join(runDir, 'install.json'), null);
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);
 	await writeJson(join(runDir, 'tests.json'), null);
 	await writeJson(join(runDir, 'writes.json'), {
@@ -2198,6 +2253,13 @@ function renderRunSummary(result) {
 		);
 	}
 
+	if (result.installResult) {
+		lines.push('');
+		lines.push(
+			`Install: ${result.installResult.ok ? 'passed' : 'failed'} (${result.installResult.command})`,
+		);
+	}
+
 	const hasUnappliedWrites =
 		!result.applied && (result.writeResult?.writes || []).length > 0;
 	lines.push('');
@@ -2322,4 +2384,10 @@ function proposalPaths(proposal) {
 		...proposal.files.map((file) => file.path),
 		...proposal.patches.map((patch) => patch.path),
 	];
+}
+
+function hasDependencyMetadataWrites(writes) {
+	return writes.some((write) =>
+		/(^|\/)(package\.json|package-lock\.json)$/u.test(write.path),
+	);
 }

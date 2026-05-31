@@ -66,6 +66,13 @@ describe('parseArgs', () => {
 		);
 	});
 
+	it('parses dependency install flag', () => {
+		assert.equal(
+			parseArgs(['run', '--install', '-p', 'task'], {}).installDependencies,
+			true,
+		);
+	});
+
 	it('parses cycle review flags', () => {
 		const options = parseArgs([
 			'cycle-review',
@@ -399,6 +406,7 @@ describe('run', () => {
 				response: 'response.md',
 				scratchpad: 'scratchpad.md',
 				summary: 'summary.json',
+				install: 'install.json',
 				tasks: 'tasks.json',
 				tests: 'tests.json',
 				writes: 'writes.json',

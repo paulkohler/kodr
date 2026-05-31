@@ -40,12 +40,12 @@ installs.
 
 ## Done Criteria
 
-- [ ] Add a controlled dependency install step reusing the allowlist pattern.
-- [ ] Prefer `npm ci` when a lockfile is present.
-- [ ] Record install artifacts.
-- [ ] Keep package manager lockfiles map-only in context.
-- [ ] Ensure root format/check scripts ignore nested `node_modules`.
-- [ ] Add tests around install command policy.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Add a controlled dependency install step reusing the allowlist pattern.
+- [x] Prefer `npm ci` when a lockfile is present.
+- [x] Record install artifacts.
+- [x] Keep package manager lockfiles map-only in context.
+- [x] Ensure root format/check scripts ignore nested `node_modules`.
+- [x] Add tests around install command policy.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.

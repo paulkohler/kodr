@@ -74,6 +74,18 @@ Run a verification command after applying:
 Verification commands are allowlisted and run without a shell. Generated writes
 are still treated as untrusted until reviewed.
 
+Install dependencies before verification when a generated project adds or
+changes `package.json`:
+
+```sh
+./kodr run --prompt-file prompt.md --tools --yes --install --test "npm test"
+./kodr run --prompt-file prompt.md --tools --yes --install --test "npm test" --test-cwd examples/app
+```
+
+Dependency installs are a separate allowlisted workflow. Kodr runs `npm ci`
+when `package-lock.json` exists, otherwise `npm install`, and records the result
+in `install.json`.
+
 Use `--protect-existing` when a task should not overwrite committed files:
 
 ```sh
