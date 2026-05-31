@@ -1,4 +1,4 @@
-# Phase 68: Session Compaction And Summaries
+# Phase 69: Session Compaction And Summaries
 
 ## Goal
 

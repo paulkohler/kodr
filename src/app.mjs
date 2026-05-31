@@ -100,6 +100,7 @@ export function parseArgs(argv, env = {}) {
 		sessionSubcommand: '',
 		serveHost: DEFAULT_SERVE_HOST,
 		servePort: DEFAULT_SERVE_PORT,
+		staged: 'auto',
 		tools: false,
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -181,6 +182,16 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--tools') {
 			options.tools = true;
+			continue;
+		}
+
+		if (arg === '--staged') {
+			options.staged = true;
+			continue;
+		}
+
+		if (arg === '--no-staged') {
+			options.staged = false;
 			continue;
 		}
 
@@ -350,6 +361,7 @@ Usage:
   kodr run -p "task" --dry-run
   kodr run -p "task" --yes [--test "npm test"] [--test-cwd path]
   kodr run -p "task" --yes --protect-existing
+  kodr run -p "task" --tools --yes --staged
   kodr run -p "task" --stream
   kodr run -p "task" --tools
   kodr run -p "task" --inspect-context
@@ -397,6 +409,8 @@ OpenRouter:
   --prior-scratchpad   Path to a scratchpad file to inject into the user message.
                        Use "last" to read from the most recent run's scratchpad.
                        Truncated to 2000 characters. Skipped if empty.
+  --staged             Force plan-first staged execution for complex work.
+  --no-staged          Disable automatic staged execution.
 
 Web channel:
   kodr serve           Start a local-only JSON HTTP channel.
@@ -1156,6 +1170,27 @@ async function runPrompt(options, io) {
 		}
 		await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 
+		if (
+			shouldUseStagedExecution(options, prompt, context) &&
+			!parent &&
+			registry
+		) {
+			return runStagedPrompt({
+				context,
+				io,
+				memory,
+				model,
+				options,
+				prompt,
+				promptId,
+				rawRequest,
+				registry,
+				responsePath,
+				runDir,
+				skills,
+			});
+		}
+
 		const contOpts = parent ? { initialMessages } : {};
 		completion = options.tools
 			? await completeWithToolCalls(
@@ -1385,6 +1420,369 @@ async function runPrompt(options, io) {
 		testResult,
 		taskPlan,
 		writeResult,
+	};
+}
+
+async function runStagedPrompt({
+	context,
+	io,
+	memory,
+	model,
+	options,
+	prompt,
+	promptId,
+	rawRequest,
+	registry,
+	responsePath,
+	runDir,
+	skills,
+}) {
+	const maxStageWrites = 5;
+	const maxExecutionStages = 4;
+	const stageRecords = [];
+	const responses = [];
+	const finishReasons = [];
+	const conversations = [];
+	const proposalMessages = [];
+	const allWrites = [];
+	let scratchpad = '';
+	let writeError = null;
+	let lastProposal = null;
+	let lastText = '';
+	let done = false;
+
+	const planCompletion = await completeWithToolCalls(
+		options,
+		model,
+		`${prompt}\n\n## Kodr staged execution\nReturn a plan only. Do not include files or patches. Put a concise implementation plan in scratchpad, grouped into small stages of at most ${maxStageWrites} files each.`,
+		context.systemPrompt,
+		registry,
+	);
+	const planProposal = extractProposal(planCompletion.text);
+	responses.push(...planCompletion.responses);
+	finishReasons.push(...planCompletion.finishReasons);
+	conversations.push(...planCompletion.messages);
+	lastText = planCompletion.text;
+	scratchpad = planProposal?.scratchpad || '';
+	proposalMessages.push(...(planProposal?.messages || []));
+	stageRecords.push({
+		fileCount: planProposal ? proposalPaths(planProposal).length : 0,
+		name: 'plan',
+		responseChars: planCompletion.text.length,
+	});
+
+	for (let stageIndex = 1; stageIndex <= maxExecutionStages; stageIndex += 1) {
+		const stageContext = await buildWorkspaceContext(io.cwd, {
+			memory,
+			skills,
+			toolsMode: options.tools,
+		});
+		const stagePrompt = [
+			prompt,
+			'',
+			'## Kodr staged execution',
+			`You are in implementation stage ${stageIndex} of ${maxExecutionStages}.`,
+			`Implement one coherent slice only, with at most ${maxStageWrites} total file writes or patches.`,
+			'Prefer tests and runnable support files early. If existing files need small edits, use patches instead of full rewrites.',
+			'If all work is complete, return status OK with no files or patches and include a message containing STAGED_DONE.',
+			scratchpad ? `\n## Current staged plan\n${scratchpad}` : '',
+		].join('\n');
+
+		const completion = await completeWithToolCalls(
+			options,
+			model,
+			stagePrompt,
+			stageContext.systemPrompt,
+			registry,
+		);
+		responses.push(...completion.responses);
+		finishReasons.push(...completion.finishReasons);
+		conversations.push(...completion.messages);
+		lastText = completion.text;
+
+		let proposal;
+		try {
+			proposal = extractProposal(completion.text);
+		} catch (error) {
+			writeError = {
+				message: error.message,
+				name: error.name,
+			};
+			stageRecords.push({
+				error: writeError,
+				name: `implement-${stageIndex}`,
+				responseChars: completion.text.length,
+			});
+			break;
+		}
+
+		lastProposal = proposal;
+		if (!proposal) {
+			writeError = {
+				message: 'Staged response did not include a proposal',
+				name: 'ProposalMissingError',
+			};
+			stageRecords.push({
+				error: writeError,
+				name: `implement-${stageIndex}`,
+				responseChars: completion.text.length,
+			});
+			break;
+		}
+		const stageMessages = proposal?.messages || [];
+		proposalMessages.push(...stageMessages);
+		if (proposal?.scratchpad) {
+			scratchpad = proposal.scratchpad;
+		}
+
+		if (proposal?.status === 'ERROR') {
+			writeError = {
+				message:
+					stageMessages
+						.map((message) => message.content)
+						.filter(Boolean)
+						.join('\n') || 'Model returned status ERROR',
+				name: 'ProposalStatusError',
+			};
+			stageRecords.push({
+				error: writeError,
+				name: `implement-${stageIndex}`,
+				responseChars: completion.text.length,
+			});
+			break;
+		}
+
+		const paths = proposalPaths(proposal);
+		if (paths.length > maxStageWrites) {
+			writeError = {
+				message: `Staged proposal touched ${paths.length} paths; limit is ${maxStageWrites}`,
+				name: 'StagedProposalTooLargeError',
+			};
+			stageRecords.push({
+				error: writeError,
+				name: `implement-${stageIndex}`,
+				paths,
+				responseChars: completion.text.length,
+			});
+			break;
+		}
+
+		if (paths.length === 0) {
+			done = stageMessages.some((message) =>
+				message.content?.includes('STAGED_DONE'),
+			);
+			stageRecords.push({
+				done,
+				name: `implement-${stageIndex}`,
+				paths,
+				responseChars: completion.text.length,
+			});
+			break;
+		}
+
+		let writeResult;
+		try {
+			writeResult = await prepareChanges(io.cwd, proposal, {
+				apply: options.yes,
+				protectExisting: options.protectExisting,
+			});
+		} catch (error) {
+			writeError = {
+				message: error.message,
+				name: error.name,
+			};
+			stageRecords.push({
+				error: writeError,
+				name: `implement-${stageIndex}`,
+				paths,
+				responseChars: completion.text.length,
+			});
+			break;
+		}
+
+		allWrites.push(...writeResult.writes);
+		stageRecords.push({
+			applied: writeResult.applied,
+			name: `implement-${stageIndex}`,
+			paths,
+			responseChars: completion.text.length,
+			writeCount: writeResult.writes.length,
+		});
+	}
+
+	const testResult =
+		options.testCommand && options.yes && !writeError
+			? await runVerification(
+					await verificationCwd(io.cwd, options),
+					options.testCommand,
+					{
+						timeoutMs: options.timeoutMs,
+					},
+				)
+			: null;
+	const loopBudget = mergeLoopBudgets(responses);
+	const completion = {
+		finishReasons,
+		loopBudget,
+		messages: conversations,
+		responses,
+		text: lastText,
+	};
+	const writeResult = {
+		applied: options.yes && allWrites.length > 0,
+		writes: allWrites,
+	};
+	if (writeError) {
+		writeResult.error = writeError;
+	}
+	const proposal = lastProposal;
+	let taskPlan = createTaskPlan(
+		prompt,
+		allWrites.map((write) => write.path),
+	);
+	const summary = {
+		applied: writeResult.applied,
+		artifacts: {
+			context: 'context.md',
+			conversation: 'conversation.json',
+			messages: 'messages.json',
+			prompt: 'prompt.md',
+			rawRequest: 'raw-request.json',
+			rawResponse: 'raw-response.json',
+			response: 'response.md',
+			scratchpad: 'scratchpad.md',
+			summary: 'summary.json',
+			tasks: 'tasks.json',
+			tests: 'tests.json',
+			writes: 'writes.json',
+		},
+		baseUrl: options.baseUrl,
+		finishReasons,
+		loopBudget,
+		model,
+		ok: writeError ? false : testResult ? testResult.ok : done,
+		parentRunDir: null,
+		promptChars: prompt.length,
+		promptId,
+		proposalFound: proposal !== null,
+		proposalMessageCount: proposalMessages.length,
+		proposalStatus: proposal?.status || '',
+		responseChars: completion.text.length,
+		responseCount: responses.length,
+		sessionId: basename(runDir),
+		staged: {
+			auto: options.staged === 'auto',
+			done,
+			maxExecutionStages,
+			maxStageWrites,
+			stages: stageRecords,
+		},
+		tested: testResult !== null,
+		timestamp: new Date().toISOString(),
+		usage: usageFromBudget(loopBudget),
+		workspaceFileCount: context.files.length,
+		writeCount: writeResult.writes.length,
+	};
+	if (writeError) {
+		summary.writeError = writeError;
+	}
+	if (!done && !writeError && !testResult) {
+		summary.writeError = {
+			message: 'Staged execution reached its stage budget before STAGED_DONE',
+			name: 'StagedIncompleteError',
+		};
+		summary.ok = false;
+		writeResult.error = summary.writeError;
+	}
+	taskPlan = updateTasksFromRun(taskPlan, summary);
+	summary.taskCounts = taskCounts(taskPlan);
+
+	await writeText(responsePath, completion.text);
+	await writeJson(join(runDir, 'conversation.json'), completion.messages);
+	await writeJson(join(runDir, 'messages.json'), proposalMessages);
+	await writeText(join(runDir, 'scratchpad.md'), scratchpad);
+	await writeJson(join(runDir, 'raw-request.json'), {
+		...rawRequest,
+		staged: true,
+	});
+	await writeJson(join(runDir, 'raw-response.json'), {
+		loopBudget,
+		responses,
+		stages: stageRecords,
+	});
+	await writeJson(join(runDir, 'summary.json'), summary);
+	await writeJson(join(runDir, 'tasks.json'), taskPlan);
+	await writeJson(join(runDir, 'writes.json'), writeResult);
+	await writeJson(join(runDir, 'tests.json'), testResult);
+	await writeLastRun(io.cwd, runDir);
+
+	return {
+		...summary,
+		proposal,
+		response: completion.text,
+		responsePath,
+		runDir,
+		scratchpad,
+		testResult,
+		taskPlan,
+		writeResult,
+	};
+}
+
+function shouldUseStagedExecution(options, prompt, context) {
+	if (options.staged === true) {
+		return true;
+	}
+	if (options.staged === false || !options.tools || !options.yes) {
+		return false;
+	}
+
+	const haystack = `${prompt}\n${context.agents?.content || ''}`.toLowerCase();
+	const matches = [
+		'postgres',
+		'docker',
+		'express',
+		'migration',
+		'package.json',
+		'dependencies',
+		'test',
+		'api',
+	].filter((term) => haystack.includes(term));
+	return matches.length >= 3;
+}
+
+function mergeLoopBudgets(responses) {
+	const usage = responses.reduce(
+		(total, response) => {
+			const current = normalizeUsageForMerge(response.usage);
+			total.promptTokens += current.promptTokens;
+			total.completionTokens += current.completionTokens;
+			total.tokens += current.tokens;
+			total.cost += current.cost;
+			total.costUsd += current.costUsd;
+			return total;
+		},
+		{ completionTokens: 0, cost: 0, costUsd: 0, promptTokens: 0, tokens: 0 },
+	);
+	return {
+		...usage,
+		maxCostUsd: null,
+		maxRetries: 0,
+		maxTokens: null,
+		maxTurns: null,
+		retries: 0,
+		stopReason: 'staged',
+		turns: responses.length,
+	};
+}
+
+function normalizeUsageForMerge(usage) {
+	return {
+		completionTokens: usage?.completion_tokens || usage?.completionTokens || 0,
+		cost: usage?.cost || 0,
+		costUsd: usage?.costUsd || usage?.cost_usd || 0,
+		promptTokens: usage?.prompt_tokens || usage?.promptTokens || 0,
+		tokens: usage?.total_tokens || usage?.tokens || 0,
 	};
 }
 

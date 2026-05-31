@@ -58,6 +58,14 @@ describe('parseArgs', () => {
 		assert.equal(options.json, true);
 	});
 
+	it('parses staged execution flags', () => {
+		assert.equal(parseArgs(['run', '--staged', '-p', 'task'], {}).staged, true);
+		assert.equal(
+			parseArgs(['run', '--no-staged', '-p', 'task'], {}).staged,
+			false,
+		);
+	});
+
 	it('parses cycle review flags', () => {
 		const options = parseArgs([
 			'cycle-review',
@@ -1177,6 +1185,97 @@ describe('run', () => {
 			assert.equal(
 				await readFile(join(cwd, 'README.md'), 'utf8'),
 				'old readme',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runs staged execution as plan plus bounded implementation turns', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Planned stages.', level: 'info' }],
+						scratchpad:
+							'{"plan":["create source","finish"],"next":"create source"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const staged = true;\n',
+								path: 'src/staged.mjs',
+							},
+						],
+						messages: [{ content: 'Created source.', level: 'info' }],
+						scratchpad: '{"done":["create source"],"next":"finish"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["create source","finish"],"next":""}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-staged-run-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Build an Express Postgres API.',
+					'--tools',
+					'--yes',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.result.ok, true);
+			assert.equal(result.result.staged.auto, true);
+			assert.equal(result.result.staged.stages.length, 3);
+			assert.equal(result.result.responseCount, 3);
+			assert.equal(
+				await readFile(join(cwd, 'src', 'staged.mjs'), 'utf8'),
+				'export const staged = true;\n',
+			);
+			const summary = JSON.parse(
+				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
+			);
+			assert.equal(summary.staged.done, true);
+			assert.equal(summary.writeCount, 1);
+			assert.equal(server.recordings.length, 3);
+			assert.match(
+				server.recordings[0].requestBody.messages[1].content,
+				/Return a plan only/u,
+			);
+			assert.match(
+				server.recordings[1].requestBody.messages[1].content,
+				/at most 5 total file writes/u,
 			);
 		} finally {
 			await server.close();
