@@ -86,6 +86,16 @@ Dependency installs are a separate allowlisted workflow. Kodr runs `npm ci`
 when `package-lock.json` exists, otherwise `npm install`, and records the result
 in `install.json`.
 
+Ask Kodr to run a bounded repair loop after failed verification:
+
+```sh
+./kodr run --prompt-file prompt.md --tools --yes --install --test "npm test" --heal
+```
+
+Repair turns receive the failing `tests.json` output plus the failing file and
+nearby source. They write artifacts under `repairs/` and stop on success,
+repeated no-progress, wrong-path edits, budget exhaustion, or timeout.
+
 Use `--protect-existing` when a task should not overwrite committed files:
 
 ```sh

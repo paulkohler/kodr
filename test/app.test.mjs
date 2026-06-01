@@ -73,6 +73,10 @@ describe('parseArgs', () => {
 		);
 	});
 
+	it('parses heal flag', () => {
+		assert.equal(parseArgs(['run', '--heal', '-p', 'task'], {}).heal, true);
+	});
+
 	it('parses cycle review flags', () => {
 		const options = parseArgs([
 			'cycle-review',
@@ -403,6 +407,7 @@ describe('run', () => {
 				prompt: 'prompt.md',
 				rawRequest: 'raw-request.json',
 				rawResponse: 'raw-response.json',
+				repairs: 'repairs/repairs.json',
 				response: 'response.md',
 				scratchpad: 'scratchpad.md',
 				summary: 'summary.json',
@@ -1819,6 +1824,89 @@ describe('run', () => {
 			assert.equal(result.result.ok, false);
 			assert.equal(result.result.testResult.ok, false);
 			assert.match(stdout.text, /^Run failed/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('can heal a failed verification with a bounded repair turn', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const broken = ;\n',
+								path: 'bad.mjs',
+							},
+						],
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const broken = 1;\n',
+								path: 'bad.mjs',
+							},
+						],
+						scratchpad: 'Repaired syntax error.',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-run-'));
+			const stdout = captureStream();
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create then heal a module',
+					'--base-url',
+					server.baseUrl,
+					'--yes',
+					'--test',
+					'node --check bad.mjs',
+					'--heal',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout,
+				},
+			);
+
+			assert.equal(result.ok, true);
+			assert.equal(result.result.healed, true);
+			assert.equal(result.result.healStopReason, 'healed');
+			assert.equal(result.result.testResult.ok, true);
+			assert.match(stdout.text, /Repairs: healed \(healed\)/u);
+			assert.equal(
+				await readFile(join(cwd, 'bad.mjs'), 'utf8'),
+				'export const broken = 1;\n',
+			);
+
+			const repairs = JSON.parse(
+				await readFile(
+					join(result.result.runDir, 'repairs', 'repairs.json'),
+					'utf8',
+				),
+			);
+			assert.equal(repairs.stopReason, 'healed');
+			assert.equal(server.recordings.length, 2);
+			assert.match(
+				server.recordings[1].requestBody.messages[1].content,
+				/tests\.json/u,
+			);
 		} finally {
 			await server.close();
 		}

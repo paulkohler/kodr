@@ -34,21 +34,21 @@ Builds directly on the turn-forwarding wiring introduced in Phase 62.
 
 ## Done Criteria
 
-- [ ] Workflow loop forwards scratchpad and plan automatically across turns
+- [x] Workflow loop forwards scratchpad and plan automatically across turns
       (test with a fake 2-turn model).
-- [ ] Verification failure text is injected into the subsequent turn.
-- [ ] Repair context includes `tests.json`, the failing path, and nearby source
+- [x] Verification failure text is injected into the subsequent turn.
+- [x] Repair context includes `tests.json`, the failing path, and nearby source
       while excluding unrelated generated files unless explicitly requested.
-- [ ] Loop terminates on success, budget exhaustion, or no-progress (snapshot
+- [x] Loop terminates on success, budget exhaustion, or no-progress (snapshot
       diff empty twice).
-- [ ] Hung repair calls fail with artifacted timeout details instead of leaving
+- [x] Hung repair calls fail with artifacted timeout details instead of leaving
       only partial `context.md`, `prompt.md`, and `raw-request.json` files.
-- [ ] OK/no-op proposals that only add scratchpad content are forwarded once,
+- [x] OK/no-op proposals that only add scratchpad content are forwarded once,
       then counted as no-progress if they repeat.
-- [ ] Repair proposals are checked against failing stack traces/requested paths;
+- [x] Repair proposals are checked against failing stack traces/requested paths;
       creating a similarly named sibling file does not count as convergence.
-- [ ] Snapshot diff captured per turn as an artifact.
-- [ ] Add tests.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Snapshot diff captured per turn as an artifact.
+- [x] Add tests.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.

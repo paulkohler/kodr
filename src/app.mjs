@@ -22,6 +22,7 @@ import {
 	taskCounts,
 	updateTasksFromRun,
 } from './task-plan.mjs';
+import { runSelfHealingLoop } from './healing.mjs';
 import {
 	parseVerificationCommand,
 	runVerification,
@@ -73,6 +74,7 @@ export function parseArgs(argv, env = {}) {
 		dryRun: true,
 		extraHeaders: {},
 		help: false,
+		heal: false,
 		inspectSymbol: '',
 		inspectLanguages: [],
 		inspectContext: false,
@@ -189,6 +191,11 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--install') {
 			options.installDependencies = true;
+			continue;
+		}
+
+		if (arg === '--heal') {
+			options.heal = true;
 			continue;
 		}
 
@@ -366,7 +373,7 @@ Usage:
   kodr run -p "task" [--json]
   kodr run --prompt-file prompt.md [--out .kodr/runs/name] [--prompt-id slug]
   kodr run -p "task" --dry-run
-  kodr run -p "task" --yes [--install] [--test "npm test"] [--test-cwd path]
+  kodr run -p "task" --yes [--install] [--test "npm test"] [--test-cwd path] [--heal]
   kodr run -p "task" --yes --protect-existing
   kodr run -p "task" --tools --yes --staged
   kodr run -p "task" --stream
@@ -420,6 +427,7 @@ OpenRouter:
   --no-staged          Disable automatic staged execution.
   --install            Run controlled dependency install after applied writes.
                        Uses npm ci when package-lock.json exists, otherwise npm install.
+  --heal               After failed verification, run a bounded repair loop.
 
 Web channel:
   kodr serve           Start a local-only JSON HTTP channel.
@@ -1252,6 +1260,7 @@ async function runPrompt(options, io) {
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
+			repairs: 'repairs/repairs.json',
 			scratchpad: 'scratchpad.md',
 			summary: 'summary.json',
 			install: 'install.json',
@@ -1400,7 +1409,7 @@ async function runPrompt(options, io) {
 	const dependencyInstallRequired = hasDependencyMetadataWrites(
 		writeResult.writes,
 	);
-	const testResult =
+	let testResult =
 		options.testCommand && options.yes && !writeError && !runError
 			? await runVerification(
 					await verificationCwd(io.cwd, options),
@@ -1410,9 +1419,23 @@ async function runPrompt(options, io) {
 					},
 				)
 			: null;
+	const healingResult = await runHealingIfNeeded({
+		cwd: await verificationCwd(io.cwd, options),
+		model,
+		options,
+		registry,
+		runDir,
+		systemPrompt: context.systemPrompt,
+		testResult,
+	});
+	if (healingResult?.finalVerification) {
+		testResult = healingResult.finalVerification;
+	}
 
 	summary.applied = writeResult.applied;
 	summary.dependencyInstallRequired = dependencyInstallRequired;
+	summary.healed = healingResult ? healingResult.healed : false;
+	summary.healStopReason = healingResult?.stopReason || '';
 	summary.installed = installResult !== null;
 	summary.ok =
 		writeError || runError ? false : testResult ? testResult.ok : true;
@@ -1452,6 +1475,7 @@ async function runPrompt(options, io) {
 		responsePath,
 		runDir,
 		installResult,
+		healingResult,
 		scratchpad,
 		testResult,
 		taskPlan,
@@ -1680,7 +1704,7 @@ async function runStagedPrompt({
 		};
 	}
 	const dependencyInstallRequired = hasDependencyMetadataWrites(allWrites);
-	const testResult =
+	let testResult =
 		options.testCommand && options.yes && !writeError && !runError
 			? await runVerification(
 					await verificationCwd(io.cwd, options),
@@ -1690,6 +1714,18 @@ async function runStagedPrompt({
 					},
 				)
 			: null;
+	const healingResult = await runHealingIfNeeded({
+		cwd: await verificationCwd(io.cwd, options),
+		model,
+		options,
+		registry,
+		runDir,
+		systemPrompt: context.systemPrompt,
+		testResult,
+	});
+	if (healingResult?.finalVerification) {
+		testResult = healingResult.finalVerification;
+	}
 	const loopBudget = mergeLoopBudgets(responses);
 	const completion = {
 		finishReasons,
@@ -1728,6 +1764,7 @@ async function runStagedPrompt({
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			response: 'response.md',
+			repairs: 'repairs/repairs.json',
 			scratchpad: 'scratchpad.md',
 			summary: 'summary.json',
 			install: 'install.json',
@@ -1737,6 +1774,8 @@ async function runStagedPrompt({
 		},
 		baseUrl: options.baseUrl,
 		finishReasons,
+		healed: healingResult ? healingResult.healed : false,
+		healStopReason: healingResult?.stopReason || '',
 		loopBudget,
 		model,
 		dependencyInstallRequired,
@@ -1810,6 +1849,7 @@ async function runStagedPrompt({
 		responsePath,
 		runDir,
 		installResult,
+		healingResult,
 		scratchpad,
 		testResult,
 		taskPlan,
@@ -1837,6 +1877,60 @@ function shouldUseStagedExecution(options, prompt, context) {
 		'api',
 	].filter((term) => haystack.includes(term));
 	return matches.length >= 3;
+}
+
+async function runHealingIfNeeded({
+	cwd,
+	model,
+	options,
+	registry,
+	runDir,
+	systemPrompt,
+	testResult,
+}) {
+	if (!options.heal || !options.yes || !testResult || testResult.ok) {
+		return null;
+	}
+
+	const repairOptions = {
+		...options,
+		maxRetries: Math.min(options.maxRetries, 1),
+		maxTurns: Math.min(Math.max(options.maxTurns, 1), 4),
+	};
+
+	return runSelfHealingLoop(cwd, testResult, {
+		apply: true,
+		artifactDir: join(runDir, 'repairs'),
+		maxTurns: Math.max(1, Math.min(options.maxTurns, 3)),
+		repairTurn: async ({ prompt }) => {
+			const completion =
+				options.tools && registry
+					? await completeWithToolCalls(
+							repairOptions,
+							model,
+							prompt,
+							systemPrompt,
+							registry,
+						)
+					: await completeWithContinuations(
+							repairOptions,
+							model,
+							prompt,
+							systemPrompt,
+						);
+			return {
+				raw: {
+					finishReasons: completion.finishReasons,
+					loopBudget: completion.loopBudget,
+					responses: completion.responses,
+				},
+				text: completion.text,
+			};
+		},
+		testCommand: options.testCommand,
+		timeoutMs: options.timeoutMs,
+		turnTimeoutMs: options.timeoutMs,
+	});
 }
 
 function mergeLoopBudgets(responses) {
@@ -2250,6 +2344,13 @@ function renderRunSummary(result) {
 		lines.push('');
 		lines.push(
 			`Tests: ${result.testResult.ok ? 'passed' : 'failed'} (${result.testResult.command})`,
+		);
+	}
+
+	if (result.healingResult) {
+		lines.push('');
+		lines.push(
+			`Repairs: ${result.healingResult.healed ? 'healed' : 'not healed'} (${result.healingResult.stopReason})`,
 		);
 	}
 
