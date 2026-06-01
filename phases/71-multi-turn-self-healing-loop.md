@@ -17,9 +17,13 @@ Wire the `workflow.mjs` / `cycles.mjs` loop to:
 - capture a workspace snapshot diff after each turn as the progress/failure
   signal
 - feed verification failure output back into the next turn's prompt
+- pack repair turns around the failing file, failing test output, and nearby
+  source instead of reusing broad app-generation context
 - treat OK envelopes with zero files/patches plus a non-empty scratchpad as
   no-progress repair turns, not successful convergence
 - stay bounded by the existing loop budget (Phase 33)
+- enforce a wall-clock timeout for the whole repair turn and write failure
+  artifacts even when the model transport never returns
 
 Builds directly on the turn-forwarding wiring introduced in Phase 62.
 
@@ -33,8 +37,12 @@ Builds directly on the turn-forwarding wiring introduced in Phase 62.
 - [ ] Workflow loop forwards scratchpad and plan automatically across turns
       (test with a fake 2-turn model).
 - [ ] Verification failure text is injected into the subsequent turn.
+- [ ] Repair context includes `tests.json`, the failing path, and nearby source
+      while excluding unrelated generated files unless explicitly requested.
 - [ ] Loop terminates on success, budget exhaustion, or no-progress (snapshot
       diff empty twice).
+- [ ] Hung repair calls fail with artifacted timeout details instead of leaving
+      only partial `context.md`, `prompt.md`, and `raw-request.json` files.
 - [ ] OK/no-op proposals that only add scratchpad content are forwarded once,
       then counted as no-progress if they repeat.
 - [ ] Repair proposals are checked against failing stack traces/requested paths;

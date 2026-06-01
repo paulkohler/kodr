@@ -38,3 +38,15 @@ That will not magically make a bad generated test pass. In fact, this example is
 expected to expose the next repair target: the model wrote Jest-style test
 globals instead of native `node:test` imports. The difference is that Kodr can
 now reach that failure itself rather than needing a human-driven install step.
+
+Take6 confirmed that. Install passed with `npm install`, verification ran, and
+`npm test` failed on `ReferenceError: describe is not defined`. That is the
+right failure boundary for Phase 64.
+
+A manual Kodr repair attempt then exposed the next phase more clearly. The
+repair request was small, but the local model call stayed alive past the
+configured request timeout and only partial artifacts existed
+(`context.md`, `prompt.md`, and `raw-request.json`). Phase 71 needs to turn this
+into a bounded repair loop: feed `tests.json` and the failing file into the next
+turn, keep the repair context narrow, and write timeout artifacts when a repair
+call hangs.
