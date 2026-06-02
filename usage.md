@@ -158,9 +158,50 @@ tool use or final stopping decisions:
 ```
 
 Kodr reads `.kodr/hooks.json` by default. Hook commands run without a shell,
-receive JSON on stdin, and are recorded in `hooks.json`. They currently run on
-the host cwd, even when Docker sandboxing is enabled for install/test/tool
-commands.
+receive JSON on stdin, and are recorded in `hooks.json`. Each recorded run notes
+its execution `environment`. Hooks run on the host cwd by default; when
+`--docker-sandbox` is enabled, hook commands run inside the sandbox so they share
+the install/test/tool environment, and `hooks.json` reports `environment:
+"docker"`.
+
+Hooks fire at these points in the model loop:
+
+1. `PreToolUse` — before a native tool effect runs. A block prevents the effect.
+2. `PostToolUse` — after a tool effect succeeds. Audit/feedback only; it cannot
+   prevent the effect that already ran.
+3. `Stop` — after the assistant's final response and before Kodr ends the model
+   loop. A block forces another model turn.
+
+Post-apply/post-run final checks (lint or tests against the applied workspace)
+are intentionally not a hook yet; Stop runs before proposal writes are applied,
+so it is a model-loop guard, not a post-apply verifier. See
+`process/decisions.jsonl` for the deferral rationale.
+
+Example `PreToolUse` guard. This blocks the tool effect before it runs when the
+command matches:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["scripts/guard-command.mjs"],
+            "if": "run_command(rm *)"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+A `PreToolUse` hook that prints `{"decision":"block","reason":"..."}` (or exits
+non-zero) stops the tool from running and reports the reason back to the model.
 
 Example `PostToolUse` logger. This observes after the tool succeeds; it cannot
 prevent the tool effect:

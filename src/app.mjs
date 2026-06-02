@@ -472,6 +472,8 @@ OpenRouter:
                        Uses npm ci when package-lock.json exists, otherwise npm install.
   --heal               After failed verification, run a bounded repair loop.
   --hooks              Enable configured command hooks. Default config: .kodr/hooks.json
+                       Lifecycle: PreToolUse (prevent) -> PostToolUse (audit) -> Stop (loop guard).
+                       Hooks run on the host, or in the sandbox when --docker-sandbox is set.
   --hooks-config PATH  Hook config path relative to the workspace.
 
 Docker sandbox:
@@ -1177,7 +1179,11 @@ async function runPrompt(options, io) {
 	const runDir = await createRunArtifacts(io.cwd, options.out);
 	const dockerExecutor = createDockerExecutor(io.cwd, runDir, options);
 	const commandRunner = dockerCommandRunner(dockerExecutor);
-	const configuredHooks = await loadConfiguredHooks(io.cwd, options);
+	// When the sandbox is active, route hook commands through it so they share the
+	// install/test/tool environment instead of running on the host cwd.
+	const configuredHooks = await loadConfiguredHooks(io.cwd, options, {
+		executor: dockerExecutor ? dockerExecutor.hookExecutor() : null,
+	});
 	const runOptions = {
 		...options,
 		cwd: io.cwd,

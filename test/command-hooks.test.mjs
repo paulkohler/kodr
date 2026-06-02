@@ -115,6 +115,86 @@ describe('configured command hooks', () => {
 		);
 	});
 
+	it('records the host execution environment by default', async () => {
+		const cwd = await fixtureDir();
+		await writeFixture(
+			cwd,
+			'.kodr/hooks.json',
+			JSON.stringify({
+				hooks: {
+					PostToolUse: [
+						{
+							hooks: [
+								{
+									args: ['-e', ''],
+									command: process.execPath,
+									type: 'command',
+								},
+							],
+							matcher: 'run_command',
+						},
+					],
+				},
+			}),
+		);
+
+		const configured = await loadConfiguredHooks(cwd, { enableHooks: true });
+		await configured.hooks.run('post_tool_use', {
+			cwd,
+			input: { command: 'npm test' },
+			result: {},
+			tool: 'run_command',
+		});
+
+		assert.equal(configured.environment, 'host');
+		assert.equal(configured.records[0].environment, 'host');
+	});
+
+	it('routes hook commands through a configured executor', async () => {
+		const cwd = await fixtureDir();
+		await writeFixture(
+			cwd,
+			'.kodr/hooks.json',
+			JSON.stringify({
+				hooks: {
+					PostToolUse: [
+						{
+							hooks: [{ args: ['audit'], command: 'check', type: 'command' }],
+							matcher: 'run_command',
+						},
+					],
+				},
+			}),
+		);
+
+		const calls = [];
+		const executor = {
+			environment: 'docker',
+			runHook: async (hookCwd, hook, input, timeoutMs) => {
+				calls.push({ args: hook.args, hookCwd, input, timeoutMs });
+				return { exitCode: 0, stderr: '', stdout: '', timedOut: false };
+			},
+		};
+
+		const configured = await loadConfiguredHooks(
+			cwd,
+			{ enableHooks: true },
+			{ executor },
+		);
+		await configured.hooks.run('post_tool_use', {
+			cwd,
+			input: { command: 'npm test' },
+			result: {},
+			tool: 'run_command',
+		});
+
+		assert.equal(configured.environment, 'docker');
+		assert.equal(calls.length, 1);
+		assert.deepEqual(calls[0].args, ['audit']);
+		assert.equal(JSON.parse(calls[0].input).tool, 'run_command');
+		assert.equal(configured.records[0].environment, 'docker');
+	});
+
 	it('matches command-shaped if conditions', async () => {
 		const cwd = await fixtureDir();
 		await writeFixture(

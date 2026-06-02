@@ -9,6 +9,9 @@ import {
 	ToolCallError,
 	ToolRegistry,
 } from '../src/tool-calls.mjs';
+import { mkdir, writeFile as writeFileFs } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { loadConfiguredHooks } from '../src/command-hooks.mjs';
 import { createHooks } from '../src/hooks.mjs';
 import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
 
@@ -86,6 +89,62 @@ describe('ToolRegistry', () => {
 			() => registry.dispatch('add', '{"a":2,"b":3}'),
 			/post hook blocked/u,
 		);
+	});
+
+	it('blocks destructive tool calls before the effect runs (PreToolUse)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-pre-hook-'));
+		const configPath = join(cwd, '.kodr/hooks.json');
+		await mkdir(dirname(configPath), { recursive: true });
+		await writeFileFs(
+			configPath,
+			JSON.stringify({
+				hooks: {
+					PreToolUse: [
+						{
+							hooks: [
+								{
+									args: [
+										'-e',
+										"process.stdout.write(JSON.stringify({decision:'block', reason:'rm blocked'}));",
+									],
+									command: process.execPath,
+									if: 'run_command(rm *)',
+									type: 'command',
+								},
+							],
+							matcher: 'run_command',
+						},
+					],
+				},
+			}),
+			'utf8',
+		);
+		const configured = await loadConfiguredHooks(cwd, { enableHooks: true });
+
+		let effects = 0;
+		const registry = new ToolRegistry({ cwd, hooks: configured.hooks });
+		registry.register('run_command', {
+			description: 'Run a command.',
+			parameters: { type: 'object', properties: {} },
+			handler: async () => {
+				effects += 1;
+				return 'ran';
+			},
+		});
+
+		await assert.rejects(
+			() => registry.dispatch('run_command', '{"command":"rm file.txt"}'),
+			/rm blocked/u,
+		);
+		// The PreToolUse block must prevent the handler effect entirely.
+		assert.equal(effects, 0);
+
+		// A non-matching command still runs the handler.
+		assert.equal(
+			await registry.dispatch('run_command', '{"command":"npm test"}'),
+			'ran',
+		);
+		assert.equal(effects, 1);
 	});
 
 	it('throws ToolCallError for unknown tools', async () => {

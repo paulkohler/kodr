@@ -102,6 +102,44 @@ export class DockerExecutor {
 		};
 	}
 
+	// Returns a hook executor that runs command hooks inside the sandbox so they
+	// share the install/test/tool environment. Hook input JSON is piped on stdin
+	// via `docker run -i`. Hook runs are audited in hooks.json (with
+	// environment: "docker"), not in docker.json's command list.
+	hookExecutor() {
+		return {
+			environment: 'docker',
+			runHook: (cwd, hook, input, timeoutMs) =>
+				this.runHookInContainer(cwd, hook, input, timeoutMs),
+		};
+	}
+
+	async runHookInContainer(cwd, hook, input, timeoutMs) {
+		this.sequence += 1;
+		const containerName = `kodr-hook-${this.runId}-${this.sequence}-${randomBytes(3).toString('hex')}`;
+		const args = [
+			'run',
+			'-i',
+			'--name',
+			containerName,
+			'--network',
+			this.network,
+			'--workdir',
+			this.workdir,
+			'--mount',
+			`type=bind,src=${cwd},dst=${this.workdir}`,
+			'--env',
+			'npm_config_cache=/tmp/.npm',
+			'--rm',
+		];
+		const user = dockerUser();
+		if (user) {
+			args.push('--user', user);
+		}
+		args.push(this.image, hook.command, ...(hook.args || []).map(String));
+		return this.runner(args, timeoutMs, input);
+	}
+
 	dockerRunArgs(cwd, parsed, containerName) {
 		const args = [
 			'run',
@@ -174,11 +212,12 @@ function dockerUser() {
 	return uid > 0 ? `${uid}:${gid}` : '';
 }
 
-function spawnDocker(args, timeoutMs) {
+function spawnDocker(args, timeoutMs, input) {
+	const hasInput = input != null;
 	return new Promise((resolve) => {
 		const child = spawn('docker', args, {
 			shell: false,
-			stdio: ['ignore', 'pipe', 'pipe'],
+			stdio: [hasInput ? 'pipe' : 'ignore', 'pipe', 'pipe'],
 		});
 		let stdout = '';
 		let stderr = '';
@@ -214,5 +253,9 @@ function spawnDocker(args, timeoutMs) {
 				timedOut,
 			});
 		});
+		if (hasInput) {
+			child.stdin.on('error', () => {});
+			child.stdin.end(input);
+		}
 	});
 }

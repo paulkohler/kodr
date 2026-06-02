@@ -22,12 +22,25 @@ export class HookConfigError extends Error {
 	}
 }
 
-export async function loadConfiguredHooks(cwd, options = {}) {
+// The host executor runs hook commands directly on the host cwd. When Docker
+// sandboxing is enabled, app.mjs passes a docker-backed executor instead so hook
+// commands run in the same environment as install/test/tool commands.
+export function createHostHookExecutor() {
+	return {
+		environment: 'host',
+		runHook: (cwd, hook, input, timeoutMs) =>
+			spawnHook(cwd, hook, input, timeoutMs),
+	};
+}
+
+export async function loadConfiguredHooks(cwd, options = {}, deps = {}) {
+	const executor = deps.executor || createHostHookExecutor();
 	const records = [];
 	if (!options.enableHooks) {
 		return {
 			configPath: '',
 			enabled: false,
+			environment: executor.environment,
 			hooks: createHooks(),
 			records,
 		};
@@ -63,6 +76,7 @@ export async function loadConfiguredHooks(cwd, options = {}) {
 					}
 					return runCommandHook(cwd, {
 						event,
+						executor,
 						hook,
 						payload,
 						records,
@@ -75,6 +89,7 @@ export async function loadConfiguredHooks(cwd, options = {}) {
 	return {
 		configPath,
 		enabled: true,
+		environment: executor.environment,
 		hooks: registry,
 		records,
 	};
@@ -151,18 +166,23 @@ function globToRegExp(pattern) {
 	return new RegExp(`^${escaped}$`, 'u');
 }
 
-async function runCommandHook(cwd, { event, hook, payload, records }) {
+async function runCommandHook(
+	cwd,
+	{ event, executor, hook, payload, records },
+) {
 	const started = performance.now();
 	const input = JSON.stringify({
 		...payload,
 		hook_event_name: event,
 		hookEventName: event,
 	});
-	const result = await spawnHook(cwd, hook, input);
+	const timeoutMs = hook.timeoutMs || DEFAULT_HOOK_TIMEOUT_MS;
+	const result = await executor.runHook(cwd, hook, input, timeoutMs);
 	const record = {
 		args: hook.args || [],
 		command: hook.command,
 		durationMs: Math.round(performance.now() - started),
+		environment: executor.environment,
 		event,
 		exitCode: result.exitCode,
 		stderr: result.stderr,
@@ -183,8 +203,7 @@ async function runCommandHook(cwd, { event, hook, payload, records }) {
 	return parseDecision(result.stdout, event);
 }
 
-function spawnHook(cwd, hook, input) {
-	const timeoutMs = hook.timeoutMs || DEFAULT_HOOK_TIMEOUT_MS;
+function spawnHook(cwd, hook, input, timeoutMs = DEFAULT_HOOK_TIMEOUT_MS) {
 	const args = (hook.args || []).map((arg) => String(arg));
 	return new Promise((resolve) => {
 		let stdout = '';
@@ -281,6 +300,7 @@ export async function writeHookArtifact(runDir, configuredHooks) {
 		await writeJson(join(runDir, 'hooks.json'), {
 			configPath: '',
 			enabled: false,
+			environment: 'host',
 			records: [],
 		});
 		return;
@@ -288,6 +308,7 @@ export async function writeHookArtifact(runDir, configuredHooks) {
 	await writeJson(join(runDir, 'hooks.json'), {
 		configPath: configuredHooks.configPath || '',
 		enabled: configuredHooks.enabled,
+		environment: configuredHooks.environment || 'host',
 		records: configuredHooks.records,
 	});
 }

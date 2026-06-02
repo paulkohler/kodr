@@ -604,8 +604,10 @@ describe('run', () => {
 			);
 			assert.equal(hookArtifact.enabled, true);
 			assert.equal(hookArtifact.configPath, '.kodr/hooks.json');
+			assert.equal(hookArtifact.environment, 'host');
 			assert.equal(hookArtifact.records.length, 1);
 			assert.equal(hookArtifact.records[0].event, 'stop');
+			assert.equal(hookArtifact.records[0].environment, 'host');
 			assert.equal(hookArtifact.records[0].stdout, 'hook ok');
 		} finally {
 			await server.close();

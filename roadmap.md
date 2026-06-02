@@ -81,7 +81,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 76 TUI ANSI Color
 - [ ] 77 OpenShell Sandbox Backend
 - [x] 78 Command Hooks And Stop Control
-- [ ] 79 Hook Execution Hardening
+- [x] 79 Hook Execution Hardening
 
 ## Phase Contract
 
