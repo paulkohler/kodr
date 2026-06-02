@@ -27,8 +27,8 @@ Proposed flags:
 - `--docker-sandbox`: run tool effects through a Docker container.
 - `--docker-image <image>`: default to a Kodr-maintained Node image, likely
   `node:24-bookworm-slim` initially.
-- `--docker-keep`: keep the container after failure for debugging. Default is
-  remove on completion.
+- `--docker-keep`: keep the container after command completion for debugging.
+  Default is remove on completion.
 - `--docker-network <mode>`: default `none` for verification-only tasks and
   `bridge` only when the user explicitly requests dependency install or network
   tools. Accept `none`, `bridge`, and possibly a named Docker network later.
