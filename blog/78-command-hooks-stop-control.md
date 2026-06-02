@@ -34,3 +34,9 @@ Every command hook execution is recorded in `hooks.json`, including command,
 args, event, exit code, stdout, stderr, timeout, and duration. That makes hooks
 auditable enough to debug without hiding policy behavior inside the model
 transcript.
+
+The example run also exposed a verification false positive: `npm test` from an
+example directory with no `package.json` climbed to the repository root and ran
+Kodr's own tests. That made a zero-file generated project look valid. Kodr now
+refuses npm verification commands unless the verification directory has its own
+`package.json`, so missing generated Node projects fail in the right place.

@@ -61,6 +61,16 @@ describe('verification runner', () => {
 		);
 	});
 
+	it('fails npm verification when package.json is absent in the cwd', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-no-package-'));
+		const result = await runVerification(cwd, 'npm test');
+
+		assert.equal(result.ok, false);
+		assert.equal(result.exitCode, null);
+		assert.match(result.stderr, /requires package\.json/u);
+		assert.match(result.stderr, /parent package/u);
+	});
+
 	it('times out long-running allowlisted commands', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-timeout-'));
 		await writeFile(

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 
 export class VerificationError extends Error {
@@ -71,6 +71,25 @@ export async function runVerification(cwd, command, options = {}) {
 	const runner = options.runner || spawnCommand;
 	const startedAt = new Date().toISOString();
 	const started = performance.now();
+	if (parsed.bin === 'npm' && !(await fileExists(join(cwd, 'package.json')))) {
+		const summary = {
+			command,
+			durationMs: Math.round(performance.now() - started),
+			exitCode: null,
+			finishedAt: new Date().toISOString(),
+			ok: false,
+			stderr:
+				'npm verification requires package.json in the verification cwd; refusing to let npm climb to a parent package.',
+			stdout: '',
+			timedOut: false,
+			startedAt,
+			execution: { environment: 'host' },
+			trustBoundary:
+				'Verification commands are allowlisted and run without a shell, but npm scripts execute trusted workspace code.',
+		};
+		await writeLastTest(cwd, summary);
+		return summary;
+	}
 	const result = await runner(cwd, parsed, timeoutMs);
 	const finishedAt = new Date().toISOString();
 	const summary = {
@@ -93,6 +112,15 @@ export async function runVerification(cwd, command, options = {}) {
 
 	await writeLastTest(cwd, summary);
 	return summary;
+}
+
+async function fileExists(path) {
+	try {
+		await access(path);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 async function hasRequiredTestCoverage(cwd, command, stdout) {
