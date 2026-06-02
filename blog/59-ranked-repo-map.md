@@ -17,9 +17,13 @@ ranked list and include more relevant chunks first.
 
 This phase also connects the external inspector registry to run context. When
 `--inspect-context` builds an index, Kodr now uses the registry enrichment path.
-If a registered external tool is present and returns normalized file data, that
-data replaces the built-in result for those files. If tools are missing or fail,
-Kodr falls back to the built-in inspector.
+If a registered external tool is present and returns normalized file data, its
+symbols and imports replace the built-in structural result for those files. A
+cycle review caught an important edge case here: external inspectors usually do
+not return cached source lines, so a wholesale replacement would erase lexical
+reference counts. The merge now preserves the built-in content lines while
+accepting the external structure. If tools are missing or fail, Kodr falls back
+to the built-in inspector.
 
 The important constraint is predictability. The ranked repo-map is not trying
 to be clever; it is trying to be stable, cheap, and good enough to put likely

@@ -151,7 +151,10 @@ export function mergeInspectorResults(baseIndex, externalFiles) {
 	}
 
 	const externalByPath = new Map(externalFiles.map((f) => [f.path, f]));
-	const merged = baseIndex.files.map((f) => externalByPath.get(f.path) ?? f);
+	const merged = baseIndex.files.map((file) => {
+		const external = externalByPath.get(file.path);
+		return external ? mergeExternalFile(file, external) : file;
+	});
 
 	for (const [path, file] of externalByPath) {
 		if (!merged.some((f) => f.path === path)) {
@@ -175,6 +178,14 @@ export function mergeInspectorResults(baseIndex, externalFiles) {
 		rankedSymbols: rankSymbols(mergedIndex),
 		totalFiles: merged.length,
 		totalSymbols: mergedIndex.symbols.length,
+	};
+}
+
+function mergeExternalFile(baseFile, externalFile) {
+	return {
+		...baseFile,
+		...externalFile,
+		_contentLines: baseFile._contentLines,
 	};
 }
 

@@ -18,7 +18,7 @@ Add frontmatter metadata for skill commands:
 - allowed arguments schema or fixed argument list
 
 Execution must use the controlled-exec pattern, workspace/skill-directory jails,
-timeouts, artifact logging, and the TUI permission path from Phase 65.
+timeouts, artifact logging, and the TUI permission path from Phase 66.
 
 ## Non-Goals
 

@@ -194,6 +194,13 @@ describe('mergeInspectorResults', () => {
 				language: 'go',
 				lineCount: 5,
 				path: 'main.go',
+				_contentLines: [
+					{ line: 1, text: 'package main' },
+					{ line: 2, text: 'func main() {' },
+					{ line: 3, text: 'Run()' },
+					{ line: 4, text: '}' },
+					{ line: 5, text: 'func Run() {}' },
+				],
 				symbols: [{ kind: 'function', lineEnd: 5, lineStart: 1, name: 'main' }],
 			},
 			{
@@ -225,6 +232,19 @@ describe('mergeInspectorResults', () => {
 		const merged = mergeInspectorResults(baseIndex, [external]);
 		const mainFile = merged.files.find((f) => f.path === 'main.go');
 		assert.equal(mainFile.symbols[0].name, 'Run');
+	});
+
+	it('keeps base content lines when external symbols replace a file', () => {
+		const external = {
+			imports: [],
+			language: 'go',
+			lineCount: 5,
+			path: 'main.go',
+			symbols: [{ kind: 'function', lineEnd: 5, lineStart: 5, name: 'Run' }],
+		};
+		const merged = mergeInspectorResults(baseIndex, [external]);
+		const ranked = merged.rankedSymbols.find((symbol) => symbol.name === 'Run');
+		assert.equal(ranked.rank.referenceCount, 2);
 	});
 
 	it('appends new external files not in base index', () => {

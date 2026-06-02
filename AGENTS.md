@@ -10,6 +10,7 @@ This repo is built as a learning tool. Preserve the process, not just the code.
 - Add native `node:test` coverage for each feature.
 - Prefer small commits.
 - Keep model endpoints OpenAI-compatible and local-first.
+- Do not push commits unless the user explicitly asks.
 - Default LM Studio base URL: `http://localhost:1234/v1`.
 - Default model: `qwen/qwen3.6-35b-a3b`.
 - Default model timeout: `600000ms`.
