@@ -147,6 +147,67 @@ tools.
 
 Tool results and failures are written to the run artifacts.
 
+### Enable Command Hooks
+
+Command hooks are opt-in. Use them when you want deterministic scripts around
+tool use or final stopping decisions:
+
+```sh
+./kodr run -p "Inspect and update tests" --tools --hooks
+./kodr run -p "Inspect and update tests" --tools --hooks --hooks-config .kodr/hooks.json
+```
+
+Kodr reads `.kodr/hooks.json` by default. Hook commands run without a shell,
+receive JSON on stdin, and are recorded in `hooks.json`.
+
+Example `PostToolUse` logger:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["scripts/log-tool-use.mjs"]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Example `Stop` hook that can force another model turn:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["scripts/stop-check.mjs"]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+If the Stop hook prints this JSON, Kodr feeds the reason back into the chat and
+continues until the hook allows stopping or the turn budget is exhausted:
+
+```json
+{"decision":"block","reason":"npm test failed"}
+```
+
 ### Control Loop Budgets
 
 Kodr has explicit budgets for long local completions and continuation retries:

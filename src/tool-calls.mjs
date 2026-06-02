@@ -1,10 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { createChatCompletion } from './model-client.mjs';
+import { HookBlockedError } from './hooks.mjs';
 import { createLoopBudget, LoopBudgetError } from './loop-budgets.mjs';
 import { listContextFiles } from './context-packer.mjs';
 import { jailedPath } from './safe-writes.mjs';
 import { normalizeModelUsage } from './usage-normalizer.mjs';
 import { runVerification } from './verification-runner.mjs';
+import { renderHookStopFeedback } from './command-hooks.mjs';
 
 export class ToolCallError extends Error {
 	constructor(message) {
@@ -16,8 +18,10 @@ export class ToolCallError extends Error {
 // Holds named tool definitions (schema + handler) and builds the tools array
 // for the API request.
 export class ToolRegistry {
-	constructor() {
+	constructor(options = {}) {
 		this._tools = new Map();
+		this.cwd = options.cwd || '';
+		this.hooks = options.hooks || null;
 	}
 
 	// Register a tool. Parameters must be a valid JSON Schema object descriptor.
@@ -63,7 +67,38 @@ export class ToolRegistry {
 			);
 		}
 
-		return def.handler(args);
+		let activeArgs = args;
+		try {
+			const pre = await this.hooks?.run('pre_tool_use', {
+				cwd: this.cwd,
+				input: activeArgs,
+				tool: name,
+			});
+			activeArgs = pre?.payload?.input || activeArgs;
+		} catch (error) {
+			if (error instanceof HookBlockedError) {
+				throw new ToolCallError(error.message);
+			}
+			throw error;
+		}
+
+		const result = await def.handler(activeArgs);
+		try {
+			const post = await this.hooks?.run('post_tool_use', {
+				cwd: this.cwd,
+				input: activeArgs,
+				result,
+				tool: name,
+			});
+			return post?.payload && Object.hasOwn(post.payload, 'result')
+				? post.payload.result
+				: result;
+		} catch (error) {
+			if (error instanceof HookBlockedError) {
+				throw new ToolCallError(error.message);
+			}
+			throw error;
+		}
 	}
 }
 
@@ -158,10 +193,25 @@ export async function completeWithToolCalls(
 			continue;
 		}
 
-		// Normal finish — append the final assistant turn to complete the
-		// transcript, then return.
+		// Normal finish — run stop hooks before allowing the turn to end.
 		const text = choice?.message?.content || '';
 		messages.push({ content: text, role: 'assistant' });
+		try {
+			await options.hooks?.run('stop', {
+				cwd: options.cwd || '',
+				finishReason,
+				response: text,
+			});
+		} catch (error) {
+			if (error instanceof HookBlockedError) {
+				messages.push({
+					content: renderHookStopFeedback(error.message),
+					role: 'user',
+				});
+				continue;
+			}
+			throw error;
+		}
 		budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
 		return result(finishReasons, budget, responses, messages, text);
 	}
@@ -169,7 +219,7 @@ export async function completeWithToolCalls(
 
 // Create a registry pre-loaded with workspace-scoped built-in tools.
 export function createBuiltinRegistry(cwd, options = {}) {
-	const registry = new ToolRegistry();
+	const registry = new ToolRegistry({ cwd, hooks: options.hooks || null });
 
 	registry.register('list_files', {
 		description: 'List files available in the workspace.',

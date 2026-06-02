@@ -4,6 +4,8 @@ import {
 	firstAssistantMessage,
 	firstFinishReason,
 } from './model-client.mjs';
+import { renderHookStopFeedback } from './command-hooks.mjs';
+import { HookBlockedError } from './hooks.mjs';
 import { normalizeModelUsage } from './usage-normalizer.mjs';
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -64,13 +66,30 @@ export async function completeWithContinuations(
 		chunks.push(content);
 
 		if (finishReason !== 'length') {
-			budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
 			const text = chunks.join('');
 			// Append the final assistant turn so the returned messages array is a
 			// complete conversation transcript (system → user → … → assistant).
 			// Intermediate chunks are appended as partial assistant turns within
 			// the length-continuation loop above; this entry holds the full text.
 			messages.push({ content: text, role: 'assistant' });
+			try {
+				await options.hooks?.run('stop', {
+					cwd: options.cwd || '',
+					finishReason,
+					response: text,
+				});
+			} catch (error) {
+				if (error instanceof HookBlockedError) {
+					messages.push({
+						content: renderHookStopFeedback(error.message),
+						role: 'user',
+					});
+					chunks.length = 0;
+					continue;
+				}
+				throw error;
+			}
+			budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
 			return {
 				finishReasons,
 				loopBudget: budget.snapshot(),

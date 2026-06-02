@@ -113,6 +113,20 @@ describe('parseArgs', () => {
 		assert.equal(parseArgs(['run', '--heal', '-p', 'task'], {}).heal, true);
 	});
 
+	it('parses command hook flags', () => {
+		const options = parseArgs([
+			'run',
+			'--hooks',
+			'--hooks-config',
+			'.kodr/custom-hooks.json',
+			'-p',
+			'task',
+		]);
+
+		assert.equal(options.enableHooks, true);
+		assert.equal(options.hooksConfigPath, '.kodr/custom-hooks.json');
+	});
+
 	it('parses cycle review flags', () => {
 		const options = parseArgs([
 			'cycle-review',
@@ -444,6 +458,7 @@ describe('run', () => {
 				rawRequest: 'raw-request.json',
 				rawResponse: 'raw-response.json',
 				docker: 'docker.json',
+				hooks: 'hooks.json',
 				repairs: 'repairs/repairs.json',
 				response: 'response.md',
 				scratchpad: 'scratchpad.md',

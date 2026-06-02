@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { createRunArtifacts, writeJson, writeText } from './artifacts.mjs';
+import { loadConfiguredHooks, writeHookArtifact } from './command-hooks.mjs';
 import {
 	buildWorkspaceContext,
 	listContextFiles,
@@ -89,6 +90,8 @@ export function parseArgs(argv, env = {}) {
 		extraHeaders: {},
 		help: false,
 		heal: false,
+		enableHooks: false,
+		hooksConfigPath: '',
 		inspectSymbol: '',
 		inspectLanguages: [],
 		inspectContext: false,
@@ -213,6 +216,11 @@ export function parseArgs(argv, env = {}) {
 			continue;
 		}
 
+		if (arg === '--hooks') {
+			options.enableHooks = true;
+			continue;
+		}
+
 		if (arg === '--docker-sandbox') {
 			options.dockerSandbox = true;
 			continue;
@@ -270,6 +278,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '--docker-image' ||
 			arg === '--docker-network' ||
 			arg === '--docker-workdir' ||
+			arg === '--hooks-config' ||
 			arg === '--max-cost-usd' ||
 			arg === '--max-retries' ||
 			arg === '--max-tokens' ||
@@ -407,6 +416,7 @@ Usage:
   kodr run -p "task" --dry-run
   kodr run -p "task" --yes [--install] [--test "npm test"] [--test-cwd path] [--heal]
   kodr run -p "task" --yes --docker-sandbox [--docker-keep] [--test "npm test"]
+  kodr run -p "task" --tools --hooks [--hooks-config .kodr/hooks.json]
   kodr run -p "task" --yes --protect-existing
   kodr run -p "task" --tools --yes --staged
   kodr run -p "task" --stream
@@ -461,6 +471,8 @@ OpenRouter:
   --install            Run controlled dependency install after applied writes.
                        Uses npm ci when package-lock.json exists, otherwise npm install.
   --heal               After failed verification, run a bounded repair loop.
+  --hooks              Enable configured command hooks. Default config: .kodr/hooks.json
+  --hooks-config PATH  Hook config path relative to the workspace.
 
 Docker sandbox:
   --docker-sandbox     Run install/test/tool commands inside Docker.
@@ -1063,6 +1075,8 @@ function assignValue(options, flag, value) {
 		options.dockerNetwork = value;
 	} else if (flag === '--docker-workdir') {
 		options.dockerWorkdir = value;
+	} else if (flag === '--hooks-config') {
+		options.hooksConfigPath = value;
 	} else if (flag === '--max-cost-usd') {
 		options.maxCostUsd = value;
 	} else if (flag === '--max-retries') {
@@ -1163,6 +1177,12 @@ async function runPrompt(options, io) {
 	const runDir = await createRunArtifacts(io.cwd, options.out);
 	const dockerExecutor = createDockerExecutor(io.cwd, runDir, options);
 	const commandRunner = dockerCommandRunner(dockerExecutor);
+	const configuredHooks = await loadConfiguredHooks(io.cwd, options);
+	const runOptions = {
+		...options,
+		cwd: io.cwd,
+		hooks: configuredHooks.hooks,
+	};
 
 	// Resolve parent session (if --continue or --session was passed).
 	const parent = await resolveParentSession(options, io.cwd);
@@ -1204,6 +1224,7 @@ async function runPrompt(options, io) {
 	const registry = options.tools
 		? createBuiltinRegistry(io.cwd, {
 				commandRunner,
+				hooks: configuredHooks.hooks,
 			})
 		: null;
 	const responsePath = join(runDir, 'response.md');
@@ -1254,12 +1275,13 @@ async function runPrompt(options, io) {
 		) {
 			return runStagedPrompt({
 				commandRunner,
+				configuredHooks,
 				context,
 				dockerExecutor,
 				io,
 				memory,
 				model,
-				options,
+				options: runOptions,
 				prompt,
 				promptId,
 				rawRequest,
@@ -1273,7 +1295,7 @@ async function runPrompt(options, io) {
 		const contOpts = parent ? { initialMessages } : {};
 		completion = options.tools
 			? await completeWithToolCalls(
-					options,
+					runOptions,
 					model,
 					prompt,
 					context.systemPrompt,
@@ -1281,7 +1303,7 @@ async function runPrompt(options, io) {
 					contOpts,
 				)
 			: await completeWithContinuations(
-					options,
+					runOptions,
 					model,
 					prompt,
 					context.systemPrompt,
@@ -1305,6 +1327,7 @@ async function runPrompt(options, io) {
 			rawRequestTools: registry ? registry.toApiTools() : null,
 			responsePath,
 			dockerExecutor,
+			configuredHooks,
 		});
 		throw new CliError(
 			`Model run failed: ${error.message}. Artifacts: ${runDir}`,
@@ -1323,6 +1346,7 @@ async function runPrompt(options, io) {
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			docker: 'docker.json',
+			hooks: 'hooks.json',
 			response: 'response.md',
 			repairs: 'repairs/repairs.json',
 			scratchpad: 'scratchpad.md',
@@ -1385,6 +1409,7 @@ async function runPrompt(options, io) {
 			responses: completion.responses,
 		});
 		await writeDockerArtifact(runDir, dockerExecutor);
+		await writeHookArtifact(runDir, configuredHooks);
 		await writeJson(join(runDir, 'summary.json'), summary);
 		await writeJson(join(runDir, 'install.json'), null);
 		await writeJson(join(runDir, 'tasks.json'), taskPlan);
@@ -1530,6 +1555,7 @@ async function runPrompt(options, io) {
 		responses: completion.responses,
 	});
 	await writeDockerArtifact(runDir, dockerExecutor);
+	await writeHookArtifact(runDir, configuredHooks);
 	await writeJson(join(runDir, 'summary.json'), summary);
 	await writeJson(join(runDir, 'install.json'), installResult);
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);
@@ -1554,6 +1580,7 @@ async function runPrompt(options, io) {
 
 async function runStagedPrompt({
 	commandRunner,
+	configuredHooks,
 	context,
 	dockerExecutor,
 	io,
@@ -1838,6 +1865,7 @@ async function runStagedPrompt({
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			docker: 'docker.json',
+			hooks: 'hooks.json',
 			response: 'response.md',
 			repairs: 'repairs/repairs.json',
 			scratchpad: 'scratchpad.md',
@@ -1911,6 +1939,7 @@ async function runStagedPrompt({
 		stages: stageRecords,
 	});
 	await writeDockerArtifact(runDir, dockerExecutor);
+	await writeHookArtifact(runDir, configuredHooks);
 	await writeJson(join(runDir, 'summary.json'), summary);
 	await writeJson(join(runDir, 'install.json'), installResult);
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);
@@ -2078,6 +2107,7 @@ async function writeRunFailure(runDir, details) {
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			docker: 'docker.json',
+			hooks: 'hooks.json',
 			response: 'response.md',
 			scratchpad: 'scratchpad.md',
 			summary: 'summary.json',
@@ -2110,6 +2140,7 @@ async function writeRunFailure(runDir, details) {
 	await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 	await writeJson(join(runDir, 'raw-response.json'), { responses: [] });
 	await writeDockerArtifact(runDir, details.dockerExecutor);
+	await writeHookArtifact(runDir, details.configuredHooks);
 	await writeJson(join(runDir, 'summary.json'), summary);
 	await writeJson(join(runDir, 'install.json'), null);
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);

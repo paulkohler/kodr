@@ -9,6 +9,7 @@ import {
 	ToolCallError,
 	ToolRegistry,
 } from '../src/tool-calls.mjs';
+import { createHooks } from '../src/hooks.mjs';
 import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
 
 describe('ToolRegistry', () => {
@@ -44,6 +45,47 @@ describe('ToolRegistry', () => {
 
 		const result = await registry.dispatch('add', '{"a":2,"b":3}');
 		assert.equal(result, 5);
+	});
+
+	it('runs post tool hooks after native tool dispatch', async () => {
+		const observed = [];
+		const registry = new ToolRegistry({
+			hooks: createHooks({
+				post_tool_use: [
+					(payload) => {
+						observed.push(`${payload.tool}:${payload.result}`);
+					},
+				],
+			}),
+		});
+		registry.register('add', {
+			description: 'Add two numbers.',
+			parameters: { type: 'object', properties: {} },
+			handler: async ({ a, b }) => a + b,
+		});
+
+		assert.equal(await registry.dispatch('add', '{"a":2,"b":3}'), 5);
+		assert.deepEqual(observed, ['add:5']);
+	});
+
+	it('turns post tool hook blocks into tool call errors', async () => {
+		const registry = new ToolRegistry({
+			hooks: createHooks({
+				post_tool_use: [
+					() => ({ action: 'block', reason: 'post hook blocked' }),
+				],
+			}),
+		});
+		registry.register('add', {
+			description: 'Add two numbers.',
+			parameters: { type: 'object', properties: {} },
+			handler: async ({ a, b }) => a + b,
+		});
+
+		await assert.rejects(
+			() => registry.dispatch('add', '{"a":2,"b":3}'),
+			/post hook blocked/u,
+		);
 	});
 
 	it('throws ToolCallError for unknown tools', async () => {
@@ -436,6 +478,86 @@ describe('completeWithToolCalls', () => {
 			assert.equal(completion.text, 'No tools needed.');
 			assert.deepEqual(completion.finishReasons, ['stop']);
 			assert.equal(server.recordings.length, 1);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('feeds stop hook block reasons back into the model loop', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-stop-hook-'));
+		let stopCalls = 0;
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'First answer.', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Fixed answer.', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_2',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				cwd,
+				extraHeaders: {},
+				hooks: createHooks({
+					stop: [
+						() => {
+							stopCalls += 1;
+							return stopCalls === 1
+								? { action: 'block', reason: 'npm test failed' }
+								: {};
+						},
+					],
+				}),
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Simple question.',
+				'You are helpful.',
+				registry,
+			);
+
+			assert.equal(completion.text, 'Fixed answer.');
+			assert.deepEqual(completion.finishReasons, ['stop', 'stop']);
+			assert.equal(server.recordings.length, 2);
+			const second = server.recordings[1].requestBody;
+			assert.match(second.messages.at(-1).content, /npm test failed/u);
 		} finally {
 			await server.close();
 		}
