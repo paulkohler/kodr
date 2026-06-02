@@ -355,6 +355,9 @@ Open a specific session:
 The TUI keeps normal user input separate from slash commands. Plain text becomes
 a model turn. Slash commands control the session.
 
+TUI color is automatic for interactive terminals. Use `NO_COLOR=1` to disable
+ANSI color or `FORCE_COLOR=1` to force it.
+
 ### Basic Turn Flow
 
 ```text
