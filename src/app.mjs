@@ -39,7 +39,11 @@ import {
 	dockerDefaults,
 	validateDockerOptions,
 } from './docker-executor.mjs';
-import { checkAvailability, REGISTRY } from './external-inspector-registry.mjs';
+import {
+	checkAvailability,
+	inspectWithRegistry,
+	REGISTRY,
+} from './external-inspector-registry.mjs';
 import {
 	completeWithContinuations,
 	OPENROUTER_BASE_URL,
@@ -2317,7 +2321,13 @@ async function createInspectionContext(cwd, options, prompt) {
 	}
 	return {
 		enabled: true,
-		index: await inspectWorkspace(cwd),
+		index: await inspectWithRegistry(cwd, {
+			languages:
+				options.inspectLanguages.length > 0
+					? options.inspectLanguages
+					: undefined,
+			query: prompt,
+		}),
 		query: prompt,
 	};
 }

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { inspectWorkspace } from './code-inspector.mjs';
+import { rankSymbols } from './repo-map.mjs';
 
 const DEFAULT_TIMEOUT = 10000;
 
@@ -158,7 +159,7 @@ export function mergeInspectorResults(baseIndex, externalFiles) {
 		}
 	}
 
-	return {
+	const mergedIndex = {
 		...baseIndex,
 		files: merged,
 		symbols: merged.flatMap((file) =>
@@ -168,6 +169,12 @@ export function mergeInspectorResults(baseIndex, externalFiles) {
 				path: file.path,
 			})),
 		),
+	};
+	return {
+		...mergedIndex,
+		rankedSymbols: rankSymbols(mergedIndex),
+		totalFiles: merged.length,
+		totalSymbols: mergedIndex.symbols.length,
 	};
 }
 
@@ -218,7 +225,13 @@ export async function inspectWithRegistry(
 	}
 
 	const merged = mergeInspectorResults(baseIndex, externalFiles);
-	return { ...merged, externalInspectors: usedInspectors };
+	return {
+		...merged,
+		externalInspectors: usedInspectors,
+		rankedSymbols: rankSymbols(merged, {
+			query: options.query || options.symbol || '',
+		}),
+	};
 }
 
 /**

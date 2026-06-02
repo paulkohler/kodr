@@ -293,6 +293,7 @@ describe('inspectWithRegistry', () => {
 		const result = await inspectWithRegistry(cwd, {}, fakeRegistry);
 		assert.ok(result.externalInspectors.includes('fake-go'));
 		assert.ok(result.symbols.some((s) => s.name === 'ExternalRun'));
+		assert.ok(result.rankedSymbols.some((s) => s.name === 'ExternalRun'));
 	});
 
 	it('ignores a failing external inspector and keeps base index', async () => {

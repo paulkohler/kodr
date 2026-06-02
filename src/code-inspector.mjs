@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { listContextFiles } from './context-packer.mjs';
+import { rankSymbols } from './repo-map.mjs';
 
 const MAX_INSPECT_BYTES = 200000;
 
@@ -49,6 +50,9 @@ export async function inspectWorkspace(cwd, options = {}) {
 		index.references = findReferences(index, options.symbol);
 	}
 
+	index.rankedSymbols = rankSymbols(index, {
+		query: options.query || options.symbol || '',
+	});
 	index.totalFiles = index.files.length;
 	index.totalSymbols = index.symbols.length;
 

@@ -1,5 +1,6 @@
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import { relative, sep } from 'node:path';
+import { rankSymbols } from './repo-map.mjs';
 
 const DEFAULT_IGNORES = new Set([
 	'.git',
@@ -334,7 +335,11 @@ function isMapOnlyFile(path) {
 async function buildInspectionContext(cwd, inspection) {
 	const index = inspection.index || { files: [], symbols: [] };
 	const queryTerms = queryTokens(inspection.query || '');
-	const matches = matchingSymbols(index.symbols, queryTerms);
+	const rankedSymbols = rankedSymbolsForInspection(
+		index,
+		inspection.query || '',
+	);
+	const matches = matchingSymbols(rankedSymbols, queryTerms);
 	const chunks = await buildInspectionChunks(cwd, index, matches);
 	const summaries = buildFileSummaries(index.files);
 	return {
@@ -342,10 +347,18 @@ async function buildInspectionContext(cwd, inspection) {
 		fileSummaries: summaries,
 		mode: 'inspection-aware',
 		query: inspection.query || '',
+		rankedSymbolCount: rankedSymbols.length,
 		selectedSymbolCount: matches.length,
 		totalFileCount: index.files.length,
 		totalSymbolCount: index.symbols.length,
 	};
+}
+
+function rankedSymbolsForInspection(index, query) {
+	if (Array.isArray(index.rankedSymbols) && index.rankedSymbols.length > 0) {
+		return index.rankedSymbols;
+	}
+	return rankSymbols(index, { query });
 }
 
 async function buildInspectionChunks(cwd, index, matches) {

@@ -192,6 +192,35 @@ describe('context packing', () => {
 		assert.match(context.systemPrompt, /Selected code chunks/u);
 	});
 
+	it('packs ranked inspection matches before lower-scoring matches', async () => {
+		const cwd = await mkWorkspace({
+			'src/app.mjs': [
+				'export function targetHigh() {',
+				'  return 1;',
+				'}',
+				'targetHigh();',
+				'targetHigh();',
+				'',
+				'export function targetLow() {',
+				'  return 2;',
+				'}',
+			].join('\n'),
+		});
+		const index = await inspectWorkspace(cwd);
+
+		const context = await buildWorkspaceContext(cwd, {
+			inspection: {
+				enabled: true,
+				index,
+				query: 'change target function',
+			},
+		});
+
+		assert.equal(context.inspection.rankedSymbolCount, 2);
+		assert.equal(context.files[0].metadata.name, 'targetHigh');
+		assert.equal(context.files[0].metadata.kind, 'symbol');
+	});
+
 	it('falls back to file summaries when inspection finds no matching symbols', async () => {
 		const cwd = await mkWorkspace({
 			'src/app.py': [

@@ -201,6 +201,8 @@ describe('inspectWorkspace', () => {
 			typeof index.totalSymbols === 'number',
 			'totalSymbols is a number',
 		);
+		assert.equal(index.rankedSymbols[0].name, 'helper');
+		assert.equal(index.rankedSymbols[0].rank.referenceCount, 5);
 	});
 });
 

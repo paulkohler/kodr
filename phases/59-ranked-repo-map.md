@@ -26,11 +26,11 @@ fewest tokens — exactly what small models need.
 
 ## Done Criteria
 
-- [ ] Ranking function orders symbols deterministically by a documented score,
+- [x] Ranking function orders symbols deterministically by a documented score,
       with tests.
-- [ ] Registry enrichment path exercised with a fake external command (reuse the
+- [x] Registry enrichment path exercised with a fake external command (reuse the
       Phase 53 fake-command tests), with clean built-in fallback.
-- [ ] Inspection-aware packing consumes the ranked output.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Inspection-aware packing consumes the ranked output.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
