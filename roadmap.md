@@ -78,6 +78,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [ ] 73 Git-Aware Apply and Commit
 - [ ] 74 Optional LSP Adapter
 - [x] 75 Docker Sandbox
+- [ ] 76 TUI ANSI Color
 
 ## Phase Contract
 
