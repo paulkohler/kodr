@@ -73,6 +73,42 @@ describe('parseArgs', () => {
 		);
 	});
 
+	it('parses docker sandbox flags and network defaults', () => {
+		const basic = parseArgs(['run', '--docker-sandbox', '-p', 'task'], {});
+		assert.equal(basic.dockerSandbox, true);
+		assert.equal(basic.dockerImage, 'node:24-bookworm-slim');
+		assert.equal(basic.dockerNetwork, 'none');
+		assert.equal(basic.dockerWorkdir, '/workspace');
+		assert.equal(basic.dockerKeep, false);
+
+		const install = parseArgs(
+			['run', '--docker-sandbox', '--install', '-p', 'task'],
+			{},
+		);
+		assert.equal(install.dockerNetwork, 'bridge');
+
+		const custom = parseArgs(
+			[
+				'run',
+				'--docker-sandbox',
+				'--docker-keep',
+				'--docker-image',
+				'node:24',
+				'--docker-network',
+				'none',
+				'--docker-workdir',
+				'/work',
+				'-p',
+				'task',
+			],
+			{},
+		);
+		assert.equal(custom.dockerImage, 'node:24');
+		assert.equal(custom.dockerKeep, true);
+		assert.equal(custom.dockerNetwork, 'none');
+		assert.equal(custom.dockerWorkdir, '/work');
+	});
+
 	it('parses heal flag', () => {
 		assert.equal(parseArgs(['run', '--heal', '-p', 'task'], {}).heal, true);
 	});
@@ -407,6 +443,7 @@ describe('run', () => {
 				prompt: 'prompt.md',
 				rawRequest: 'raw-request.json',
 				rawResponse: 'raw-response.json',
+				docker: 'docker.json',
 				repairs: 'repairs/repairs.json',
 				response: 'response.md',
 				scratchpad: 'scratchpad.md',

@@ -45,6 +45,9 @@ describe('dependency installer', () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-install-run-'));
 		const result = await runDependencyInstall(cwd, {
 			runner: async (_cwd, parsed) => ({
+				execution: {
+					environment: 'docker',
+				},
 				exitCode: 0,
 				stderr: '',
 				stdout: `ran ${parsed.bin} ${parsed.args.join(' ')}`,
@@ -55,6 +58,7 @@ describe('dependency installer', () => {
 
 		assert.equal(result.ok, true);
 		assert.equal(result.command, 'npm install');
+		assert.equal(result.execution.environment, 'docker');
 		assert.match(
 			await readFile(join(cwd, '.kodr', 'last-install.md'), 'utf8'),
 			/npm install/u,

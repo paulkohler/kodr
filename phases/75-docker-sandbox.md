@@ -113,7 +113,7 @@ Default behavior:
 
 With `--docker-keep`:
 
-- keep the container after failure
+- keep the container after command completion
 - print the container name/id
 - record a suggested `docker exec` command in artifacts
 - never keep by default, because stale containers are confusing and can retain
@@ -206,16 +206,16 @@ network later. That should be explicit and artifacted.
 
 ## Done Criteria
 
-- [ ] CLI parses Docker sandbox flags and documents them.
-- [ ] Docker executor is abstracted and fake-runner tested.
-- [ ] Verification can run inside the sandbox.
-- [ ] Dependency install can run inside the sandbox.
-- [ ] `docker.json` records image, network, mount, lifecycle, and command
+- [x] CLI parses Docker sandbox flags and documents them.
+- [x] Docker executor is abstracted and fake-runner tested.
+- [x] Verification can run inside the sandbox.
+- [x] Dependency install can run inside the sandbox.
+- [x] `docker.json` records image, network, mount, lifecycle, and command
       metadata.
-- [ ] Default lifecycle removes containers after completion.
-- [ ] `--docker-keep` preserves a failed container and reports how to inspect it.
-- [ ] Network mode defaults are tested.
-- [ ] Path escape attempts still fail and cannot write outside the mounted cwd.
-- [ ] Record decisions and failures.
-- [ ] Blog post.
+- [x] Default lifecycle removes containers after completion.
+- [x] `--docker-keep` preserves a failed container and reports how to inspect it.
+- [x] Network mode defaults are tested.
+- [x] Path escape attempts still fail and cannot write outside the mounted cwd.
+- [x] Record decisions and failures.
+- [x] Blog post.
 - [ ] Mark roadmap complete and commit.

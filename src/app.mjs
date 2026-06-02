@@ -34,6 +34,11 @@ import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './code-inspector.mjs';
 import { runDependencyInstall } from './dependency-installer.mjs';
+import {
+	createDockerExecutor,
+	dockerDefaults,
+	validateDockerOptions,
+} from './docker-executor.mjs';
 import { checkAvailability, REGISTRY } from './external-inspector-registry.mjs';
 import {
 	completeWithContinuations,
@@ -71,6 +76,11 @@ export function parseArgs(argv, env = {}) {
 	const options = {
 		baseUrl: env.BASE_URL || DEFAULT_BASE_URL,
 		command: 'help',
+		dockerImage: '',
+		dockerKeep: false,
+		dockerNetwork: '',
+		dockerSandbox: false,
+		dockerWorkdir: '',
 		dryRun: true,
 		extraHeaders: {},
 		help: false,
@@ -199,6 +209,16 @@ export function parseArgs(argv, env = {}) {
 			continue;
 		}
 
+		if (arg === '--docker-sandbox') {
+			options.dockerSandbox = true;
+			continue;
+		}
+
+		if (arg === '--docker-keep') {
+			options.dockerKeep = true;
+			continue;
+		}
+
 		if (arg === '--staged') {
 			options.staged = true;
 			continue;
@@ -243,6 +263,9 @@ export function parseArgs(argv, env = {}) {
 			arg === '--timeout-ms' ||
 			arg === '--transcript-file' ||
 			arg === '--format' ||
+			arg === '--docker-image' ||
+			arg === '--docker-network' ||
+			arg === '--docker-workdir' ||
 			arg === '--max-cost-usd' ||
 			arg === '--max-retries' ||
 			arg === '--max-tokens' ||
@@ -315,6 +338,10 @@ export function parseArgs(argv, env = {}) {
 	}
 	delete options._apiKeySet;
 
+	if (options.dockerSandbox) {
+		Object.assign(options, dockerDefaults(options));
+	}
+
 	if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 100) {
 		throw new CliError(
 			'--timeout-ms must be an integer greater than or equal to 100',
@@ -322,6 +349,7 @@ export function parseArgs(argv, env = {}) {
 	}
 	validateLoopBudgetOptions(options);
 	validateServeOptions(options);
+	validateDockerOptions(options);
 
 	return options;
 }
@@ -374,6 +402,7 @@ Usage:
   kodr run --prompt-file prompt.md [--out .kodr/runs/name] [--prompt-id slug]
   kodr run -p "task" --dry-run
   kodr run -p "task" --yes [--install] [--test "npm test"] [--test-cwd path] [--heal]
+  kodr run -p "task" --yes --docker-sandbox [--docker-keep] [--test "npm test"]
   kodr run -p "task" --yes --protect-existing
   kodr run -p "task" --tools --yes --staged
   kodr run -p "task" --stream
@@ -428,6 +457,13 @@ OpenRouter:
   --install            Run controlled dependency install after applied writes.
                        Uses npm ci when package-lock.json exists, otherwise npm install.
   --heal               After failed verification, run a bounded repair loop.
+
+Docker sandbox:
+  --docker-sandbox     Run install/test/tool commands inside Docker.
+  --docker-image IMAGE Container image for sandbox commands. Default: node:24-bookworm-slim
+  --docker-network NET Container network mode. Default: none, or bridge with --install
+  --docker-workdir DIR Container workspace mount path. Default: /workspace
+  --docker-keep        Keep sandbox containers after commands complete.
 
 Web channel:
   kodr serve           Start a local-only JSON HTTP channel.
@@ -843,10 +879,18 @@ export async function handleChannelRequest(request, io) {
 		if (!request.options.testCommand) {
 			throw new CliError('No test command configured');
 		}
+		const dockerExecutor = createDockerExecutor(
+			io.cwd,
+			join(io.cwd, '.kodr', 'verify'),
+			request.options,
+		);
 		return runVerification(
 			await verificationCwd(io.cwd, request.options),
 			request.options.testCommand,
-			{ timeoutMs: request.options.timeoutMs },
+			{
+				runner: dockerCommandRunner(dockerExecutor),
+				timeoutMs: request.options.timeoutMs,
+			},
 		);
 	}
 
@@ -1009,6 +1053,12 @@ function assignValue(options, flag, value) {
 		options.transcriptFile = value;
 	} else if (flag === '--format') {
 		options.sessionFormat = value;
+	} else if (flag === '--docker-image') {
+		options.dockerImage = value;
+	} else if (flag === '--docker-network') {
+		options.dockerNetwork = value;
+	} else if (flag === '--docker-workdir') {
+		options.dockerWorkdir = value;
 	} else if (flag === '--max-cost-usd') {
 		options.maxCostUsd = value;
 	} else if (flag === '--max-retries') {
@@ -1107,6 +1157,8 @@ async function runPrompt(options, io) {
 		: rawPrompt;
 	const promptId = resolvePromptId(options, rawPrompt);
 	const runDir = await createRunArtifacts(io.cwd, options.out);
+	const dockerExecutor = createDockerExecutor(io.cwd, runDir, options);
+	const commandRunner = dockerCommandRunner(dockerExecutor);
 
 	// Resolve parent session (if --continue or --session was passed).
 	const parent = await resolveParentSession(options, io.cwd);
@@ -1145,7 +1197,11 @@ async function runPrompt(options, io) {
 		];
 	}
 
-	const registry = options.tools ? createBuiltinRegistry(io.cwd) : null;
+	const registry = options.tools
+		? createBuiltinRegistry(io.cwd, {
+				commandRunner,
+			})
+		: null;
 	const responsePath = join(runDir, 'response.md');
 	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
 	await writeText(join(runDir, 'prompt.md'), prompt);
@@ -1193,7 +1249,9 @@ async function runPrompt(options, io) {
 			registry
 		) {
 			return runStagedPrompt({
+				commandRunner,
 				context,
+				dockerExecutor,
 				io,
 				memory,
 				model,
@@ -1242,6 +1300,7 @@ async function runPrompt(options, io) {
 			rawRequest,
 			rawRequestTools: registry ? registry.toApiTools() : null,
 			responsePath,
+			dockerExecutor,
 		});
 		throw new CliError(
 			`Model run failed: ${error.message}. Artifacts: ${runDir}`,
@@ -1259,6 +1318,7 @@ async function runPrompt(options, io) {
 			prompt: 'prompt.md',
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
+			docker: 'docker.json',
 			response: 'response.md',
 			repairs: 'repairs/repairs.json',
 			scratchpad: 'scratchpad.md',
@@ -1320,6 +1380,7 @@ async function runPrompt(options, io) {
 			loopBudget: completion.loopBudget,
 			responses: completion.responses,
 		});
+		await writeDockerArtifact(runDir, dockerExecutor);
 		await writeJson(join(runDir, 'summary.json'), summary);
 		await writeJson(join(runDir, 'install.json'), null);
 		await writeJson(join(runDir, 'tasks.json'), taskPlan);
@@ -1396,6 +1457,7 @@ async function runPrompt(options, io) {
 	const installResult =
 		options.installDependencies && options.yes && !writeError
 			? await runDependencyInstall(await verificationCwd(io.cwd, options), {
+					runner: commandRunner,
 					timeoutMs: options.timeoutMs,
 				})
 			: null;
@@ -1415,12 +1477,14 @@ async function runPrompt(options, io) {
 					await verificationCwd(io.cwd, options),
 					options.testCommand,
 					{
+						runner: commandRunner,
 						timeoutMs: options.timeoutMs,
 					},
 				)
 			: null;
 	const healingResult = await runHealingIfNeeded({
 		cwd: await verificationCwd(io.cwd, options),
+		commandRunner,
 		model,
 		options,
 		registry,
@@ -1461,6 +1525,7 @@ async function runPrompt(options, io) {
 		loopBudget: completion.loopBudget,
 		responses: completion.responses,
 	});
+	await writeDockerArtifact(runDir, dockerExecutor);
 	await writeJson(join(runDir, 'summary.json'), summary);
 	await writeJson(join(runDir, 'install.json'), installResult);
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);
@@ -1484,7 +1549,9 @@ async function runPrompt(options, io) {
 }
 
 async function runStagedPrompt({
+	commandRunner,
 	context,
+	dockerExecutor,
 	io,
 	memory,
 	model,
@@ -1694,6 +1761,7 @@ async function runStagedPrompt({
 	const installResult =
 		options.installDependencies && options.yes && !writeError
 			? await runDependencyInstall(await verificationCwd(io.cwd, options), {
+					runner: commandRunner,
 					timeoutMs: options.timeoutMs,
 				})
 			: null;
@@ -1710,12 +1778,14 @@ async function runStagedPrompt({
 					await verificationCwd(io.cwd, options),
 					options.testCommand,
 					{
+						runner: commandRunner,
 						timeoutMs: options.timeoutMs,
 					},
 				)
 			: null;
 	const healingResult = await runHealingIfNeeded({
 		cwd: await verificationCwd(io.cwd, options),
+		commandRunner,
 		model,
 		options,
 		registry,
@@ -1763,6 +1833,7 @@ async function runStagedPrompt({
 			prompt: 'prompt.md',
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
+			docker: 'docker.json',
 			response: 'response.md',
 			repairs: 'repairs/repairs.json',
 			scratchpad: 'scratchpad.md',
@@ -1835,6 +1906,7 @@ async function runStagedPrompt({
 		responses,
 		stages: stageRecords,
 	});
+	await writeDockerArtifact(runDir, dockerExecutor);
 	await writeJson(join(runDir, 'summary.json'), summary);
 	await writeJson(join(runDir, 'install.json'), installResult);
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);
@@ -1880,6 +1952,7 @@ function shouldUseStagedExecution(options, prompt, context) {
 }
 
 async function runHealingIfNeeded({
+	commandRunner,
 	cwd,
 	model,
 	options,
@@ -1930,7 +2003,20 @@ async function runHealingIfNeeded({
 		testCommand: options.testCommand,
 		timeoutMs: options.timeoutMs,
 		turnTimeoutMs: options.timeoutMs,
+		commandRunner,
 	});
+}
+
+function dockerCommandRunner(dockerExecutor) {
+	return dockerExecutor ? dockerExecutor.run.bind(dockerExecutor) : null;
+}
+
+function dockerMetadata(dockerExecutor) {
+	return dockerExecutor ? dockerExecutor.metadata() : { enabled: false };
+}
+
+async function writeDockerArtifact(runDir, dockerExecutor) {
+	await writeJson(join(runDir, 'docker.json'), dockerMetadata(dockerExecutor));
 }
 
 function mergeLoopBudgets(responses) {
@@ -1987,6 +2073,7 @@ async function writeRunFailure(runDir, details) {
 			prompt: 'prompt.md',
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
+			docker: 'docker.json',
 			response: 'response.md',
 			scratchpad: 'scratchpad.md',
 			summary: 'summary.json',
@@ -2018,6 +2105,7 @@ async function writeRunFailure(runDir, details) {
 	await writeJson(join(runDir, 'error.json'), error);
 	await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 	await writeJson(join(runDir, 'raw-response.json'), { responses: [] });
+	await writeDockerArtifact(runDir, details.dockerExecutor);
 	await writeJson(join(runDir, 'summary.json'), summary);
 	await writeJson(join(runDir, 'install.json'), null);
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);

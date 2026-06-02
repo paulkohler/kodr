@@ -86,6 +86,31 @@ Dependency installs are a separate allowlisted workflow. Kodr runs `npm ci`
 when `package-lock.json` exists, otherwise `npm install`, and records the result
 in `install.json`.
 
+### Run Commands In Docker
+
+Use `--docker-sandbox` to run dependency installs, verification, and built-in
+command tools inside a Docker container with the current workspace mounted at
+`/workspace`.
+
+```sh
+./kodr run --prompt-file prompt.md --tools --yes --docker-sandbox --test "npm test"
+./kodr run --prompt-file prompt.md --tools --yes --docker-sandbox --install --test "npm test"
+```
+
+Sandbox defaults are intentionally narrow:
+
+```sh
+./kodr run -p "Verify this project" --yes --docker-sandbox --docker-network none
+./kodr run -p "Install and test" --yes --docker-sandbox --install --docker-network bridge
+./kodr run -p "Debug a failing run" --yes --docker-sandbox --docker-keep --test "npm test"
+```
+
+`--docker-sandbox` alone uses `--network none`. With `--install`, Kodr defaults
+to `bridge` so npm can reach the package registry unless you override it. The
+model call and artifact writes still happen on the host; command effects run in
+Docker. `docker.json` records the image, network, mount, kept container names,
+and inspection commands.
+
 Ask Kodr to run a bounded repair loop after failed verification:
 
 ```sh
@@ -412,6 +437,8 @@ Kodr writes run artifacts under `.kodr/runs/<run-id>/`. Common files include:
 - `raw-response.json`
 - `context.md`
 - `writes.json`
+- `install.json`, when dependency install runs
+- `docker.json`, when Docker sandbox metadata is recorded
 - `tasks.json`
 - verification output, when tests run
 
@@ -425,4 +452,5 @@ or write phase blog posts.
 - Package locks are listed but not packed into context by default.
 - Model output, skills, memory, transcripts, and workspace files are untrusted.
 - Verification commands are allowlisted and run without a shell.
+- `--docker-sandbox` runs install/test/tool commands in a fresh container.
 - Local model requests default to a long timeout: `600000ms`.

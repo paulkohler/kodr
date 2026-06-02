@@ -28,6 +28,7 @@ export class ToolRunner {
 		this.hooks = createHooks(options.hooks);
 		this.policy = createPermissionPolicy(options.policy);
 		this.mcp = createMcpClient(options.mcpProviders || options.mcp || []);
+		this.commandRunner = options.commandRunner || null;
 	}
 
 	async call(name, input = {}) {
@@ -108,6 +109,7 @@ export class ToolRunner {
 		if (name === 'run_command') {
 			this.policy.checkCommand(input.command);
 			return runVerification(this.cwd, input.command, {
+				runner: this.commandRunner,
 				timeoutMs: input.timeoutMs,
 			});
 		}

@@ -79,12 +79,12 @@ describe('ToolRegistry', () => {
 });
 
 describe('createBuiltinRegistry', () => {
-	it('provides list_files and read_file tools', async () => {
+	it('provides list_files, read_file, and run_command tools', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-'));
 		await writeFile(join(cwd, 'hello.txt'), 'world', 'utf8');
 		const registry = createBuiltinRegistry(cwd);
 
-		assert.equal(registry.size, 2);
+		assert.equal(registry.size, 3);
 
 		const files = await registry.dispatch('list_files', '{}');
 		assert.ok(Array.isArray(files));
@@ -95,6 +95,30 @@ describe('createBuiltinRegistry', () => {
 			'{"path":"hello.txt"}',
 		);
 		assert.equal(content, 'world');
+	});
+
+	it('runs allowlisted commands through the injected command runner', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-command-'));
+		const registry = createBuiltinRegistry(cwd, {
+			commandRunner: async (_cwd, parsed) => ({
+				execution: {
+					containerName: 'kodr-command',
+					environment: 'docker',
+				},
+				exitCode: 0,
+				stderr: '',
+				stdout: `ran ${parsed.bin} ${parsed.args.join(' ')}`,
+				timedOut: false,
+			}),
+		});
+
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"node --test","timeoutMs":1000}',
+		);
+
+		assert.equal(result.execution.environment, 'docker');
+		assert.equal(result.execution.containerName, 'kodr-command');
 	});
 
 	it('read_file rejects path traversal outside workspace', async () => {

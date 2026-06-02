@@ -68,9 +68,10 @@ export function parseVerificationCommand(command) {
 export async function runVerification(cwd, command, options = {}) {
 	const parsed = parseVerificationCommand(command);
 	const timeoutMs = options.timeoutMs || 60000;
+	const runner = options.runner || spawnCommand;
 	const startedAt = new Date().toISOString();
 	const started = performance.now();
-	const result = await spawnCommand(cwd, parsed, timeoutMs);
+	const result = await runner(cwd, parsed, timeoutMs);
 	const finishedAt = new Date().toISOString();
 	const summary = {
 		command,
@@ -85,6 +86,7 @@ export async function runVerification(cwd, command, options = {}) {
 		stdout: result.stdout,
 		timedOut: result.timedOut,
 		startedAt,
+		execution: result.execution || { environment: 'host' },
 		trustBoundary:
 			'Verification commands are allowlisted and run without a shell, but npm scripts execute trusted workspace code.',
 	};
@@ -221,6 +223,7 @@ function renderLastTest(result) {
 - Exit code: ${result.exitCode}
 - Timed out: ${result.timedOut}
 - Duration ms: ${result.durationMs}
+- Execution: ${result.execution?.environment || 'host'}${result.execution?.containerName ? ` (${result.execution.containerName})` : ''}
 
 ## stdout
 

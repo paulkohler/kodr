@@ -40,6 +40,7 @@ export async function oneShotHeal(cwd, failedTest, repairText, options = {}) {
 	const writes = await prepareWrites(cwd, proposal.files, { apply });
 	const verification = apply
 		? await runVerification(cwd, options.testCommand, {
+				runner: options.commandRunner || null,
 				timeoutMs: options.timeoutMs || 60000,
 			})
 		: null;
@@ -180,6 +181,7 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 
 		verification = apply
 			? await runVerification(cwd, options.testCommand, {
+					runner: options.commandRunner || null,
 					timeoutMs: options.timeoutMs || 60000,
 				})
 			: verification;

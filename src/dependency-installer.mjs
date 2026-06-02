@@ -55,6 +55,7 @@ export async function runDependencyInstall(cwd, options = {}) {
 		stdout: result.stdout,
 		timedOut: result.timedOut,
 		startedAt,
+		execution: result.execution || { environment: 'host' },
 		trustBoundary:
 			'Dependency install commands are allowlisted and run without a shell, but npm lifecycle behavior executes trusted workspace package code.',
 	};
@@ -128,6 +129,7 @@ async function writeLastInstall(cwd, summary) {
 			`Exit: ${summary.exitCode}`,
 			`Timed out: ${summary.timedOut}`,
 			`Duration ms: ${summary.durationMs}`,
+			`Execution: ${summary.execution?.environment || 'host'}${summary.execution?.containerName ? ` (${summary.execution.containerName})` : ''}`,
 			``,
 			`## stdout`,
 			'```',

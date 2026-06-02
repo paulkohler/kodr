@@ -4,6 +4,7 @@ import { createLoopBudget, LoopBudgetError } from './loop-budgets.mjs';
 import { listContextFiles } from './context-packer.mjs';
 import { jailedPath } from './safe-writes.mjs';
 import { normalizeModelUsage } from './usage-normalizer.mjs';
+import { runVerification } from './verification-runner.mjs';
 
 export class ToolCallError extends Error {
 	constructor(message) {
@@ -167,7 +168,7 @@ export async function completeWithToolCalls(
 }
 
 // Create a registry pre-loaded with workspace-scoped built-in tools.
-export function createBuiltinRegistry(cwd) {
+export function createBuiltinRegistry(cwd, options = {}) {
 	const registry = new ToolRegistry();
 
 	registry.register('list_files', {
@@ -199,6 +200,31 @@ export function createBuiltinRegistry(cwd) {
 			const jailed = await jailedPath(cwd, path);
 			return readFile(jailed.absolute, 'utf8');
 		},
+	});
+
+	registry.register('run_command', {
+		description:
+			'Run an allowlisted verification command in the workspace. Supported commands include npm test, npm run test, node --test, and node --check <file>.',
+		parameters: {
+			type: 'object',
+			properties: {
+				command: {
+					type: 'string',
+					description: 'Allowlisted command to run.',
+				},
+				timeoutMs: {
+					type: 'number',
+					description: 'Optional command timeout in milliseconds.',
+				},
+			},
+			required: ['command'],
+			additionalProperties: false,
+		},
+		handler: async ({ command, timeoutMs }) =>
+			runVerification(cwd, command, {
+				runner: options.commandRunner || null,
+				timeoutMs,
+			}),
 	});
 
 	return registry;

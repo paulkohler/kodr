@@ -81,6 +81,30 @@ describe('verification runner', () => {
 		assert.equal(result.timedOut, true);
 	});
 
+	it('uses an injected command runner and records execution metadata', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-runner-'));
+		const result = await runVerification(cwd, 'node --test', {
+			runner: async (_cwd, parsed) => ({
+				execution: {
+					containerName: 'kodr-test',
+					environment: 'docker',
+				},
+				exitCode: 0,
+				stderr: '',
+				stdout: `ran ${parsed.bin} ${parsed.args.join(' ')}`,
+				timedOut: false,
+			}),
+			timeoutMs: 1000,
+		});
+
+		assert.equal(result.execution.environment, 'docker');
+		assert.equal(result.execution.containerName, 'kodr-test');
+		assert.match(
+			await readFile(join(cwd, '.kodr', 'last-test.md'), 'utf8'),
+			/docker/u,
+		);
+	});
+
 	it('marks node test runs with zero tests as failed', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-empty-'));
 		await writeFile(

@@ -77,7 +77,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [ ] 72 Undo/Redo Run Reverts
 - [ ] 73 Git-Aware Apply and Commit
 - [ ] 74 Optional LSP Adapter
-- [ ] 75 Docker Sandbox
+- [x] 75 Docker Sandbox
 
 ## Phase Contract
 
