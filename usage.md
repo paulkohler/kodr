@@ -158,9 +158,12 @@ tool use or final stopping decisions:
 ```
 
 Kodr reads `.kodr/hooks.json` by default. Hook commands run without a shell,
-receive JSON on stdin, and are recorded in `hooks.json`.
+receive JSON on stdin, and are recorded in `hooks.json`. They currently run on
+the host cwd, even when Docker sandboxing is enabled for install/test/tool
+commands.
 
-Example `PostToolUse` logger:
+Example `PostToolUse` logger. This observes after the tool succeeds; it cannot
+prevent the tool effect:
 
 ```json
 {
@@ -181,7 +184,8 @@ Example `PostToolUse` logger:
 }
 ```
 
-Example `Stop` hook that can force another model turn:
+Example `Stop` hook that can force another model turn before Kodr accepts the
+assistant's final response:
 
 ```json
 {
@@ -207,6 +211,9 @@ continues until the hook allows stopping or the turn budget is exhausted:
 ```json
 {"decision":"block","reason":"npm test failed"}
 ```
+
+Stop hooks fire before normal proposal writes are applied. Use them as
+model-loop guards, not as final post-apply verification.
 
 ### Control Loop Budgets
 

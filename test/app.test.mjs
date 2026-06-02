@@ -531,6 +531,87 @@ describe('run', () => {
 		}
 	});
 
+	it('runs configured hooks through the CLI and records hook artifacts', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: {
+									content: 'A compact answer.',
+									role: 'assistant',
+								},
+							},
+						],
+						id: 'chatcmpl_hooks',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-hooks-'));
+			await mkdir(join(cwd, '.kodr'), { recursive: true });
+			await writeFile(
+				join(cwd, '.kodr/hooks.json'),
+				JSON.stringify({
+					hooks: {
+						Stop: [
+							{
+								hooks: [
+									{
+										args: ['-e', 'process.stdout.write("hook ok")'],
+										command: process.execPath,
+										type: 'command',
+									},
+								],
+							},
+						],
+					},
+				}),
+				'utf8',
+			);
+
+			await main(
+				[
+					'run',
+					'-p',
+					'Summarize.',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'hook-run',
+					'--timeout-ms',
+					'1000',
+					'--hooks',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			const hookArtifact = JSON.parse(
+				await readFile(join(cwd, 'hook-run', 'hooks.json'), 'utf8'),
+			);
+			assert.equal(hookArtifact.enabled, true);
+			assert.equal(hookArtifact.configPath, '.kodr/hooks.json');
+			assert.equal(hookArtifact.records.length, 1);
+			assert.equal(hookArtifact.records[0].event, 'stop');
+			assert.equal(hookArtifact.records[0].stdout, 'hook ok');
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('prints the response text when the model returns no proposal', async () => {
 		const server = await startFakeModelServer({
 			responses: [

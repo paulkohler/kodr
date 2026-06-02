@@ -8,8 +8,8 @@ decision control.
 The immediate use cases are:
 
 - log or audit tool results after a tool succeeds
-- detect suspicious command-shaped tool use, such as `rm`
-- run final checks such as lint or `npm test`
+- report suspicious command-shaped tool use after it happened
+- run model-loop checks before the assistant is allowed to stop
 - block the model from stopping when the final check fails, feeding the reason
   back into the next model turn
 
@@ -36,7 +36,12 @@ project code, so they are opt-in and artifacted.
 
 ## Hook Events
 
-`PostToolUse` runs after native tool dispatch succeeds. It can observe:
+`PostToolUse` runs after native tool dispatch succeeds. It is an audit and
+feedback hook, not a prevention hook. Blocking from `PostToolUse` reports the
+issue back to the model after the tool has already run. Destructive command
+prevention belongs in `PreToolUse` or permission policy.
+
+It can observe:
 
 - `tool`
 - `input`
@@ -48,6 +53,13 @@ the model loop. If a Stop hook blocks, Kodr appends a user feedback message with
 the hook reason and continues the model loop until the hook allows stopping or
 the normal turn budget is exhausted.
 
+This Stop hook fires before normal JSON proposal writes are applied. It is a
+model-loop guard, not a post-apply verifier. Final lint/test checks after
+applied writes need a follow-up hook phase.
+
+Command hooks currently run on the host cwd, even when `--docker-sandbox` is
+enabled for install/test/tool commands.
+
 ## Non-Goals
 
 - No HTTP hooks.
@@ -55,6 +67,7 @@ the normal turn budget is exhausted.
 - No async/background hooks.
 - No full Claude Code hook schema compatibility.
 - No implicit execution of project hook config without `--hooks`.
+- No executor-backed hook execution yet.
 
 ## Done Criteria
 
