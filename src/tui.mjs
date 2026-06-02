@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline/promises';
+import { createAnsi } from './ansi.mjs';
 import { VERSION } from './version.mjs';
 
 export function createTuiState(options = {}) {
@@ -30,19 +31,22 @@ export async function runTui(options, io, channel) {
 	const input = io.stdin || process.stdin;
 	const output = io.stdout || process.stdout;
 	const terminal = input.isTTY === true && output.isTTY === true;
+	const view = createTuiView(io);
 	const rl = createInterface({ input, output, terminal });
 
-	output.write(`kodr ${VERSION}\n`);
+	output.write(`${view.brand(`kodr ${VERSION}`)}\n`);
 	output.write(
-		`session: ${state.sessionId || (state.continueNext ? 'latest' : 'new')}\n`,
+		view.info(
+			`session: ${state.sessionId || (state.continueNext ? 'latest' : 'new')}`,
+		),
 	);
-	output.write('Type /help for commands.\n\n');
+	output.write(`${view.infoText('Type /help for commands.')}\n\n`);
 
 	try {
 		while (true) {
 			let line;
 			try {
-				line = await rl.question('user> ');
+				line = await rl.question(view.userPrompt());
 			} catch (error) {
 				if (isReadlineClosed(error)) {
 					return { ok: true, reason: 'eof', state };
@@ -53,7 +57,7 @@ export async function runTui(options, io, channel) {
 			try {
 				result = await handleTuiLine(state, line, io, channel);
 			} catch (error) {
-				output.write(`assistant> error: ${error.message}\n`);
+				output.write(view.error(`error: ${error.message}`));
 				continue;
 			}
 			if (result.exit) {
@@ -69,7 +73,47 @@ function isReadlineClosed(error) {
 	return /readline was closed/iu.test(error.message || '');
 }
 
+export function createTuiView(io = {}) {
+	const stdout = io.stdout || {};
+	const ansi = createAnsi({
+		env: io.env || process.env,
+		isTty: stdout.isTTY === true,
+	});
+	const label = () => ansi.cyan('assistant>');
+	const line = (style, text) => `${label()} ${style(text)}\n`;
+
+	return {
+		brand: (text) => ansi.bold(text),
+		error: (text) => line(ansi.red, text),
+		errorText: (text) => ansi.red(text),
+		info: (text) => line(ansi.gray, text),
+		infoText: (text) => `${label()} ${ansi.gray(text)}`,
+		label,
+		message(level, text) {
+			if (level === 'error') {
+				return ansi.red(text);
+			}
+			if (level === 'warning' || level === 'warn') {
+				return ansi.yellow(text);
+			}
+			if (level === 'success') {
+				return ansi.green(text);
+			}
+			return ansi.gray(text);
+		},
+		success: (text) => line(ansi.green, text),
+		successHeaderText: (text) => `${label()} ${ansi.green(text)}`,
+		successText: (text) => ansi.green(text),
+		subtleText: (text) => ansi.gray(text),
+		userPrompt: () => ansi.cyan('user> '),
+		warning: (text) => line(ansi.yellow, text),
+		warningHeaderText: (text) => `${label()} ${ansi.yellow(text)}`,
+		warningText: (text) => ansi.yellow(text),
+	};
+}
+
 export async function handleTuiLine(state, line, io, channel) {
+	const view = createTuiView(io);
 	const text = line.trim();
 	if (!text) {
 		return { ok: true, type: 'empty' };
@@ -79,9 +123,9 @@ export async function handleTuiLine(state, line, io, channel) {
 		return handleSlashCommand(state, text, io, channel);
 	}
 
-	io.stdout.write('assistant> working...\n');
+	io.stdout.write(view.info('working...'));
 	if (state.pendingReview) {
-		io.stdout.write('assistant> replacing pending review with new turn\n');
+		io.stdout.write(view.warning('replacing pending review with new turn'));
 		state.pendingReview = null;
 	}
 	const options = turnOptions(state, text);
@@ -102,57 +146,60 @@ export async function handleTuiLine(state, line, io, channel) {
 			result,
 		};
 	}
-	io.stdout.write(renderTurnResult(result, { streamed: status.streamed }));
+	io.stdout.write(
+		renderTurnResult(result, { streamed: status.streamed, view }),
+	);
 	if (state.pendingReview) {
-		io.stdout.write(renderPendingReview(state.pendingReview));
+		io.stdout.write(renderPendingReview(state.pendingReview, view));
 	}
 	return { ok: result.ok, result, type: 'turn' };
 }
 
 async function handleSlashCommand(state, text, io, channel) {
+	const view = createTuiView(io);
 	const [command, ...rest] = text.split(/\s+/u);
 	const value = rest.join(' ').trim();
 
 	if (command === '/quit' || command === '/exit') {
-		io.stdout.write('assistant> bye\n');
+		io.stdout.write(view.success('bye'));
 		return { exit: true, ok: true, type: 'command' };
 	}
 
 	if (command === '/help') {
-		io.stdout.write(renderHelp());
+		io.stdout.write(renderHelp(view));
 		return { ok: true, type: 'command' };
 	}
 
 	if (command === '/status') {
-		io.stdout.write(renderStatus(state));
+		io.stdout.write(renderStatus(state, view));
 		return { ok: true, type: 'command' };
 	}
 
 	if (command === '/review') {
 		if (!state.pendingReview) {
-			io.stdout.write('assistant> no pending review\n');
+			io.stdout.write(view.warning('no pending review'));
 			return { ok: false, type: 'command' };
 		}
-		io.stdout.write(renderPendingReview(state.pendingReview));
+		io.stdout.write(renderPendingReview(state.pendingReview, view));
 		return { ok: true, review: state.pendingReview, type: 'command' };
 	}
 
 	if (command === '/reject') {
 		if (!state.pendingReview) {
-			io.stdout.write('assistant> no pending review\n');
+			io.stdout.write(view.warning('no pending review'));
 			return { ok: false, type: 'command' };
 		}
 		state.pendingReview = null;
-		io.stdout.write('assistant> review rejected\n');
+		io.stdout.write(view.warning('review rejected'));
 		return { ok: true, type: 'command' };
 	}
 
 	if (command === '/accept') {
 		if (!state.pendingReview) {
-			io.stdout.write('assistant> no pending review\n');
+			io.stdout.write(view.warning('no pending review'));
 			return { ok: false, type: 'command' };
 		}
-		io.stdout.write('assistant> applying pending review...\n');
+		io.stdout.write(view.info('applying pending review...'));
 		const options = {
 			...state.pendingReview.options,
 			dryRun: false,
@@ -163,17 +210,17 @@ async function handleSlashCommand(state, text, io, channel) {
 		state.continueNext = false;
 		state.lastRunDir = result.runDir || '';
 		state.sessionId = result.sessionId || state.sessionId;
-		io.stdout.write(renderTurnResult(result));
+		io.stdout.write(renderTurnResult(result, { view }));
 		return { ok: result.ok, result, type: 'command' };
 	}
 
 	if (command === '/test') {
 		if (!state.pendingReview) {
-			io.stdout.write('assistant> no pending review\n');
+			io.stdout.write(view.warning('no pending review'));
 			return { ok: false, type: 'command' };
 		}
 		if (!state.pendingReview.options.testCommand) {
-			io.stdout.write('assistant> no test command configured\n');
+			io.stdout.write(view.warning('no test command configured'));
 			return { ok: false, type: 'command' };
 		}
 		const testResult = await channel(
@@ -181,7 +228,9 @@ async function handleSlashCommand(state, text, io, channel) {
 			io,
 		);
 		io.stdout.write(
-			`assistant> tests=${testResult.ok ? 'passed' : 'failed'} (${testResult.command})\n`,
+			(testResult.ok ? view.success : view.error)(
+				`tests=${testResult.ok ? 'passed' : 'failed'} (${testResult.command})`,
+			),
 		);
 		return { ok: testResult.ok, testResult, type: 'command' };
 	}
@@ -191,13 +240,13 @@ async function handleSlashCommand(state, text, io, channel) {
 			{ kind: 'session-list', options: state.baseOptions },
 			io,
 		);
-		io.stdout.write(renderSessions(sessions));
+		io.stdout.write(renderSessions(sessions, view));
 		return { ok: true, sessions, type: 'command' };
 	}
 
 	if (command === '/show') {
 		if (!value) {
-			io.stdout.write('assistant> usage: /show <session-id>\n');
+			io.stdout.write(view.warning('usage: /show <session-id>'));
 			return { ok: false, type: 'command' };
 		}
 		const conversation = await channel(
@@ -208,18 +257,18 @@ async function handleSlashCommand(state, text, io, channel) {
 			},
 			io,
 		);
-		io.stdout.write(renderConversation(conversation));
+		io.stdout.write(renderConversation(conversation, view));
 		return { conversation, ok: true, type: 'command' };
 	}
 
 	if (command === '/use') {
 		if (!value) {
-			io.stdout.write('assistant> usage: /use <session-id>\n');
+			io.stdout.write(view.warning('usage: /use <session-id>'));
 			return { ok: false, type: 'command' };
 		}
 		state.sessionId = value;
 		state.continueNext = false;
-		io.stdout.write(`assistant> session=${state.sessionId}\n`);
+		io.stdout.write(view.info(`session=${state.sessionId}`));
 		return { ok: true, type: 'command' };
 	}
 
@@ -227,43 +276,43 @@ async function handleSlashCommand(state, text, io, channel) {
 		state.sessionId = '';
 		state.lastRunDir = '';
 		state.continueNext = false;
-		io.stdout.write('assistant> session=new\n');
+		io.stdout.write(view.info('session=new'));
 		return { ok: true, type: 'command' };
 	}
 
 	if (command === '/apply') {
 		const next = parseToggle(value);
 		if (next === null) {
-			io.stdout.write('assistant> usage: /apply on|off\n');
+			io.stdout.write(view.warning('usage: /apply on|off'));
 			return { ok: false, type: 'command' };
 		}
 		state.apply = next;
-		io.stdout.write(`assistant> apply=${state.apply ? 'on' : 'off'}\n`);
+		io.stdout.write(view.info(`apply=${state.apply ? 'on' : 'off'}`));
 		return { ok: true, type: 'command' };
 	}
 
 	if (command === '/tools') {
 		const next = parseToggle(value);
 		if (next === null) {
-			io.stdout.write('assistant> usage: /tools on|off\n');
+			io.stdout.write(view.warning('usage: /tools on|off'));
 			return { ok: false, type: 'command' };
 		}
 		state.tools = next;
-		io.stdout.write(`assistant> tools=${state.tools ? 'on' : 'off'}\n`);
+		io.stdout.write(view.info(`tools=${state.tools ? 'on' : 'off'}`));
 		return { ok: true, type: 'command' };
 	}
 
 	if (command === '/model') {
 		if (!value) {
-			io.stdout.write('assistant> usage: /model <id>\n');
+			io.stdout.write(view.warning('usage: /model <id>'));
 			return { ok: false, type: 'command' };
 		}
 		state.model = value;
-		io.stdout.write(`assistant> model=${state.model}\n`);
+		io.stdout.write(view.info(`model=${state.model}`));
 		return { ok: true, type: 'command' };
 	}
 
-	io.stdout.write(`assistant> unknown command: ${command}\n`);
+	io.stdout.write(view.error(`unknown command: ${command}`));
 	return { ok: false, type: 'command' };
 }
 
@@ -289,26 +338,29 @@ function turnOptions(state, prompt) {
 }
 
 function startTurnStatus(io, state, options) {
+	const view = createTuiView(io);
 	const startedAt = Date.now();
 	state._activeStreamed = false;
 	state._activeStdout = io.stdout;
 	io.stdout.write(
-		[
-			`assistant> request model=${options.model}`,
-			`provider=${state.provider}`,
-			`session=${options.sessionId || (options.continueSession ? 'latest' : 'new')}`,
-			`apply=${options.yes ? 'on' : 'dry-run'}`,
-			`tools=${options.tools ? 'on' : 'off'}`,
-			`timeoutMs=${options.timeoutMs}`,
-			`budgets=maxTurns:${options.maxTurns} maxRetries:${options.maxRetries} maxTokens:${options.maxTokens || '-'} maxCostUsd:${options.maxCostUsd || '-'}`,
-		].join(' ') + '\n',
+		view.infoText(
+			[
+				`request model=${options.model}`,
+				`provider=${state.provider}`,
+				`session=${options.sessionId || (options.continueSession ? 'latest' : 'new')}`,
+				`apply=${options.yes ? 'on' : 'dry-run'}`,
+				`tools=${options.tools ? 'on' : 'off'}`,
+				`timeoutMs=${options.timeoutMs}`,
+				`budgets=maxTurns:${options.maxTurns} maxRetries:${options.maxRetries} maxTokens:${options.maxTokens || '-'} maxCostUsd:${options.maxCostUsd || '-'}`,
+			].join(' '),
+		) + '\n',
 	);
 	if (options.stream) {
-		io.stdout.write('assistant> stream:\n');
+		io.stdout.write(view.info('stream:'));
 	}
 	const interval = setInterval(() => {
 		const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
-		io.stdout.write(`assistant> elapsed=${elapsedSeconds}s\n`);
+		io.stdout.write(view.info(`elapsed=${elapsedSeconds}s`));
 	}, options.tuiStatusIntervalMs || 5000);
 	interval.unref?.();
 	return {
@@ -325,9 +377,9 @@ function startTurnStatus(io, state, options) {
 	};
 }
 
-function renderHelp() {
+function renderHelp(view = createTuiView()) {
 	return [
-		'assistant> commands:',
+		view.infoText('commands:'),
 		'  /help',
 		'  /status',
 		'  /review',
@@ -346,9 +398,11 @@ function renderHelp() {
 	].join('\n');
 }
 
-function renderStatus(state) {
+function renderStatus(state, view = createTuiView()) {
 	return [
-		`assistant> session=${state.sessionId || (state.continueNext ? 'latest' : 'new')}`,
+		view.infoText(
+			`session=${state.sessionId || (state.continueNext ? 'latest' : 'new')}`,
+		),
 		`model=${state.model}`,
 		`provider=${state.provider}`,
 		`apply=${state.apply ? 'on' : 'dry-run'}`,
@@ -361,11 +415,14 @@ function renderStatus(state) {
 }
 
 function renderTurnResult(result, options = {}) {
-	const lines = ['assistant>'];
+	const view = options.view || createTuiView();
+	const lines = [view.label()];
 
 	const messages = result.proposal?.messages || [];
 	for (const message of messages) {
-		lines.push(`  [${message.level}] ${message.content}`);
+		lines.push(
+			`  ${view.message(message.level, `[${message.level}] ${message.content}`)}`,
+		);
 	}
 
 	if ((!result.proposal || result.proposalError) && !options.streamed) {
@@ -378,11 +435,17 @@ function renderTurnResult(result, options = {}) {
 	if (result.writeResult) {
 		const writes = result.writeResult.writes || [];
 		const mode = result.applied ? 'applied' : 'dry-run';
-		lines.push(`  writes=${writes.length} mode=${mode}`);
+		const line = `writes=${writes.length} mode=${mode}`;
+		lines.push(
+			`  ${result.applied ? view.successText(line) : view.warningText(line)}`,
+		);
 	}
 
 	if (result.testResult) {
-		lines.push(`  tests=${result.testResult.ok ? 'passed' : 'failed'}`);
+		const line = `tests=${result.testResult.ok ? 'passed' : 'failed'}`;
+		lines.push(
+			`  ${result.testResult.ok ? view.successText(line) : view.errorText(line)}`,
+		);
 	}
 
 	lines.push(`  session=${result.sessionId || '-'}`);
@@ -399,11 +462,11 @@ function isPendingReview(result) {
 	return writes.length > 0;
 }
 
-function renderPendingReview(review) {
+function renderPendingReview(review, view = createTuiView()) {
 	const result = review.result;
 	const writes = result.writeResult?.writes || [];
 	const lines = [
-		'assistant> pending review:',
+		view.warningHeaderText('pending review:'),
 		`  run=${result.runDir || '-'}`,
 		`  session=${result.sessionId || '-'}`,
 		`  writes=${writes.length}`,
@@ -413,18 +476,20 @@ function renderPendingReview(review) {
 	}
 	const messages = result.proposal?.messages || [];
 	for (const message of messages) {
-		lines.push(`  [${message.level}] ${message.content}`);
+		lines.push(
+			`  ${view.message(message.level, `[${message.level}] ${message.content}`)}`,
+		);
 	}
-	lines.push('  commands: /review /accept /reject /test');
+	lines.push(`  ${view.subtleText('commands: /review /accept /reject /test')}`);
 	lines.push('');
 	return lines.join('\n');
 }
 
-function renderSessions(sessions) {
+function renderSessions(sessions, view = createTuiView()) {
 	if (sessions.length === 0) {
-		return 'assistant> no sessions found\n';
+		return view.warning('no sessions found');
 	}
-	const lines = ['assistant> sessions:'];
+	const lines = [view.infoText('sessions:')];
 	for (const session of sessions) {
 		const status =
 			session.ok === null || session.ok === undefined
@@ -440,8 +505,8 @@ function renderSessions(sessions) {
 	return lines.join('\n');
 }
 
-function renderConversation(conversation) {
-	const lines = [`assistant> session: ${conversation.sessionId}`];
+function renderConversation(conversation, view = createTuiView()) {
+	const lines = [view.infoText(`session: ${conversation.sessionId}`)];
 	for (const [index, turn] of conversation.turns.entries()) {
 		lines.push(`  turn ${index + 1}`);
 		lines.push(`    user: ${truncate(turn.user)}`);

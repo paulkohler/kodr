@@ -95,13 +95,13 @@ Cover:
 
 ## Done Criteria
 
-- [ ] Add zero-dependency ANSI helper.
-- [ ] Add color policy for TTY, `NO_COLOR`, and `FORCE_COLOR`.
-- [ ] Apply colors to TUI status, success, warning, error, and prompt roles.
-- [ ] Keep shared channel responses and JSON output color-free.
-- [ ] Add native tests for helper and TUI output policy.
-- [ ] Run `npm run format`.
-- [ ] Run tests.
-- [ ] Run `npm run check`.
-- [ ] Update process logs if implementation choices or failures are notable.
-- [ ] Add or update the matching blog post.
+- [x] Add zero-dependency ANSI helper.
+- [x] Add color policy for TTY, `NO_COLOR`, and `FORCE_COLOR`.
+- [x] Apply colors to TUI status, success, warning, error, and prompt roles.
+- [x] Keep shared channel responses and JSON output color-free.
+- [x] Add native tests for helper and TUI output policy.
+- [x] Run `npm run format`.
+- [x] Run tests.
+- [x] Run `npm run check`.
+- [x] Update process logs if implementation choices or failures are notable.
+- [x] Add or update the matching blog post.

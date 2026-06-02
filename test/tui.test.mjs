@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { describe, it } from 'node:test';
 import { main } from '../src/app.mjs';
+import { stripAnsi } from '../src/ansi.mjs';
 import { createTuiState, handleTuiLine, runTui } from '../src/tui.mjs';
 
 describe('terminal turn ui', () => {
@@ -304,6 +305,50 @@ describe('terminal turn ui', () => {
 		assert.equal(stdout.text.match(/chunk-a chunk-b/gu).length, 1);
 		assert.match(stdout.text, /chunk-a chunk-b\nassistant>/u);
 	});
+
+	it('colors TUI status output when FORCE_COLOR is set', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+
+		await handleTuiLine(
+			state,
+			'/status',
+			{ env: { FORCE_COLOR: '1' }, stdout },
+			async () => {},
+		);
+
+		assert.match(stdout.text, /\u001B\[/u);
+		assert.match(stripAnsi(stdout.text), /assistant> session=new/u);
+	});
+
+	it('does not color TUI output when NO_COLOR is set', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream({ isTTY: true });
+
+		await handleTuiLine(
+			state,
+			'/status',
+			{ env: { NO_COLOR: '1' }, stdout },
+			async () => {},
+		);
+
+		assert.doesNotMatch(stdout.text, /\u001B\[/u);
+		assert.match(stdout.text, /assistant> session=new/u);
+	});
+
+	it('keeps non-TUI CLI output plain when color is forced', async () => {
+		const stdout = captureStream({ isTTY: true });
+
+		await main(['--version'], {
+			cwd: process.cwd(),
+			env: { FORCE_COLOR: '1' },
+			stderr: captureStream(),
+			stdin: Readable.from([]),
+			stdout,
+		});
+
+		assert.doesNotMatch(stdout.text, /\u001B\[/u);
+	});
 });
 
 function proposalResult(options = {}) {
@@ -325,8 +370,9 @@ function captureIo() {
 	return { stdout: captureStream() };
 }
 
-function captureStream() {
+function captureStream(options = {}) {
 	return {
+		isTTY: options.isTTY === true,
 		text: '',
 		write(chunk) {
 			this.text += chunk;
