@@ -62,6 +62,13 @@ describe('extractJson', () => {
 		});
 	});
 
+	it('rejects duplicate top-level keys instead of keeping the last value', () => {
+		assert.throws(
+			() => extractJson('{"files":[{"path":"a","content":"x"}],"files":[]}'),
+			/Duplicate JSON key: files/u,
+		);
+	});
+
 	it('parses fixture-like text captured from response.md artifacts', () => {
 		const responseMarkdown = `I will update one file.
 

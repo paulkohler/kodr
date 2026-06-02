@@ -37,3 +37,27 @@ The useful failure mode here is local inspection. With `--docker-keep`, Kodr
 does not remove containers, so a developer can inspect the exact command
 environment after a failed run. That makes slow local-model examples easier to
 debug without loosening the default lifecycle for normal runs.
+
+## Example Run
+
+After the phase landed, Kodr was pointed at a copied todo CLI example under
+`examples/phase-75/todo-cli-docker-kodr`. The task was to add a `clear` command
+and verify it with `npm test` inside Docker.
+
+The first useful failure was not Docker-related. Nemotron emitted duplicate
+top-level `files` keys: one contained generated files and a later one was empty.
+Plain `JSON.parse` kept the last key, so Kodr saw a zero-write proposal, ran the
+old tests in Docker, and marked the run OK. That is a false positive, so the
+harness now rejects duplicate top-level JSON keys during extraction.
+
+The no-tools retry produced a real three-file change. Docker ran `npm test` in
+`node:24-bookworm-slim` with `--network none` and caught a syntax error in the
+generated `src/store.mjs`. A follow-up Kodr repair run fixed `src/store.mjs`,
+and Docker verification passed with three tests, including `clear empties list`.
+
+The containers were kept for inspection:
+
+```text
+kodr-.kodr-docker-example-run-nemotron-no-tools-1-45cfe1
+kodr-.kodr-docker-example-run-nemotron-repair-1-eb95f0
+```

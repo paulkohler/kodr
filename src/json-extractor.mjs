@@ -16,6 +16,7 @@ export function extractJson(text) {
 	for (const candidate of candidates) {
 		const repaired = repairJsonText(candidate);
 		try {
+			assertNoDuplicateTopLevelKeys(repaired);
 			return JSON.parse(repaired);
 		} catch (error) {
 			errors.push(error.message);
@@ -199,4 +200,77 @@ function isValidJsonEscape(char) {
 		char === 't' ||
 		char === 'u'
 	);
+}
+
+function assertNoDuplicateTopLevelKeys(text) {
+	const start = firstNonWhitespace(text, 0);
+	if (text[start] !== '{') {
+		return;
+	}
+
+	const keys = new Set();
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+
+	for (let index = start; index < text.length; index += 1) {
+		const char = text[index];
+
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+			} else if (char === '\\') {
+				escaped = true;
+			} else if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (char === '"') {
+			const end = stringEnd(text, index);
+			if (depth === 1) {
+				const next = firstNonWhitespace(text, end + 1);
+				if (text[next] === ':') {
+					const key = text.slice(index + 1, end);
+					if (keys.has(key)) {
+						throw new JsonExtractionError(`Duplicate JSON key: ${key}`);
+					}
+					keys.add(key);
+				}
+			}
+			index = end;
+			continue;
+		}
+
+		if (char === '{' || char === '[') {
+			depth += 1;
+		} else if (char === '}' || char === ']') {
+			depth -= 1;
+		}
+	}
+}
+
+function firstNonWhitespace(text, start) {
+	for (let index = start; index < text.length; index += 1) {
+		if (!/\s/u.test(text[index])) {
+			return index;
+		}
+	}
+	return -1;
+}
+
+function stringEnd(text, start) {
+	let escaped = false;
+	for (let index = start + 1; index < text.length; index += 1) {
+		const char = text[index];
+		if (escaped) {
+			escaped = false;
+		} else if (char === '\\') {
+			escaped = true;
+		} else if (char === '"') {
+			return index;
+		}
+	}
+	throw new JsonExtractionError('Unclosed JSON string');
 }
