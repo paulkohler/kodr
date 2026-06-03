@@ -617,6 +617,87 @@ describe('run', () => {
 		}
 	});
 
+	it('runs AgentStart hooks before a standard model call', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: {
+									content: 'Plain answer.',
+									role: 'assistant',
+								},
+							},
+						],
+						id: 'chatcmpl_agent_start_hook',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-agent-start-hook-'));
+			await mkdir(join(cwd, '.kodr'), { recursive: true });
+			await writeFile(
+				join(cwd, '.kodr/hooks.json'),
+				JSON.stringify({
+					hooks: {
+						AgentStart: [
+							{
+								hooks: [
+									{
+										args: [
+											'-e',
+											"let s=''; process.stdin.on('data', c => s += c); process.stdin.on('end', () => { const input = JSON.parse(s); process.stdout.write(JSON.stringify({message: input.agent + ':' + input.model})); });",
+										],
+										command: process.execPath,
+										type: 'command',
+									},
+								],
+								matcher: 'standard',
+							},
+						],
+					},
+				}),
+				'utf8',
+			);
+
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Answer plainly',
+					'--hooks',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+			const hooks = JSON.parse(
+				await readFile(join(result.result.runDir, 'hooks.json'), 'utf8'),
+			);
+
+			assert.equal(hooks.records.length, 1);
+			assert.equal(hooks.records[0].event, 'agent_start');
+			assert.match(hooks.records[0].stdout, /standard:/u);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('prints the response text when the model returns no proposal', async () => {
 		const server = await startFakeModelServer({
 			responses: [

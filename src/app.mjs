@@ -32,6 +32,7 @@ import { replayRun } from './replay.mjs';
 import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
 import { runComparison } from './compare.mjs';
 import { runSubagentStages } from './orchestration.mjs';
+import { emitProgress, runStartHook } from './progress.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './code-inspector.mjs';
@@ -1408,6 +1409,18 @@ async function runPrompt(options, io) {
 		}
 
 		const contOpts = parent ? { initialMessages } : {};
+		const agentStartedAt = performance.now();
+		const progressBase = {
+			agent: 'standard',
+			model,
+			runDir,
+		};
+		emitProgress(runOptions, {
+			...progressBase,
+			event: 'agent_start',
+			message: 'standard agent started',
+		});
+		await runStartHook(runOptions, 'agent_start', progressBase);
 		completion = options.tools
 			? await completeWithToolCalls(
 					runOptions,
@@ -1424,6 +1437,13 @@ async function runPrompt(options, io) {
 					context.systemPrompt,
 					contOpts,
 				);
+		emitProgress(runOptions, {
+			...progressBase,
+			durationMs: Math.round(performance.now() - agentStartedAt),
+			event: 'agent_finish',
+			message: 'standard agent finished',
+			responseChars: completion.text.length,
+		});
 
 		await writeJson(join(runDir, 'raw-request.json'), {
 			...rawRequest,

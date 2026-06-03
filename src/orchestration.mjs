@@ -6,6 +6,7 @@ import {
 	renderContextMarkdown,
 } from './context-packer.mjs';
 import { extractJson, extractProposal } from './json-extractor.mjs';
+import { emitProgress, runStartHook } from './progress.mjs';
 import { prepareChanges } from './safe-writes.mjs';
 import {
 	completeWithToolCalls,
@@ -296,6 +297,18 @@ async function runAgentCompletion({
 	userPrompt,
 }) {
 	await mkdir(subDir, { recursive: true });
+	const startedAt = performance.now();
+	const progressBase = {
+		agent: agentName,
+		model: agentOptions.model,
+		runDir: subDir,
+	};
+	emitProgress(agentOptions, {
+		...progressBase,
+		event: 'subagent_start',
+		message: `${agentName} started`,
+	});
+	await runStartHook(agentOptions, 'subagent_start', progressBase);
 	await writeJson(join(subDir, 'request.json'), {
 		agent: agentName,
 		messages: [
@@ -317,6 +330,13 @@ async function runAgentCompletion({
 	await writeJson(join(subDir, 'raw-response.json'), {
 		loopBudget: completion.loopBudget,
 		responses: completion.responses,
+	});
+	emitProgress(agentOptions, {
+		...progressBase,
+		durationMs: Math.round(performance.now() - startedAt),
+		event: 'subagent_finish',
+		message: `${agentName} finished`,
+		responseChars: completion.text.length,
 	});
 	return completion;
 }

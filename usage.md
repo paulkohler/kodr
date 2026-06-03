@@ -166,10 +166,14 @@ the install/test/tool environment, and `hooks.json` reports `environment:
 
 Hooks fire at these points in the model loop:
 
-1. `PreToolUse` — before a native tool effect runs. A block prevents the effect.
-2. `PostToolUse` — after a tool effect succeeds. Audit/feedback only; it cannot
+1. `AgentStart` — before a standard model call starts. A block prevents token
+   generation.
+2. `SubagentStart` — before a planner, implementer, or reviewer subagent starts.
+   A block prevents that subagent model call.
+3. `PreToolUse` — before a native tool effect runs. A block prevents the effect.
+4. `PostToolUse` — after a tool effect succeeds. Audit/feedback only; it cannot
    prevent the effect that already ran.
-3. `Stop` — after the assistant's final response and before Kodr ends the model
+5. `Stop` — after the assistant's final response and before Kodr ends the model
    loop. A block forces another model turn.
 
 Post-apply/post-run final checks (lint or tests against the applied workspace)
@@ -202,6 +206,28 @@ command matches:
 
 A `PreToolUse` hook that prints `{"decision":"block","reason":"..."}` (or exits
 non-zero) stops the tool from running and reports the reason back to the model.
+
+Example `SubagentStart` logger. Matchers use the agent name (`planner`,
+`implementer`, `reviewer`, or `standard` for `AgentStart`):
+
+```json
+{
+  "hooks": {
+    "SubagentStart": [
+      {
+        "matcher": "planner",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node",
+            "args": ["scripts/log-subagent-start.mjs"]
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 Example `PostToolUse` logger. This observes after the tool succeeds; it cannot
 prevent the tool effect:
@@ -466,6 +492,10 @@ a model turn. Slash commands control the session.
 
 TUI color is automatic for interactive terminals. Use `NO_COLOR=1` to disable
 ANSI color or `FORCE_COLOR=1` to force it.
+
+Long-running agent and subagent stages emit grey progress lines, such as
+`planner started`, `implementer finished`, and reviewer pass/fail summaries.
+These are shared channel progress events, so future UIs can reuse the same feed.
 
 ### Basic Turn Flow
 

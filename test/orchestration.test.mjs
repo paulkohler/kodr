@@ -187,6 +187,56 @@ describe('subagent stage orchestration', () => {
 		}
 	});
 
+	it('emits subagent progress callbacks', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-progress-'));
+		const events = [];
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/greet.mjs'),
+				chatText(
+					JSON.stringify({
+						files: [
+							{
+								content: 'export const greet = () => "hi";\n',
+								path: 'src/greet.mjs',
+							},
+						],
+						status: 'OK',
+					}),
+				),
+				chatText(
+					JSON.stringify({
+						pass: true,
+						issues: [],
+						summary: 'Complete.',
+					}),
+				),
+			],
+		});
+
+		try {
+			await runSubagentStages(cwd, runDir, 'Add greet.', {
+				...options(server),
+				onProgress: (event) => events.push(event),
+				yes: false,
+			});
+			assert.deepEqual(
+				events.map((event) => `${event.agent}:${event.event}`),
+				[
+					'planner:subagent_start',
+					'planner:subagent_finish',
+					'implementer:subagent_start',
+					'implementer:subagent_finish',
+					'reviewer:subagent_start',
+					'reviewer:subagent_finish',
+				],
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('surfaces reviewer failure without throwing', async () => {
 		const cwd = await makeWorkspace();
 		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-review-fail-'));

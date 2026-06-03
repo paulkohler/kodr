@@ -43,6 +43,69 @@ describe('terminal turn ui', () => {
 		assert.match(stdout.text, /request model=test-model/u);
 	});
 
+	it('prints progress events from the run channel', async () => {
+		const state = createTuiState({
+			model: 'test-model',
+			provider: 'local',
+			timeoutMs: 1000,
+		});
+		const stdout = captureStream();
+
+		await handleTuiLine(
+			state,
+			'write a parser',
+			{ stdout },
+			async (request) => {
+				request.options.onProgress({
+					agent: 'planner',
+					event: 'subagent_start',
+					model: 'test-model',
+				});
+				request.options.onProgress({
+					agent: 'planner',
+					durationMs: 25,
+					event: 'subagent_finish',
+					model: 'test-model',
+					responseChars: 123,
+				});
+				return {
+					applied: false,
+					ok: true,
+					response: 'done',
+					runDir: '/tmp/run-progress',
+					sessionId: 'run-progress',
+					writeResult: { writes: [] },
+				};
+			},
+		);
+
+		assert.match(stdout.text, /planner started model=test-model/u);
+		assert.match(stdout.text, /planner finished response=123 chars/u);
+	});
+
+	it('prints subagent planner and reviewer summaries', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+
+		await handleTuiLine(state, 'build it', { stdout }, async () => {
+			return {
+				applied: true,
+				ok: true,
+				orchestration: {
+					agents: { planner: { planChars: 321 } },
+					review: { pass: true, summary: 'Complete.' },
+				},
+				proposal: { messages: [] },
+				runDir: '/tmp/run-subagents',
+				sessionId: 'run-subagents',
+				writeResult: { writes: [{ path: 'src/a.mjs', status: 'create' }] },
+			};
+		});
+
+		assert.match(stdout.text, /planner=321 chars/u);
+		assert.match(stdout.text, /review=passed Complete/u);
+	});
+
 	it('keeps slash commands out of the model channel', async () => {
 		const state = createTuiState({ model: 'test-model' });
 		let calls = 0;

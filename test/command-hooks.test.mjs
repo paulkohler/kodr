@@ -115,6 +115,82 @@ describe('configured command hooks', () => {
 		);
 	});
 
+	it('runs AgentStart hooks matched by agent name', async () => {
+		const cwd = await fixtureDir();
+		await writeFixture(
+			cwd,
+			'.kodr/hooks.json',
+			JSON.stringify({
+				hooks: {
+					AgentStart: [
+						{
+							hooks: [
+								{
+									args: [
+										'-e',
+										"let s=''; process.stdin.on('data', c => s += c); process.stdin.on('end', () => require('fs').writeFileSync('agent-start.json', s));",
+									],
+									command: process.execPath,
+									type: 'command',
+								},
+							],
+							matcher: 'standard',
+						},
+					],
+				},
+			}),
+		);
+
+		const configured = await loadConfiguredHooks(cwd, { enableHooks: true });
+		await configured.hooks.run('agent_start', {
+			agent: 'standard',
+			cwd,
+			model: 'test-model',
+		});
+
+		const logged = JSON.parse(
+			await readFile(join(cwd, 'agent-start.json'), 'utf8'),
+		);
+		assert.equal(logged.agent, 'standard');
+		assert.equal(logged.hookEventName, 'agent_start');
+		assert.equal(configured.records[0].event, 'agent_start');
+	});
+
+	it('runs SubagentStart hooks matched by subagent name', async () => {
+		const cwd = await fixtureDir();
+		await writeFixture(
+			cwd,
+			'.kodr/hooks.json',
+			JSON.stringify({
+				hooks: {
+					SubagentStart: [
+						{
+							hooks: [
+								{
+									args: ['-e', 'process.stdout.write("planner seen")'],
+									command: process.execPath,
+									type: 'command',
+								},
+							],
+							matcher: 'planner',
+						},
+					],
+				},
+			}),
+		);
+
+		const configured = await loadConfiguredHooks(cwd, { enableHooks: true });
+		await configured.hooks.run('subagent_start', {
+			agent: 'planner',
+			cwd,
+			model: 'test-model',
+		});
+
+		assert.equal(configured.records.length, 1);
+		assert.equal(configured.records[0].event, 'subagent_start');
+		assert.equal(configured.records[0].stdout, 'planner seen');
+	});
+
 	it('records the host execution environment by default', async () => {
 		const cwd = await fixtureDir();
 		await writeFixture(

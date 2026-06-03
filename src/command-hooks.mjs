@@ -7,12 +7,16 @@ import { jailedPath } from './safe-writes.mjs';
 const DEFAULT_HOOK_CONFIG = '.kodr/hooks.json';
 const DEFAULT_HOOK_TIMEOUT_MS = 60000;
 const EVENT_NAMES = {
+	AgentStart: 'agent_start',
 	PostToolUse: 'post_tool_use',
 	PreToolUse: 'pre_tool_use',
 	Stop: 'stop',
+	SubagentStart: 'subagent_start',
+	agent_start: 'agent_start',
 	post_tool_use: 'post_tool_use',
 	pre_tool_use: 'pre_tool_use',
 	stop: 'stop',
+	subagent_start: 'subagent_start',
 };
 
 export class HookConfigError extends Error {
@@ -135,7 +139,7 @@ function matchesEvent(event, matcher, payload) {
 	if (!matcher || matcher === '*') {
 		return true;
 	}
-	const value = payload.tool || '';
+	const value = payload.tool || payload.agent || payload.kind || '';
 	if (/^[A-Za-z0-9_|]+$/u.test(matcher)) {
 		return matcher.split('|').includes(value);
 	}

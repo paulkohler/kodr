@@ -128,7 +128,7 @@ export async function handleTuiLine(state, line, io, channel) {
 		io.stdout.write(view.warning('replacing pending review with new turn'));
 		state.pendingReview = null;
 	}
-	const options = turnOptions(state, text);
+	const options = turnOptions(state, text, io);
 	const status = startTurnStatus(io, state, options);
 	let result;
 	try {
@@ -316,7 +316,8 @@ async function handleSlashCommand(state, text, io, channel) {
 	return { ok: false, type: 'command' };
 }
 
-function turnOptions(state, prompt) {
+function turnOptions(state, prompt, io = {}) {
+	const view = createTuiView(io);
 	const options = {
 		...state.baseOptions,
 		command: 'run',
@@ -327,6 +328,9 @@ function turnOptions(state, prompt) {
 		sessionId: state.continueNext ? '' : state.sessionId,
 		tools: state.tools,
 		yes: state.apply,
+	};
+	options.onProgress = (event) => {
+		state._activeStdout?.write(renderProgressEvent(event, view));
 	};
 	if (options.stream) {
 		options.onStreamContent = (chunk) => {
@@ -448,6 +452,19 @@ function renderTurnResult(result, options = {}) {
 		);
 	}
 
+	if (result.orchestration) {
+		const review = result.orchestration.review || result.review || {};
+		const planner = result.orchestration.agents?.planner || {};
+		lines.push(
+			`  ${view.subtleText(`planner=${planner.planChars || 0} chars`)}`,
+		);
+		lines.push(
+			`  ${(review.pass ? view.successText : view.errorText)(
+				`review=${review.pass ? 'passed' : 'failed'} ${review.summary || ''}`.trim(),
+			)}`,
+		);
+	}
+
 	lines.push(`  session=${result.sessionId || '-'}`);
 	lines.push(`  run=${result.runDir || '-'}`);
 	lines.push('');
@@ -531,6 +548,29 @@ function indent(text) {
 		.split('\n')
 		.map((line) => `  ${line}`)
 		.join('\n');
+}
+
+function renderProgressEvent(event, view = createTuiView()) {
+	const name = event.event || 'progress';
+	if (name === 'agent_start' || name === 'subagent_start') {
+		return view.info(
+			`${event.agent || 'agent'} started model=${event.model || '-'}`,
+		);
+	}
+	if (name === 'agent_finish' || name === 'subagent_finish') {
+		const response =
+			typeof event.responseChars === 'number'
+				? ` response=${event.responseChars} chars`
+				: '';
+		const duration =
+			typeof event.durationMs === 'number'
+				? ` duration=${event.durationMs}ms`
+				: '';
+		return view.info(
+			`${event.agent || 'agent'} finished${response}${duration}`,
+		);
+	}
+	return view.info(event.message || name);
 }
 
 function truncate(text) {
