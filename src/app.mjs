@@ -372,7 +372,8 @@ export function parseArgs(argv, env = {}) {
 		Object.assign(
 			options,
 			resolveModelOptions(options, env, options.model, {
-				allowBaseUrlOverride: true,
+				allowBaseUrlOverride:
+					options._baseUrlSet || options.provider === 'openrouter',
 			}),
 		);
 		options.agentModels = resolveAgentModels(options, env);

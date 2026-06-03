@@ -102,6 +102,19 @@ describe('parseArgs', () => {
 		);
 	});
 
+	it('routes primary openrouter slash specs to the OpenRouter endpoint', () => {
+		const options = parseArgs(
+			['run', '--model', 'openrouter/openai/gpt-4o-mini', '-p', 'task'],
+			{
+				OPENROUTER_API_KEY: 'or-test-key',
+			},
+		);
+
+		assert.equal(options.provider, 'openrouter');
+		assert.equal(options.model, 'openai/gpt-4o-mini');
+		assert.equal(options.baseUrl, 'https://openrouter.ai/api/v1');
+	});
+
 	it('parses dependency install flag', () => {
 		assert.equal(
 			parseArgs(['run', '--install', '-p', 'task'], {}).installDependencies,
