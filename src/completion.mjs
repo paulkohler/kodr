@@ -4,6 +4,7 @@ import {
 	firstAssistantMessage,
 	firstFinishReason,
 } from './model-client.mjs';
+import { applyResponseFormat } from './structured-output.mjs';
 import { renderHookStopFeedback } from './command-hooks.mjs';
 import { HookBlockedError } from './hooks.mjs';
 import { normalizeModelUsage } from './usage-normalizer.mjs';
@@ -43,11 +44,17 @@ export async function completeWithContinuations(
 
 	while (true) {
 		budget.beforeTurn();
-		const chatResponse = await createChatCompletion(options, {
-			messages,
-			model,
-			temperature: 0,
-		});
+		const chatResponse = await createChatCompletion(
+			options,
+			applyResponseFormat(
+				{
+					messages,
+					model,
+					temperature: 0,
+				},
+				options,
+			),
+		);
 		budget.recordUsage(
 			normalizeModelUsage(options.provider, chatResponse.body?.usage, {
 				maxCostUsd: options.maxCostUsd,

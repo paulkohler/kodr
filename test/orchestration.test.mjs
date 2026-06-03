@@ -283,6 +283,14 @@ describe('subagent stage orchestration', () => {
 				server.recordings.map((recording) => recording.requestBody.model),
 				['planner-model', 'implementer-model', 'reviewer-model'],
 			);
+			assert.equal(
+				server.recordings[1].requestBody.response_format.json_schema.name,
+				'kodr_proposal',
+			);
+			assert.equal(
+				server.recordings[2].requestBody.response_format.json_schema.name,
+				'kodr_review',
+			);
 			assert.equal(result.orchestration.agents.planner.model, 'planner-model');
 			assert.equal(result.orchestration.agents.planner.provider, 'openrouter');
 			assert.equal(

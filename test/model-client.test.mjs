@@ -33,6 +33,47 @@ const streamOptions = (baseUrl) => ({
 });
 
 describe('createChatCompletion streaming', () => {
+	it('passes opt-in thinking-token caps through request bodies', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								message: { content: 'ok', role: 'assistant' },
+								finish_reason: 'stop',
+							},
+						],
+						id: 'chatcmpl_thinking',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			await createChatCompletion(
+				{
+					baseUrl: server.baseUrl,
+					extraHeaders: {},
+					maxThinkingTokens: 512,
+					timeoutMs: 5000,
+				},
+				{
+					messages: [{ role: 'user', content: 'hi' }],
+					model: 'test-model',
+				},
+			);
+
+			assert.equal(server.recordings[0].requestBody.max_thinking_tokens, 512);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('stitches streamed content and captures usage', async () => {
 		const server = await startFakeModelServer({
 			responses: [

@@ -313,6 +313,7 @@ Kodr has explicit budgets for long local completions and continuation retries:
 ./kodr run -p "Large task" --max-turns 4 --max-retries 2
 ./kodr run -p "Large task" --max-tokens 20000
 ./kodr run -p "Large task" --max-cost-usd 0.25
+./kodr run -p "Large task" --max-thinking-tokens 4096
 ```
 
 Use these when comparing models or running tasks that might drift. Local
@@ -320,6 +321,10 @@ providers such as LM Studio and Ollama are treated as `cost: 0`. OpenRouter maps
 provider-reported `usage.cost` into Kodr's internal `cost` / `costUsd` fields.
 If a future provider does not have a cost mapping, `--max-cost-usd` should fail
 instead of silently enforcing the wrong budget.
+
+`--max-thinking-tokens` is an opt-in request parameter for reasoning models and
+servers that accept `max_thinking_tokens`. Kodr leaves it unset by default so
+strict OpenAI-compatible local servers are not sent unknown fields.
 
 ### Inspect Workspace Context
 

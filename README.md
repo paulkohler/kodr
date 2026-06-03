@@ -114,7 +114,7 @@ Each `kodr run` writes inspectable artifacts under `.kodr/runs/...`, including p
 
 ## Loop Budgets
 
-`kodr run` uses explicit loop budgets for long local completions. `--max-turns` limits model calls, `--max-retries` limits continuation retries after `finish_reason: "length"`, and optional `--max-tokens` / `--max-cost-usd` stop runs when model usage reports exceed those caps. Local providers report `cost: 0`; OpenRouter maps provider-reported `usage.cost` into Kodr's internal cost field. Stop reasons are written into run summaries and raw-response artifacts.
+`kodr run` uses explicit loop budgets for long local completions. `--max-turns` limits model calls, `--max-retries` limits continuation retries after `finish_reason: "length"`, and optional `--max-tokens` / `--max-cost-usd` stop runs when model usage reports exceed those caps. `--max-thinking-tokens` passes an opt-in `max_thinking_tokens` request cap for reasoning models that support it. Local providers report `cost: 0`; OpenRouter maps provider-reported `usage.cost` into Kodr's internal cost field. Stop reasons are written into run summaries and raw-response artifacts.
 
 ## Security Boundaries
 

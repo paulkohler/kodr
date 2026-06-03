@@ -23,3 +23,13 @@ One usability edge appeared immediately in manual testing: `--agent-model` is a
 subagent-stage feature. If a run omits `--subagent-stages`, Kodr now warns that
 the overrides are inactive and the primary `--model` is the only model that will
 be called.
+
+A second Nemotron run showed the next boundary. The OpenRouter planner did the
+right work, but the local implementer returned syntactically valid JSON with the
+wrong Kodr proposal schema. Kodr now sends structured-output `response_format`
+schemas for proposal and review turns, so local models get server-side shape
+pressure instead of prompt-only JSON instructions.
+
+The same run also exposed long reasoning-token stalls. Kodr added an opt-in
+`--max-thinking-tokens` flag that passes `max_thinking_tokens` for reasoning
+models and servers that support that request field.

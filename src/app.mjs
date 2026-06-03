@@ -37,6 +37,7 @@ import {
 	formatProgressEvent,
 	runStartHook,
 } from './progress.mjs';
+import { proposalResponseFormat } from './structured-output.mjs';
 import {
 	ModelSpecError,
 	parseAgentModelOverride,
@@ -143,6 +144,7 @@ export function parseArgs(argv, env = {}) {
 		transcriptFile: '',
 		maxCostUsd: '',
 		maxRetries: 7,
+		maxThinkingTokens: '',
 		maxTokens: '',
 		maxTurns: 8,
 		version: false,
@@ -304,6 +306,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '--hooks-config' ||
 			arg === '--max-cost-usd' ||
 			arg === '--max-retries' ||
+			arg === '--max-thinking-tokens' ||
 			arg === '--max-tokens' ||
 			arg === '--max-turns' ||
 			arg === '--session' ||
@@ -425,6 +428,13 @@ function validateLoopBudgetOptions(options) {
 		throw new CliError('--max-tokens must be a non-negative integer');
 	}
 	if (
+		options.maxThinkingTokens !== '' &&
+		(!Number.isInteger(options.maxThinkingTokens) ||
+			options.maxThinkingTokens < 0)
+	) {
+		throw new CliError('--max-thinking-tokens must be a non-negative integer');
+	}
+	if (
 		options.maxCostUsd !== '' &&
 		(!Number.isFinite(Number(options.maxCostUsd)) ||
 			Number(options.maxCostUsd) < 0)
@@ -495,6 +505,8 @@ Local-model defaults:
   --timeout-ms N       Default: ${DEFAULT_TIMEOUT_MS}
   --max-turns N        Max model turns in a run. Default: 8
   --max-retries N      Max continuation retries after length stops. Default: 7
+  --max-thinking-tokens N
+                       Optional provider/model thinking-token cap.
   --max-tokens N       Optional total token budget from model usage
   --max-cost-usd N     Optional cost budget when the provider reports USD usage
 
@@ -1164,6 +1176,8 @@ function assignValue(options, flag, value) {
 		options.maxCostUsd = value;
 	} else if (flag === '--max-retries') {
 		options.maxRetries = Number(value);
+	} else if (flag === '--max-thinking-tokens') {
+		options.maxThinkingTokens = Number(value);
 	} else if (flag === '--max-tokens') {
 		options.maxTokens = Number(value);
 	} else if (flag === '--max-turns') {
@@ -1269,6 +1283,7 @@ async function runPrompt(options, io) {
 		...options,
 		cwd: io.cwd,
 		hooks: configuredHooks.hooks,
+		responseFormat: proposalResponseFormat(),
 	};
 
 	// Resolve parent session (if --continue or --session was passed).
@@ -1348,10 +1363,14 @@ async function runPrompt(options, io) {
 		rawRequest = {
 			messages: initialMessages,
 			model,
+			response_format: runOptions.responseFormat,
 			url: `${options.baseUrl}/chat/completions`,
 		};
 		if (registry) {
 			rawRequest.tools = registry.toApiTools();
+		}
+		if (runOptions.maxThinkingTokens !== '') {
+			rawRequest.max_thinking_tokens = runOptions.maxThinkingTokens;
 		}
 		await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 

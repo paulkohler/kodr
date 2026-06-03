@@ -20,11 +20,12 @@ export async function listModels(options) {
 }
 
 export async function createChatCompletion(options, body) {
+	const requestBody = applyRequestParameters(options, body);
 	if (options.stream) {
 		return requestStreamJson(`${options.baseUrl}/chat/completions`, {
 			apiKey: options.apiKey,
 			body: {
-				...body,
+				...requestBody,
 				stream: true,
 				// Ask the server to emit a final usage chunk so streamed runs can
 				// still enforce token and cost budgets.
@@ -39,11 +40,25 @@ export async function createChatCompletion(options, body) {
 
 	return requestJson(`${options.baseUrl}/chat/completions`, {
 		apiKey: options.apiKey,
-		body,
+		body: requestBody,
 		extraHeaders: options.extraHeaders,
 		method: 'POST',
 		timeoutMs: options.timeoutMs,
 	});
+}
+
+function applyRequestParameters(options, body) {
+	if (
+		options.maxThinkingTokens === '' ||
+		options.maxThinkingTokens === undefined ||
+		Object.hasOwn(body, 'max_thinking_tokens')
+	) {
+		return body;
+	}
+	return {
+		...body,
+		max_thinking_tokens: options.maxThinkingTokens,
+	};
 }
 
 async function requestStreamJson(url, options) {

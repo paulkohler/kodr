@@ -7,6 +7,7 @@ import { jailedPath } from './safe-writes.mjs';
 import { normalizeModelUsage } from './usage-normalizer.mjs';
 import { runVerification } from './verification-runner.mjs';
 import { renderHookStopFeedback } from './command-hooks.mjs';
+import { applyResponseFormat } from './structured-output.mjs';
 
 export class ToolCallError extends Error {
 	constructor(message) {
@@ -133,12 +134,18 @@ export async function completeWithToolCalls(
 	while (true) {
 		budget.beforeTurn();
 
-		const chatResponse = await createChatCompletion(options, {
-			messages,
-			model,
-			temperature: 0,
-			tools: apiTools,
-		});
+		const chatResponse = await createChatCompletion(
+			options,
+			applyResponseFormat(
+				{
+					messages,
+					model,
+					temperature: 0,
+					tools: apiTools,
+				},
+				options,
+			),
+		);
 		budget.recordUsage(
 			normalizeModelUsage(options.provider, chatResponse.body?.usage, {
 				maxCostUsd: options.maxCostUsd,

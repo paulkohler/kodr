@@ -37,6 +37,8 @@ describe('parseArgs', () => {
 			'3',
 			'--max-retries',
 			'2',
+			'--max-thinking-tokens',
+			'1024',
 			'--max-tokens',
 			'100',
 			'--max-cost-usd',
@@ -53,6 +55,7 @@ describe('parseArgs', () => {
 		assert.equal(options.timeoutMs, 1000);
 		assert.equal(options.maxTurns, 3);
 		assert.equal(options.maxRetries, 2);
+		assert.equal(options.maxThinkingTokens, 1024);
 		assert.equal(options.maxTokens, 100);
 		assert.equal(options.maxCostUsd, '0.01');
 		assert.equal(options.json, true);
@@ -529,6 +532,11 @@ describe('run', () => {
 			assert.match(chatRequest.messages[0].content, /You are Kodr/u);
 			assert.equal(chatRequest.messages[1].content, 'Summarize the repo.');
 			assert.equal(chatRequest.model, 'qwen/qwen3.6-35b-a3b');
+			assert.equal(chatRequest.response_format.type, 'json_schema');
+			assert.equal(
+				chatRequest.response_format.json_schema.name,
+				'kodr_proposal',
+			);
 		} finally {
 			await server.close();
 		}

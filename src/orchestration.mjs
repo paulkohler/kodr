@@ -9,6 +9,10 @@ import { extractJson, extractProposal } from './json-extractor.mjs';
 import { emitProgress, runStartHook } from './progress.mjs';
 import { prepareChanges } from './safe-writes.mjs';
 import {
+	proposalResponseFormat,
+	reviewResponseFormat,
+} from './structured-output.mjs';
+import {
 	completeWithToolCalls,
 	createBuiltinRegistry,
 	ToolRegistry,
@@ -218,7 +222,10 @@ export async function runImplementerAgent(
 	});
 	const completion = await runAgentCompletion({
 		agentName: 'implementer',
-		agentOptions: activeOptions,
+		agentOptions: {
+			...activeOptions,
+			responseFormat: proposalResponseFormat(),
+		},
 		registry,
 		subDir,
 		systemPrompt,
@@ -265,7 +272,10 @@ export async function runReviewerAgent(
 	});
 	const completion = await runAgentCompletion({
 		agentName: 'reviewer',
-		agentOptions: activeOptions,
+		agentOptions: {
+			...activeOptions,
+			responseFormat: reviewResponseFormat(),
+		},
 		registry,
 		subDir,
 		systemPrompt,
@@ -325,7 +335,7 @@ async function runAgentCompletion({
 		message: `${agentName} started`,
 	});
 	await runStartHook(agentOptions, 'subagent_start', progressBase);
-	await writeJson(join(subDir, 'request.json'), {
+	const request = {
 		agent: agentName,
 		messages: [
 			{ role: 'system', content: systemPrompt },
@@ -333,8 +343,13 @@ async function runAgentCompletion({
 		],
 		model: agentOptions.model,
 		provider: agentOptions.provider,
+		response_format: agentOptions.responseFormat || null,
 		tools: registry.toApiTools(),
-	});
+	};
+	if (agentOptions.maxThinkingTokens !== '') {
+		request.max_thinking_tokens = agentOptions.maxThinkingTokens;
+	}
+	await writeJson(join(subDir, 'request.json'), request);
 	const completion = await completeWithToolCalls(
 		agentOptions,
 		agentOptions.model,
