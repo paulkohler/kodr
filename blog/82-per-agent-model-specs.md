@@ -18,3 +18,8 @@ unambiguous while allowing provider-native model ids to keep their own slashes.
 
 Existing `--model` and `--openrouter` usage stays compatible. The new syntax is
 an additional layer, not a flag migration.
+
+One usability edge appeared immediately in manual testing: `--agent-model` is a
+subagent-stage feature. If a run omits `--subagent-stages`, Kodr now warns that
+the overrides are inactive and the primary `--model` is the only model that will
+be called.

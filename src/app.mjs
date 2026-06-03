@@ -32,7 +32,11 @@ import { replayRun } from './replay.mjs';
 import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
 import { runComparison } from './compare.mjs';
 import { runSubagentStages } from './orchestration.mjs';
-import { emitProgress, runStartHook } from './progress.mjs';
+import {
+	emitProgress,
+	formatProgressEvent,
+	runStartHook,
+} from './progress.mjs';
 import {
 	ModelSpecError,
 	parseAgentModelOverride,
@@ -485,7 +489,8 @@ Local-model defaults:
   --model ID           Default: MODEL_ID or ${DEFAULT_MODEL_ID}
                        Supports provider/model specs such as lmstudio/qwen/qwen3.6-35b-a3b
                        or openrouter/openai/gpt-4o-mini.
-  --agent-model A=S    Override subagent model. Repeatable for planner, implementer, reviewer.
+  --agent-model A=S    Override subagent model for --subagent-stages.
+                       Repeatable for planner, implementer, reviewer.
   --api-key KEY        Default: OPENAI_API_KEY
   --timeout-ms N       Default: ${DEFAULT_TIMEOUT_MS}
   --max-turns N        Max model turns in a run. Default: 8
@@ -533,6 +538,18 @@ Web channel:
 Implemented library primitives:
   workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
 `;
+}
+
+function withCliProgress(options, io) {
+	if (typeof options.onProgress === 'function') {
+		return options;
+	}
+	return {
+		...options,
+		onProgress(event) {
+			io.stderr?.write?.(`${formatProgressEvent(event)}\n`);
+		},
+	};
 }
 
 export async function main(argv, io) {
@@ -585,8 +602,17 @@ export async function main(argv, io) {
 			return { ok: true, command: 'run', context };
 		}
 
+		const runOptions = options.json ? options : withCliProgress(options, io);
+		if (
+			Object.keys(runOptions.agentModelSpecs || {}).length > 0 &&
+			!runOptions.subagentStages
+		) {
+			io.stderr?.write?.(
+				'info: --agent-model overrides are only used with --subagent-stages\n',
+			);
+		}
 		const result = await handleChannelRequest(
-			{ kind: 'run-turn', options },
+			{ kind: 'run-turn', options: runOptions },
 			io,
 		);
 		if (options.json) {

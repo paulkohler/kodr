@@ -58,7 +58,8 @@ For subagent orchestration, override individual agent models with repeatable
 
 Supported subagent names are `planner`, `implementer`, and `reviewer`. Plain
 `--model qwen/qwen3.6-35b-a3b` and `--openrouter --model openai/gpt-4o-mini`
-remain supported.
+remain supported. `--agent-model` only applies when `--subagent-stages` is set;
+normal runs use the primary `--model`.
 
 ### Dry-Run A Task
 
@@ -515,9 +516,10 @@ a model turn. Slash commands control the session.
 TUI color is automatic for interactive terminals. Use `NO_COLOR=1` to disable
 ANSI color or `FORCE_COLOR=1` to force it.
 
-Long-running agent and subagent stages emit grey progress lines, such as
-`planner started`, `implementer finished`, and reviewer pass/fail summaries.
-These are shared channel progress events, so future UIs can reuse the same feed.
+Long-running agent and subagent stages emit grey progress lines in the TUI and
+stderr info lines in non-JSON CLI runs, such as `planner started`,
+`implementer finished`, and reviewer pass/fail summaries. These are shared
+channel progress events, so future UIs can reuse the same feed.
 
 ### Basic Turn Flow
 

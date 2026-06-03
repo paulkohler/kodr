@@ -555,6 +555,7 @@ describe('run', () => {
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'kodr-run-summary-'));
 			const stdout = captureStream();
+			const stderr = captureStream();
 			await main(
 				[
 					'run',
@@ -565,7 +566,7 @@ describe('run', () => {
 					'--timeout-ms',
 					'1000',
 				],
-				{ cwd, env: {}, stderr: captureStream(), stdout },
+				{ cwd, env: {}, stderr, stdout },
 			);
 
 			// The summary names the proposed file, its create status, the dry-run
@@ -575,6 +576,51 @@ describe('run', () => {
 			assert.match(stdout.text, /create\s+src\/index\.mjs/u);
 			assert.match(stdout.text, /\[info\] Added a constant\./u);
 			assert.match(stdout.text, /Re-run with --yes/u);
+			assert.match(stderr.text, /info: standard started/u);
+			assert.match(stderr.text, /info: standard finished/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('warns when agent model overrides are supplied outside subagent stages', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponse({ files: [], messages: [], status: 'OK' }),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-agent-model-warning-'));
+			const stderr = captureStream();
+			await main(
+				[
+					'run',
+					'-p',
+					'No changes.',
+					'--agent-model',
+					'planner=lmstudio/planner-model',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{ cwd, env: {}, stderr, stdout: captureStream() },
+			);
+
+			assert.match(
+				stderr.text,
+				/info: --agent-model overrides are only used with --subagent-stages/u,
+			);
+			assert.equal(
+				server.recordings[0].requestBody.model,
+				'qwen/qwen3.6-35b-a3b',
+			);
 		} finally {
 			await server.close();
 		}
@@ -1622,6 +1668,7 @@ describe('run', () => {
 
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'kodr-subagent-stages-run-'));
+			const stderr = captureStream();
 			const result = await main(
 				[
 					'run',
@@ -1637,7 +1684,7 @@ describe('run', () => {
 				{
 					cwd,
 					env: {},
-					stderr: captureStream(),
+					stderr,
 					stdout: captureStream(),
 				},
 			);
@@ -1665,6 +1712,9 @@ describe('run', () => {
 				reviewerRequest.messages[1].content,
 				/check the generated file/u,
 			);
+			assert.match(stderr.text, /info: planner started/u);
+			assert.match(stderr.text, /info: implementer started/u);
+			assert.match(stderr.text, /info: reviewer started/u);
 		} finally {
 			await server.close();
 		}

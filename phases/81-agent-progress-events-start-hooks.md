@@ -14,8 +14,8 @@ Add two surfaces:
   `onProgress(event)`.
 - Command-backed lifecycle hooks for `AgentStart` and `SubagentStart`.
 
-The TUI renders progress events as grey info messages. CLI runs stay quiet unless
-a future channel wants to opt in.
+The TUI renders progress events as grey info messages. Non-JSON CLI runs render
+the same progress events to stderr so long local-model calls do not look stuck.
 
 Start hooks run before the model call. A block prevents the model call and
 returns the hook reason through the normal run failure path.
@@ -42,6 +42,7 @@ observations.
 - [x] Add progress callback support for subagent runs.
 - [x] Add `AgentStart` and `SubagentStart` command hook support.
 - [x] TUI renders progress events as grey info lines.
+- [x] Non-JSON CLI runs render progress events as stderr info lines.
 - [x] TUI surfaces planner/reviewer summaries from subagent runs.
 - [x] Tests cover hook events, progress callbacks, and TUI rendering.
 - [x] Update usage docs, decisions, blog, roadmap, and version.

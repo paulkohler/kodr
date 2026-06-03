@@ -9,6 +9,11 @@ can now print grey status lines such as planner started, implementer finished,
 and reviewer finished. These are channel events, not TUI-specific hacks, so a
 future web UI can consume the same stream.
 
+A follow-up test exposed that the normal CLI path had no renderer attached, so
+the channel events existed but were invisible outside the TUI. Non-JSON CLI runs
+now print the same progress feed to stderr as compact `info:` lines while
+preserving clean JSON output for automation.
+
 The phase also adds `AgentStart` and `SubagentStart` command hooks. These run
 before the model call, which makes them useful for deterministic logging or
 policy checks that should block before token generation begins.
