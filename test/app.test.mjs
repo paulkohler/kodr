@@ -69,6 +69,39 @@ describe('parseArgs', () => {
 		assert.equal(subagents.tools, true);
 	});
 
+	it('parses slash model specs and agent model overrides', () => {
+		const options = parseArgs(
+			[
+				'run',
+				'--model',
+				'lmstudio/qwen/qwen3.6-35b-a3b',
+				'--agent-model',
+				'planner=openrouter/anthropic/claude-opus',
+				'--agent-model',
+				'reviewer=lmstudio/nvidia/nemotron-3-nano-omni',
+				'-p',
+				'task',
+			],
+			{
+				OPENROUTER_API_KEY: 'or-test-key',
+			},
+		);
+
+		assert.equal(options.provider, 'lmstudio');
+		assert.equal(options.model, 'qwen/qwen3.6-35b-a3b');
+		assert.equal(
+			options.agentModelSpecs.planner,
+			'openrouter/anthropic/claude-opus',
+		);
+		assert.equal(options.agentModels.planner.provider, 'openrouter');
+		assert.equal(options.agentModels.planner.model, 'anthropic/claude-opus');
+		assert.equal(options.agentModels.reviewer.provider, 'lmstudio');
+		assert.equal(
+			options.agentModels.reviewer.model,
+			'nvidia/nemotron-3-nano-omni',
+		);
+	});
+
 	it('parses dependency install flag', () => {
 		assert.equal(
 			parseArgs(['run', '--install', '-p', 'task'], {}).installDependencies,

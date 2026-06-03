@@ -97,16 +97,22 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 		agents: {
 			planner: {
 				artifactDir: relativeArtifact(runDir, planner.artifactDir),
+				model: planner.model,
 				planChars: planner.plan.length,
+				provider: planner.provider,
 			},
 			implementer: {
 				artifactDir: relativeArtifact(runDir, implementer.artifactDir),
+				model: implementer.model,
 				proposalFound: implementer.proposal !== null,
+				provider: implementer.provider,
 			},
 			reviewer: {
 				artifactDir: relativeArtifact(runDir, reviewer.artifactDir),
 				pass: reviewer.review.pass,
 				issueCount: reviewer.review.issues.length,
+				model: reviewer.model,
+				provider: reviewer.provider,
 			},
 		},
 		ok: !writeError && reviewer.review.pass,
@@ -160,6 +166,7 @@ export async function runPlannerAgent(
 	workspaceContext,
 	agentOptions,
 ) {
+	const activeOptions = optionsForAgent(agentOptions, 'planner');
 	const systemPrompt = await buildAgentSystemPrompt('planner');
 	const userPrompt = renderAgentUserPrompt('planner', prompt, [
 		'## Workspace context',
@@ -168,7 +175,7 @@ export async function runPlannerAgent(
 	const registry = createReadOnlyRegistry(cwd);
 	const completion = await runAgentCompletion({
 		agentName: 'planner',
-		agentOptions,
+		agentOptions: activeOptions,
 		registry,
 		subDir,
 		systemPrompt,
@@ -180,7 +187,9 @@ export async function runPlannerAgent(
 	return {
 		artifactDir: subDir,
 		completion,
+		model: activeOptions.model,
 		plan,
+		provider: activeOptions.provider,
 	};
 }
 
@@ -192,6 +201,7 @@ export async function runImplementerAgent(
 	workspaceContext,
 	agentOptions,
 ) {
+	const activeOptions = optionsForAgent(agentOptions, 'implementer');
 	const systemPrompt = await buildAgentSystemPrompt('implementer', [
 		'## Plan',
 		plan,
@@ -203,12 +213,12 @@ export async function runImplementerAgent(
 		plan,
 	]);
 	const registry = createBuiltinRegistry(cwd, {
-		commandRunner: agentOptions.commandRunner || null,
-		hooks: agentOptions.hooks || null,
+		commandRunner: activeOptions.commandRunner || null,
+		hooks: activeOptions.hooks || null,
 	});
 	const completion = await runAgentCompletion({
 		agentName: 'implementer',
-		agentOptions,
+		agentOptions: activeOptions,
 		registry,
 		subDir,
 		systemPrompt,
@@ -219,7 +229,9 @@ export async function runImplementerAgent(
 	return {
 		artifactDir: subDir,
 		completion,
+		model: activeOptions.model,
 		proposal,
+		provider: activeOptions.provider,
 	};
 }
 
@@ -231,6 +243,7 @@ export async function runReviewerAgent(
 	proposal,
 	agentOptions,
 ) {
+	const activeOptions = optionsForAgent(agentOptions, 'reviewer');
 	const systemPrompt = await buildAgentSystemPrompt('reviewer', [
 		'## Plan',
 		plan,
@@ -242,17 +255,17 @@ export async function runReviewerAgent(
 		plan,
 		'## Proposed writes',
 		JSON.stringify(proposal || { files: [], patches: [] }, null, 2),
-		agentOptions.testCommand
-			? `## Test command\nUse run_command with: ${agentOptions.testCommand}`
+		activeOptions.testCommand
+			? `## Test command\nUse run_command with: ${activeOptions.testCommand}`
 			: '',
 	]);
 	const registry = createBuiltinRegistry(cwd, {
-		commandRunner: agentOptions.commandRunner || null,
-		hooks: agentOptions.hooks || null,
+		commandRunner: activeOptions.commandRunner || null,
+		hooks: activeOptions.hooks || null,
 	});
 	const completion = await runAgentCompletion({
 		agentName: 'reviewer',
-		agentOptions,
+		agentOptions: activeOptions,
 		registry,
 		subDir,
 		systemPrompt,
@@ -263,6 +276,8 @@ export async function runReviewerAgent(
 	return {
 		artifactDir: subDir,
 		completion,
+		model: activeOptions.model,
+		provider: activeOptions.provider,
 		review,
 	};
 }
@@ -301,6 +316,7 @@ async function runAgentCompletion({
 	const progressBase = {
 		agent: agentName,
 		model: agentOptions.model,
+		provider: agentOptions.provider,
 		runDir: subDir,
 	};
 	emitProgress(agentOptions, {
@@ -316,6 +332,7 @@ async function runAgentCompletion({
 			{ role: 'user', content: userPrompt },
 		],
 		model: agentOptions.model,
+		provider: agentOptions.provider,
 		tools: registry.toApiTools(),
 	});
 	const completion = await completeWithToolCalls(
@@ -339,6 +356,21 @@ async function runAgentCompletion({
 		responseChars: completion.text.length,
 	});
 	return completion;
+}
+
+function optionsForAgent(options, agentName) {
+	const override = options.agentModels?.[agentName];
+	if (!override) {
+		return options;
+	}
+	return {
+		...options,
+		...override,
+		agentModels: options.agentModels,
+		commandRunner: options.commandRunner,
+		hooks: options.hooks,
+		onProgress: options.onProgress,
+	};
 }
 
 async function buildAgentSystemPrompt(agentName, sections = []) {

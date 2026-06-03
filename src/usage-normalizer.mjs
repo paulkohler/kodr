@@ -3,7 +3,12 @@ export function normalizeModelUsage(provider, usage = null, options = {}) {
 		return usage;
 	}
 
-	if (provider === 'local' || !provider) {
+	if (
+		provider === 'local' ||
+		provider === 'lmstudio' ||
+		provider === 'ollama' ||
+		!provider
+	) {
 		return {
 			...usage,
 			cost: 0,

@@ -38,6 +38,28 @@ By default this talks to LM Studio:
   --model qwen/qwen3.6-35b-a3b
 ```
 
+`--model` also accepts provider/model specs. Kodr splits only the first slash,
+so provider-native model ids can keep their own slashes:
+
+```sh
+./kodr run -p "Say hello" --model lmstudio/qwen/qwen3.6-35b-a3b
+./kodr run -p "Say hello" --model openrouter/openai/gpt-4o-mini
+```
+
+For subagent orchestration, override individual agent models with repeatable
+`--agent-model` flags:
+
+```sh
+./kodr run -p "Implement the feature" --subagent-stages \
+  --model lmstudio/qwen/qwen3.6-35b-a3b \
+  --agent-model planner=openrouter/anthropic/claude-opus \
+  --agent-model reviewer=lmstudio/nvidia/nemotron-3-nano-omni
+```
+
+Supported subagent names are `planner`, `implementer`, and `reviewer`. Plain
+`--model qwen/qwen3.6-35b-a3b` and `--openrouter --model openai/gpt-4o-mini`
+remain supported.
+
 ### Dry-Run A Task
 
 Dry-run is the default. Kodr asks the model for a proposal, records artifacts,

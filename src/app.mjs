@@ -33,6 +33,12 @@ import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
 import { runComparison } from './compare.mjs';
 import { runSubagentStages } from './orchestration.mjs';
 import { emitProgress, runStartHook } from './progress.mjs';
+import {
+	ModelSpecError,
+	parseAgentModelOverride,
+	resolveAgentModels,
+	resolveModelOptions,
+} from './model-specs.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './code-inspector.mjs';
@@ -93,6 +99,8 @@ export function parseArgs(argv, env = {}) {
 		help: false,
 		heal: false,
 		enableHooks: false,
+		agentModels: {},
+		agentModelSpecs: {},
 		hooksConfigPath: '',
 		inspectSymbol: '',
 		inspectLanguages: [],
@@ -136,6 +144,7 @@ export function parseArgs(argv, env = {}) {
 		version: false,
 		yes: false,
 		_apiKeySet: false,
+		_baseUrlSet: false,
 	};
 
 	const positionals = [];
@@ -271,6 +280,7 @@ export function parseArgs(argv, env = {}) {
 		if (
 			arg === '--base-url' ||
 			arg === '--model' ||
+			arg === '--agent-model' ||
 			arg === '--api-key' ||
 			arg === '--out' ||
 			arg === '-p' ||
@@ -358,7 +368,22 @@ export function parseArgs(argv, env = {}) {
 		}
 		options.extraHeaders = OPENROUTER_EXTRA_HEADERS;
 	}
+	try {
+		Object.assign(
+			options,
+			resolveModelOptions(options, env, options.model, {
+				allowBaseUrlOverride: true,
+			}),
+		);
+		options.agentModels = resolveAgentModels(options, env);
+	} catch (error) {
+		if (error instanceof ModelSpecError) {
+			throw new CliError(error.message);
+		}
+		throw error;
+	}
 	delete options._apiKeySet;
+	delete options._baseUrlSet;
 
 	if (options.dockerSandbox) {
 		Object.assign(options, dockerDefaults(options));
@@ -457,6 +482,9 @@ Usage:
 Local-model defaults:
   --base-url URL       Default: ${DEFAULT_BASE_URL}
   --model ID           Default: MODEL_ID or ${DEFAULT_MODEL_ID}
+                       Supports provider/model specs such as lmstudio/qwen/qwen3.6-35b-a3b
+                       or openrouter/openai/gpt-4o-mini.
+  --agent-model A=S    Override subagent model. Repeatable for planner, implementer, reviewer.
   --api-key KEY        Default: OPENAI_API_KEY
   --timeout-ms N       Default: ${DEFAULT_TIMEOUT_MS}
   --max-turns N        Max model turns in a run. Default: 8
@@ -1056,8 +1084,20 @@ function fencedMarkdown(text) {
 function assignValue(options, flag, value) {
 	if (flag === '--base-url') {
 		options.baseUrl = value.replace(/\/+$/u, '');
+		options._baseUrlSet = true;
 	} else if (flag === '--model') {
 		options.model = value;
+	} else if (flag === '--agent-model') {
+		let override;
+		try {
+			override = parseAgentModelOverride(value);
+		} catch (error) {
+			if (error instanceof ModelSpecError) {
+				throw new CliError(error.message);
+			}
+			throw error;
+		}
+		options.agentModelSpecs[override.agent] = override.spec;
 	} else if (flag === '--api-key') {
 		options.apiKey = value;
 		options._apiKeySet = true;

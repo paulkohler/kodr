@@ -84,6 +84,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 79 Hook Execution Hardening
 - [x] 80 Subagent Stage Orchestration
 - [x] 81 Agent Progress Events And Start Hooks
+- [x] 82 Per-Agent Model Specs
 
 ## Phase Contract
 

@@ -237,6 +237,63 @@ describe('subagent stage orchestration', () => {
 		}
 	});
 
+	it('uses per-agent model overrides for subagent calls and artifacts', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-agent-models-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/greet.mjs'),
+				chatText(
+					JSON.stringify({
+						files: [
+							{
+								content: 'export const greet = () => "hi";\n',
+								path: 'src/greet.mjs',
+							},
+						],
+						status: 'OK',
+					}),
+				),
+				chatText(
+					JSON.stringify({
+						pass: true,
+						issues: [],
+						summary: 'Complete.',
+					}),
+				),
+			],
+		});
+
+		try {
+			const base = options(server);
+			const result = await runSubagentStages(cwd, runDir, 'Add greet.', {
+				...base,
+				agentModels: {
+					implementer: {
+						...base,
+						model: 'implementer-model',
+						provider: 'lmstudio',
+					},
+					planner: { ...base, model: 'planner-model', provider: 'openrouter' },
+					reviewer: { ...base, model: 'reviewer-model', provider: 'lmstudio' },
+				},
+				yes: false,
+			});
+			assert.deepEqual(
+				server.recordings.map((recording) => recording.requestBody.model),
+				['planner-model', 'implementer-model', 'reviewer-model'],
+			);
+			assert.equal(result.orchestration.agents.planner.model, 'planner-model');
+			assert.equal(result.orchestration.agents.planner.provider, 'openrouter');
+			assert.equal(
+				result.orchestration.agents.reviewer.model,
+				'reviewer-model',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('surfaces reviewer failure without throwing', async () => {
 		const cwd = await makeWorkspace();
 		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-review-fail-'));
