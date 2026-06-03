@@ -45,8 +45,25 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 		writes: [],
 	};
 	let writeError = null;
+	if (!implementer.proposal) {
+		writeError = {
+			message: 'Implementer response did not include a proposal',
+			name: 'ProposalMissingError',
+		};
+		writeResult = { applied: false, error: writeError, writes: [] };
+	} else if (implementer.proposal.status === 'ERROR') {
+		writeError = {
+			message:
+				implementer.proposal.messages
+					.map((message) => message.content)
+					.filter(Boolean)
+					.join('\n') || 'Implementer returned status ERROR',
+			name: 'ProposalStatusError',
+		};
+		writeResult = { applied: false, error: writeError, writes: [] };
+	}
 	try {
-		writeResult = implementer.proposal
+		writeResult = !writeError
 			? await prepareChanges(cwd, implementer.proposal, {
 					apply: options.yes,
 					protectExisting: options.protectExisting,

@@ -239,6 +239,35 @@ describe('subagent stage orchestration', () => {
 		}
 	});
 
+	it('fails when the implementer does not emit a proposal', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-missing-proposal-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/greet.mjs'),
+				chatText('I changed it.'),
+				chatText(
+					JSON.stringify({
+						pass: true,
+						issues: [],
+						summary: 'Looks fine.',
+					}),
+				),
+			],
+		});
+
+		try {
+			const result = await runSubagentStages(cwd, runDir, 'Add greet.', {
+				...options(server),
+				yes: false,
+			});
+			assert.equal(result.ok, false);
+			assert.equal(result.writeError.name, 'ProposalMissingError');
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('treats malformed reviewer output as a failed review', async () => {
 		const cwd = await makeWorkspace();
 		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-review-bad-json-'));
