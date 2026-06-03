@@ -82,6 +82,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [ ] 77 OpenShell Sandbox Backend
 - [x] 78 Command Hooks And Stop Control
 - [x] 79 Hook Execution Hardening
+- [x] 80 Subagent Stage Orchestration
 
 ## Phase Contract
 

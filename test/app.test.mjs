@@ -64,6 +64,9 @@ describe('parseArgs', () => {
 			parseArgs(['run', '--no-staged', '-p', 'task'], {}).staged,
 			false,
 		);
+		const subagents = parseArgs(['run', '--subagent-stages', '-p', 'task'], {});
+		assert.equal(subagents.subagentStages, true);
+		assert.equal(subagents.tools, true);
 	});
 
 	it('parses dependency install flag', () => {
@@ -1445,6 +1448,95 @@ describe('run', () => {
 			assert.match(
 				server.recordings[2].requestBody.messages[1].content,
 				/at most 5 total file writes/u,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runs subagent stages and writes orchestration artifacts', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: proposalResponseText('1. Create src/greet.mjs\n2. Review it'),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const greet = () => "hi";\n',
+								path: 'src/greet.mjs',
+							},
+						],
+						messages: [{ content: 'Created greet.', level: 'info' }],
+						status: 'OK',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				{
+					body: proposalResponseText(
+						JSON.stringify({
+							pass: true,
+							issues: [],
+							summary: 'Complete.',
+						}),
+					),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-subagent-stages-run-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'reviewer: check the generated file\nAdd greet.',
+					'--subagent-stages',
+					'--yes',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.result.ok, true);
+			assert.equal(result.result.subagentStages, true);
+			assert.equal(
+				await readFile(join(cwd, 'src', 'greet.mjs'), 'utf8'),
+				'export const greet = () => "hi";\n',
+			);
+			const orchestration = JSON.parse(
+				await readFile(
+					join(result.result.runDir, 'orchestration.json'),
+					'utf8',
+				),
+			);
+			assert.equal(orchestration.agents.reviewer.pass, true);
+			const reviewerRequest = JSON.parse(
+				await readFile(
+					join(result.result.runDir, 'subagents', 'reviewer', 'request.json'),
+					'utf8',
+				),
+			);
+			assert.match(
+				reviewerRequest.messages[1].content,
+				/check the generated file/u,
 			);
 		} finally {
 			await server.close();

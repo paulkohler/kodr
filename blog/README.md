@@ -40,5 +40,6 @@ This blog records the build as a learning sequence. Keep posts terse and concret
 34. [Design Note: Code Inspection Capabilities](./51-code-inspection-capabilities.md)
 35. [Phase 78: Command Hooks And Stop Control](./78-command-hooks-stop-control.md)
 36. [Phase 79: Hook Execution Hardening](./79-hook-execution-hardening.md)
+37. [Phase 80: Subagent Stage Orchestration](./80-subagent-stage-orchestration.md)
 
 Future posts should track the roadmap phases and include what changed, why, how it failed, and how it was verified.

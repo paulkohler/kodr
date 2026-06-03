@@ -1,0 +1,309 @@
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, it } from 'node:test';
+import { buildWorkspaceContext } from '../src/context-packer.mjs';
+import {
+	runImplementerAgent,
+	runPlannerAgent,
+	runReviewerAgent,
+	runSubagentStages,
+	splitAgentDirectives,
+} from '../src/orchestration.mjs';
+import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
+
+describe('subagent stage orchestration', () => {
+	it('routes agent-targeted directives', () => {
+		const parsed = splitAgentDirectives(
+			[
+				'Add a greet function.',
+				'planner: inspect src first',
+				'implementer: use patches',
+				'reviewer: run the security audit',
+			].join('\n'),
+		);
+
+		assert.equal(parsed.basePrompt, 'Add a greet function.');
+		assert.deepEqual(parsed.directives.planner, ['inspect src first']);
+		assert.deepEqual(parsed.directives.implementer, ['use patches']);
+		assert.deepEqual(parsed.directives.reviewer, ['run the security audit']);
+	});
+
+	it('runs planner with roster and returns a plan', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-planner-'));
+		const server = await startFakeModelServer({
+			responses: [chatText('1. Edit src/util.mjs\n2. Add tests')],
+		});
+
+		try {
+			const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+			const result = await runPlannerAgent(
+				cwd,
+				join(runDir, 'planner'),
+				'planner: focus on util\nAdd greet.',
+				context,
+				options(server),
+			);
+
+			assert.match(result.plan, /Edit src\/util\.mjs/u);
+			const request = JSON.parse(
+				await readFile(join(runDir, 'planner', 'request.json'), 'utf8'),
+			);
+			assert.match(request.messages[0].content, /Subagent Pipeline/u);
+			assert.match(request.messages[0].content, /planner/u);
+			assert.match(request.messages[1].content, /focus on util/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runs implementer and extracts a valid proposal', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-implementer-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [
+							{
+								path: 'src/greet.mjs',
+								content: 'export const greet = () => "hi";\n',
+							},
+						],
+						messages: [{ level: 'info', content: 'implemented greet' }],
+					}),
+				),
+			],
+		});
+
+		try {
+			const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+			const result = await runImplementerAgent(
+				cwd,
+				join(runDir, 'implementer'),
+				'Add greet.',
+				'Create src/greet.mjs',
+				context,
+				options(server),
+			);
+
+			assert.equal(result.proposal.files[0].path, 'src/greet.mjs');
+			const proposal = JSON.parse(
+				await readFile(join(runDir, 'implementer', 'proposal.json'), 'utf8'),
+			);
+			assert.equal(proposal.messages[0].content, 'implemented greet');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runs reviewer and returns pass issues and summary', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-reviewer-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText(
+					JSON.stringify({
+						pass: true,
+						issues: [],
+						summary: 'Looks complete.',
+					}),
+				),
+			],
+		});
+
+		try {
+			const result = await runReviewerAgent(
+				cwd,
+				join(runDir, 'reviewer'),
+				'reviewer: run tests after',
+				'Create src/greet.mjs',
+				{
+					files: [
+						{
+							path: 'src/greet.mjs',
+							content: 'export const greet = () => "hi";\n',
+						},
+					],
+				},
+				options(server),
+			);
+
+			assert.equal(result.review.pass, true);
+			const request = JSON.parse(
+				await readFile(join(runDir, 'reviewer', 'request.json'), 'utf8'),
+			);
+			assert.match(request.messages[1].content, /run tests after/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runs the full happy path and writes orchestration artifacts', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-full-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/greet.mjs\n2. Review the proposal'),
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [
+							{
+								path: 'src/greet.mjs',
+								content: 'export const greet = () => "hi";\n',
+							},
+						],
+						messages: [],
+					}),
+				),
+				chatText(
+					JSON.stringify({
+						pass: true,
+						issues: [],
+						summary: 'Complete.',
+					}),
+				),
+			],
+		});
+
+		try {
+			const result = await runSubagentStages(cwd, runDir, 'Add greet.', {
+				...options(server),
+				yes: false,
+			});
+			assert.equal(result.ok, true);
+			assert.equal(result.writeResult.writes.length, 1);
+			const summary = JSON.parse(
+				await readFile(join(runDir, 'orchestration.json'), 'utf8'),
+			);
+			assert.equal(summary.agents.reviewer.pass, true);
+			assert.match(summary.plan, /Create src\/greet\.mjs/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('surfaces reviewer failure without throwing', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-review-fail-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/greet.mjs'),
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [
+							{
+								path: 'src/greet.mjs',
+								content: 'export const greet = () => "hi";\n',
+							},
+						],
+						messages: [],
+					}),
+				),
+				chatText(
+					JSON.stringify({
+						pass: false,
+						issues: ['Missing test coverage'],
+						summary: 'Needs tests.',
+					}),
+				),
+			],
+		});
+		const stderr = {
+			text: '',
+			write(chunk) {
+				this.text += chunk;
+			},
+		};
+
+		try {
+			const result = await runSubagentStages(
+				cwd,
+				runDir,
+				'Add greet.',
+				{
+					...options(server),
+					yes: false,
+				},
+				{ stderr },
+			);
+			assert.equal(result.ok, false);
+			assert.match(stderr.text, /Missing test coverage/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('treats malformed reviewer output as a failed review', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-review-bad-json-'));
+		const server = await startFakeModelServer({
+			responses: [chatText('not json')],
+		});
+
+		try {
+			const result = await runReviewerAgent(
+				cwd,
+				join(runDir, 'reviewer'),
+				'Add greet.',
+				'Create src/greet.mjs',
+				{
+					files: [
+						{
+							content: 'export const greet = () => "hi";\n',
+							path: 'src/greet.mjs',
+						},
+					],
+				},
+				options(server),
+			);
+			assert.equal(result.review.pass, false);
+			assert.match(result.review.issues[0], /valid review JSON/u);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+async function makeWorkspace() {
+	const cwd = await mkdtemp(join(tmpdir(), 'kodr-orch-ws-'));
+	await mkdir(join(cwd, 'src'), { recursive: true });
+	await writeFile(join(cwd, 'src', 'util.mjs'), 'export const value = 1;\n');
+	return cwd;
+}
+
+function options(server) {
+	return {
+		baseUrl: server.baseUrl,
+		model: 'fake-local-model',
+		provider: 'local',
+		timeoutMs: 1000,
+		maxTurns: 3,
+		maxRetries: 0,
+		maxTokens: '',
+		maxCostUsd: '',
+	};
+}
+
+function chatText(content) {
+	return {
+		body: {
+			choices: [
+				{
+					message: { content, role: 'assistant' },
+					finish_reason: 'stop',
+				},
+			],
+			id: 'chatcmpl_fake',
+			object: 'chat.completion',
+		},
+		method: 'POST',
+		status: 200,
+		url: '/v1/chat/completions',
+	};
+}

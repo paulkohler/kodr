@@ -7,7 +7,7 @@ import {
 	listContextFiles,
 	renderContextMarkdown,
 } from './context-packer.mjs';
-import { extractJson, JsonExtractionError } from './json-extractor.mjs';
+import { extractProposal } from './json-extractor.mjs';
 import {
 	createChatCompletion,
 	firstAssistantMessage,
@@ -31,6 +31,7 @@ import {
 import { replayRun } from './replay.mjs';
 import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
 import { runComparison } from './compare.mjs';
+import { runSubagentStages } from './orchestration.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './code-inspector.mjs';
@@ -122,6 +123,7 @@ export function parseArgs(argv, env = {}) {
 		serveHost: DEFAULT_SERVE_HOST,
 		servePort: DEFAULT_SERVE_PORT,
 		staged: 'auto',
+		subagentStages: false,
 		tools: false,
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -202,6 +204,12 @@ export function parseArgs(argv, env = {}) {
 		}
 
 		if (arg === '--tools') {
+			options.tools = true;
+			continue;
+		}
+
+		if (arg === '--subagent-stages') {
+			options.subagentStages = true;
 			options.tools = true;
 			continue;
 		}
@@ -354,6 +362,9 @@ export function parseArgs(argv, env = {}) {
 	if (options.dockerSandbox) {
 		Object.assign(options, dockerDefaults(options));
 	}
+	if (options.subagentStages) {
+		options.tools = true;
+	}
 
 	if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 100) {
 		throw new CliError(
@@ -419,6 +430,7 @@ Usage:
   kodr run -p "task" --tools --hooks [--hooks-config .kodr/hooks.json]
   kodr run -p "task" --yes --protect-existing
   kodr run -p "task" --tools --yes --staged
+  kodr run -p "task" --yes --subagent-stages
   kodr run -p "task" --stream
   kodr run -p "task" --tools
   kodr run -p "task" --inspect-context
@@ -468,6 +480,7 @@ OpenRouter:
                        Truncated to 2000 characters. Skipped if empty.
   --staged             Force plan-first staged execution for complex work.
   --no-staged          Disable automatic staged execution.
+  --subagent-stages    Run planner, implementer, and reviewer as isolated tool agents.
   --install            Run controlled dependency install after applied writes.
                        Uses npm ci when package-lock.json exists, otherwise npm install.
   --heal               After failed verification, run a bounded repair loop.
@@ -1273,6 +1286,102 @@ async function runPrompt(options, io) {
 			rawRequest.tools = registry.toApiTools();
 		}
 		await writeJson(join(runDir, 'raw-request.json'), rawRequest);
+
+		if (options.subagentStages && !parent) {
+			const orchestrationResult = await runSubagentStages(
+				io.cwd,
+				runDir,
+				prompt,
+				{
+					...runOptions,
+					commandRunner,
+					workspaceContext: context,
+				},
+				io,
+			);
+			let taskPlan = createTaskPlan(
+				prompt,
+				orchestrationResult.writeResult.writes.map((write) => write.path),
+			);
+			const summary = {
+				applied: orchestrationResult.applied,
+				applyRequested: options.yes,
+				artifacts: {
+					context: 'context.md',
+					conversation: 'conversation.json',
+					messages: 'messages.json',
+					prompt: 'prompt.md',
+					rawRequest: 'raw-request.json',
+					rawResponse: 'raw-response.json',
+					docker: 'docker.json',
+					hooks: 'hooks.json',
+					response: 'response.md',
+					orchestration: 'orchestration.json',
+					summary: 'summary.json',
+					tasks: 'tasks.json',
+					writes: 'writes.json',
+				},
+				baseUrl: options.baseUrl,
+				finishReasons: orchestrationResult.finishReasons,
+				loopBudget: orchestrationResult.loopBudget,
+				model,
+				ok: orchestrationResult.ok,
+				parentRunDir: null,
+				promptChars: prompt.length,
+				promptId,
+				proposalFound: orchestrationResult.proposalFound,
+				proposalStatus: orchestrationResult.proposalStatus,
+				responseChars: orchestrationResult.response.length,
+				responseCount: orchestrationResult.responses.length,
+				review: orchestrationResult.review,
+				sessionId: basename(runDir),
+				subagentStages: true,
+				tested: false,
+				timestamp: new Date().toISOString(),
+				usage: usageFromBudget(orchestrationResult.loopBudget),
+				workspaceFileCount: context.files.length,
+				writeCount: orchestrationResult.writeCount,
+			};
+			if (orchestrationResult.writeError) {
+				summary.writeError = orchestrationResult.writeError;
+			}
+			taskPlan = updateTasksFromRun(taskPlan, summary);
+			summary.taskCounts = taskCounts(taskPlan);
+
+			await writeText(responsePath, orchestrationResult.response);
+			await writeJson(
+				join(runDir, 'conversation.json'),
+				orchestrationResult.messages,
+			);
+			await writeJson(
+				join(runDir, 'messages.json'),
+				orchestrationResult.proposal?.messages || [],
+			);
+			await writeJson(join(runDir, 'raw-response.json'), {
+				loopBudget: orchestrationResult.loopBudget,
+				responses: orchestrationResult.responses,
+			});
+			await writeDockerArtifact(runDir, dockerExecutor);
+			await writeHookArtifact(runDir, configuredHooks);
+			await writeJson(join(runDir, 'summary.json'), summary);
+			await writeJson(join(runDir, 'tasks.json'), taskPlan);
+			await writeJson(
+				join(runDir, 'writes.json'),
+				orchestrationResult.writeResult,
+			);
+			await writeLastRun(io.cwd, runDir);
+
+			return {
+				...summary,
+				proposal: orchestrationResult.proposal,
+				response: orchestrationResult.response,
+				responsePath,
+				runDir,
+				review: orchestrationResult.review,
+				taskPlan,
+				writeResult: orchestrationResult.writeResult,
+			};
+		}
 
 		if (
 			shouldUseStagedExecution(options, prompt, context) &&
@@ -2274,84 +2383,6 @@ async function loadPrompt(options, cwd) {
 	throw new CliError('kodr run requires -p/--prompt or --prompt-file');
 }
 
-function extractProposal(text) {
-	try {
-		const value = extractJson(text);
-		if (
-			!value ||
-			(!Array.isArray(value.files) &&
-				!Array.isArray(value.patches) &&
-				!Array.isArray(value.messages) &&
-				typeof value.status !== 'string' &&
-				typeof value.scratchpad !== 'string')
-		) {
-			return null;
-		}
-
-		const files = Array.isArray(value.files) ? value.files : [];
-		const patches = Array.isArray(value.patches) ? value.patches : [];
-		const messages = Array.isArray(value.messages) ? value.messages : [];
-		const status = parseProposalStatus(value.status);
-
-		return {
-			files: files.map((file) => {
-				if (
-					!file ||
-					typeof file.path !== 'string' ||
-					typeof file.content !== 'string'
-				) {
-					throw new CliError(
-						'Proposal files must have string path and content',
-					);
-				}
-
-				return {
-					content: file.content,
-					path: file.path,
-				};
-			}),
-			// Messages are informational only — filter out malformed entries
-			// rather than rejecting the whole proposal over a bad annotation.
-			messages: messages
-				.filter(
-					(message) =>
-						message &&
-						typeof message.level === 'string' &&
-						typeof message.content === 'string',
-				)
-				.map((message) => ({
-					content: message.content,
-					level: message.level,
-				})),
-			scratchpad: typeof value.scratchpad === 'string' ? value.scratchpad : '',
-			status,
-			patches: patches.map((patch) => {
-				if (
-					!patch ||
-					typeof patch.path !== 'string' ||
-					typeof patch.search !== 'string' ||
-					typeof patch.replace !== 'string'
-				) {
-					throw new CliError(
-						'Proposal patches must have string path, search, and replace',
-					);
-				}
-
-				return {
-					path: patch.path,
-					replace: patch.replace,
-					search: patch.search,
-				};
-			}),
-		};
-	} catch (error) {
-		if (error instanceof JsonExtractionError) {
-			return null;
-		}
-		throw error;
-	}
-}
-
 async function createInspectionContext(cwd, options, prompt) {
 	if (!options.inspectContext) {
 		return null;
@@ -2374,23 +2405,6 @@ async function loadOptionalPrompt(options, cwd) {
 		return '';
 	}
 	return loadPrompt(options, cwd);
-}
-
-function parseProposalStatus(value) {
-	if (value === undefined) {
-		return 'OK';
-	}
-
-	if (typeof value !== 'string') {
-		throw new CliError('Proposal status must be "OK" or "ERROR"');
-	}
-
-	const status = value.toUpperCase();
-	if (status !== 'OK' && status !== 'ERROR') {
-		throw new CliError('Proposal status must be "OK" or "ERROR"');
-	}
-
-	return status;
 }
 
 function resolvePromptId(options, prompt) {

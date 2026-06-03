@@ -5,6 +5,13 @@ export class JsonExtractionError extends Error {
 	}
 }
 
+export class ProposalValidationError extends Error {
+	constructor(message) {
+		super(message);
+		this.name = 'ProposalValidationError';
+	}
+}
+
 export function extractJson(text) {
 	if (typeof text !== 'string') {
 		throw new JsonExtractionError('JSON extraction input must be a string');
@@ -24,6 +31,103 @@ export function extractJson(text) {
 	}
 
 	throw new JsonExtractionError(`Could not extract JSON: ${errors.join('; ')}`);
+}
+
+export function extractProposal(text) {
+	try {
+		const value = extractJson(text);
+		if (
+			!value ||
+			(!Array.isArray(value.files) &&
+				!Array.isArray(value.patches) &&
+				!Array.isArray(value.messages) &&
+				typeof value.status !== 'string' &&
+				typeof value.scratchpad !== 'string')
+		) {
+			return null;
+		}
+
+		const files = Array.isArray(value.files) ? value.files : [];
+		const patches = Array.isArray(value.patches) ? value.patches : [];
+		const messages = Array.isArray(value.messages) ? value.messages : [];
+		const status = parseProposalStatus(value.status);
+
+		return {
+			files: files.map((file) => {
+				if (
+					!file ||
+					typeof file.path !== 'string' ||
+					typeof file.content !== 'string'
+				) {
+					throw new ProposalValidationError(
+						'Proposal files must have string path and content',
+					);
+				}
+
+				return {
+					content: file.content,
+					path: file.path,
+				};
+			}),
+			messages: messages
+				.filter(
+					(message) =>
+						message &&
+						typeof message.level === 'string' &&
+						typeof message.content === 'string',
+				)
+				.map((message) => ({
+					content: message.content,
+					level: message.level,
+				})),
+			scratchpad: typeof value.scratchpad === 'string' ? value.scratchpad : '',
+			status,
+			patches: patches.map((patch) => {
+				if (
+					!patch ||
+					typeof patch.path !== 'string' ||
+					typeof patch.search !== 'string' ||
+					typeof patch.replace !== 'string'
+				) {
+					throw new ProposalValidationError(
+						'Proposal patches must have string path, search, and replace',
+					);
+				}
+
+				return {
+					path: patch.path,
+					replace: patch.replace,
+					search: patch.search,
+				};
+			}),
+		};
+	} catch (error) {
+		if (error instanceof JsonExtractionError) {
+			return null;
+		}
+		throw error;
+	}
+}
+
+function parseProposalStatus(value) {
+	if (value === undefined) {
+		return 'OK';
+	}
+
+	if (typeof value !== 'string') {
+		throw new ProposalValidationError(
+			'Proposal status must be "OK" or "ERROR"',
+		);
+	}
+
+	const status = value.toUpperCase();
+	if (status !== 'OK' && status !== 'ERROR') {
+		throw new ProposalValidationError(
+			'Proposal status must be "OK" or "ERROR"',
+		);
+	}
+
+	return status;
 }
 
 export function findJsonText(text) {
