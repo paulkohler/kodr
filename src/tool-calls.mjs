@@ -1,5 +1,8 @@
 import { readFile } from 'node:fs/promises';
-import { createChatCompletion } from './model-client.mjs';
+import {
+	createChatCompletion,
+	firstAssistantMessage,
+} from './model-client.mjs';
 import { HookBlockedError } from './hooks.mjs';
 import { createLoopBudget, LoopBudgetError } from './loop-budgets.mjs';
 import { listContextFiles } from './context-packer.mjs';
@@ -201,7 +204,7 @@ export async function completeWithToolCalls(
 		}
 
 		// Normal finish — run stop hooks before allowing the turn to end.
-		const text = choice?.message?.content || '';
+		const text = firstAssistantMessage(chatResponse.body);
 		messages.push({ content: text, role: 'assistant' });
 		try {
 			await options.hooks?.run('stop', {

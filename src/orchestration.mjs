@@ -179,7 +179,10 @@ export async function runPlannerAgent(
 	const registry = createReadOnlyRegistry(cwd);
 	const completion = await runAgentCompletion({
 		agentName: 'planner',
-		agentOptions: activeOptions,
+		agentOptions: {
+			...activeOptions,
+			responseFormat: null,
+		},
 		registry,
 		subDir,
 		systemPrompt,

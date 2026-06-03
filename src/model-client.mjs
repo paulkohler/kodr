@@ -114,13 +114,26 @@ export function firstModelId(body) {
 }
 
 export function firstAssistantMessage(body) {
-	const content = body?.choices?.[0]?.message?.content;
+	const message = body?.choices?.[0]?.message;
+	const content = message?.content;
+	if (typeof content === 'string' && content.length > 0) {
+		return content;
+	}
+	const reasoningContent = message?.reasoning_content;
+	if (typeof reasoningContent === 'string' && looksLikeJson(reasoningContent)) {
+		return reasoningContent;
+	}
 	return typeof content === 'string' ? content : '';
 }
 
 export function firstFinishReason(body) {
 	const finishReason = body?.choices?.[0]?.finish_reason;
 	return typeof finishReason === 'string' ? finishReason : '';
+}
+
+function looksLikeJson(value) {
+	const trimmed = value.trim();
+	return trimmed.startsWith('{') || trimmed.startsWith('[');
 }
 
 async function requestJson(url, options) {

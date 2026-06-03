@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { describe, it } from 'node:test';
 import {
 	createChatCompletion,
+	firstAssistantMessage,
 	ModelClientError,
 } from '../src/model-client.mjs';
 import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
@@ -30,6 +31,38 @@ const streamOptions = (baseUrl) => ({
 	extraHeaders: {},
 	stream: true,
 	timeoutMs: 5000,
+});
+
+describe('firstAssistantMessage', () => {
+	it('falls back to JSON-looking reasoning_content when content is empty', () => {
+		const body = {
+			choices: [
+				{
+					message: {
+						content: '',
+						reasoning_content: '{"status":"OK","files":[]}',
+					},
+				},
+			],
+		};
+
+		assert.equal(firstAssistantMessage(body), '{"status":"OK","files":[]}');
+	});
+
+	it('does not expose non-JSON reasoning_content as assistant content', () => {
+		const body = {
+			choices: [
+				{
+					message: {
+						content: '',
+						reasoning_content: 'I should think step by step.',
+					},
+				},
+			],
+		};
+
+		assert.equal(firstAssistantMessage(body), '');
+	});
 });
 
 describe('createChatCompletion streaming', () => {
