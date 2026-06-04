@@ -62,9 +62,17 @@ phase can add selective validated writeback through a staging directory if
 there is a concrete need, such as preserving a generated lockfile.
 
 Build the upload snapshot without `.git`, `.kodr`, `node_modules`, private
-memory, or other generated/sensitive harness state. Do not rely only on
-OpenShell's `.gitignore` handling. OpenShell preserves symlinks during upload,
-so reject snapshot symlinks that resolve outside the host workspace.
+memory, package-manager credentials, or other generated/sensitive harness
+state. Do not rely only on OpenShell's `.gitignore` handling. OpenShell
+preserves symlinks during upload, so reject snapshot symlinks that resolve
+outside the host workspace.
+
+Synchronize files to their exact `/sandbox` paths rather than uploading
+top-level directories, whose destination semantics can create an extra nesting
+level. Track only uploaded snapshot paths: remove stale tracked paths on later
+syncs while preserving sandbox-only state such as installed `node_modules`.
+Map command working directories from the host workspace to the equivalent
+location under `/sandbox`.
 
 ## Relationship To Docker Sandbox
 
@@ -179,7 +187,7 @@ they run through this backend.
    `run`, `hookExecutor`, `metadata`, and `finalize`.
 4. Build a filtered upload snapshot, create one persistent sandbox with
    `--no-bootstrap` and a harmless initial command such as `/bin/true`, then
-   upload the snapshot to `/sandbox`.
+   synchronize files to exact paths under `/sandbox`.
 5. Implement command execution with the documented `openshell sandbox exec`
    surface, without a shell.
 6. Route dependency install, verification, command tools, and hooks through the
@@ -227,6 +235,9 @@ they run through this backend.
       without changing normal host execution behavior.
 - [x] One persistent sandbox is used for all command effects in a run.
 - [x] A filtered workspace snapshot is uploaded without harness/private state.
+- [x] Workspace synchronization uses exact file destinations, removes stale
+      tracked paths, and preserves sandbox-only dependency state.
+- [x] Nested command working directories map to the equivalent sandbox path.
 - [x] Snapshot creation rejects symlinks that resolve outside the host
       workspace.
 - [x] Dependency install can run through the OpenShell executor.
@@ -240,4 +251,6 @@ they run through this backend.
       artifacts, and no silent fallback.
 - [x] Record decisions and failures.
 - [x] Blog post.
-- [x] Mark roadmap complete and commit.
+- [ ] A compatible real OpenShell integration run exercises nested directories,
+      dependency state persistence, network denial, verification, and cleanup.
+- [ ] Mark roadmap complete and commit.

@@ -585,6 +585,52 @@ describe('run', () => {
 		);
 	});
 
+	it('cleans up OpenShell when verification initialization fails after sandbox creation', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-openshell-verify-failure-'));
+		await writeFile(join(cwd, 'package.json'), '{}\n', 'utf8');
+		const options = parseArgs([
+			'run',
+			'--openshell-sandbox',
+			'--test',
+			'node --test',
+			'-p',
+			'Do not run.',
+		]);
+		const calls = [];
+		options.openshellRunner = async (args) => {
+			calls.push(args);
+			if (args[0] === 'status') {
+				return commandResult(0, 'Server: https://127.0.0.1:8080\n');
+			}
+			if (
+				args[0] === 'sandbox' &&
+				args[1] === 'upload' &&
+				args.at(-1) !== '--help'
+			) {
+				return commandResult(1, '', 'upload failed');
+			}
+			return commandResult(0, 'ok');
+		};
+
+		await assert.rejects(
+			() =>
+				handleChannelRequest(
+					{ kind: 'verify-command', options },
+					{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+				),
+			/Could not upload workspace/u,
+		);
+		assert.equal(
+			calls.some(
+				(args) =>
+					args[0] === 'sandbox' &&
+					args[1] === 'delete' &&
+					args.at(-1) !== '--help',
+			),
+			true,
+		);
+	});
+
 	it('runs a prompt and writes inspectable artifacts', async () => {
 		const server = await startFakeModelServer({
 			responses: [

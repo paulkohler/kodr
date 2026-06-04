@@ -62,7 +62,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 57 Persistent Planning Scratchpad
 - [x] 58 Staged Complex Execution
 - [x] 59 Ranked Repo-Map
-- [x] 60 OpenShell Sandbox Backend
+- [ ] 60 OpenShell Sandbox Backend
 - [ ] 61 Token-Budget-Aware Context Assembly
 - [ ] 62 Inspector Tool Calls
 - [ ] 63 CLI/TUI Inspection Workflow

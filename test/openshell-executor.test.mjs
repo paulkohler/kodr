@@ -4,6 +4,7 @@ import {
 	mkdtemp,
 	readFile,
 	readdir,
+	rm,
 	symlink,
 	writeFile,
 } from 'node:fs/promises';
@@ -56,6 +57,19 @@ function fakeRunner(calls, options = {}) {
 		}
 		return ok(options.commandStdout || '');
 	};
+}
+
+function isExecCall(call) {
+	return (
+		call.args[0] === 'sandbox' &&
+		call.args[1] === 'exec' &&
+		call.args.at(-1) !== '--help'
+	);
+}
+
+function execCommand(call) {
+	const separator = call.args.indexOf('--');
+	return call.args.slice(separator + 1);
 }
 
 describe('openshell executor', () => {
@@ -155,6 +169,18 @@ describe('openshell executor', () => {
 		await writeFixture(cwd, 'KODR_MEMORY.md', 'ignored\n');
 		await writeFixture(cwd, '.env', 'SECRET=1\n');
 		await writeFixture(cwd, '.env.example', 'SECRET=\n');
+		await writeFixture(
+			cwd,
+			'.npmrc',
+			'//registry.npmjs.org/:_authToken=secret\n',
+		);
+		await writeFixture(cwd, '.pypirc', '[pypi]\npassword=secret\n');
+		await writeFixture(cwd, '.netrc', 'machine example.test password secret\n');
+		await writeFixture(
+			cwd,
+			'.cargo/credentials.toml',
+			'[registry]\ntoken=secret\n',
+		);
 		const runDir = join(cwd, '.kodr', 'runs', 'run-1');
 		const calls = [];
 		const executor = new OpenShellExecutor(cwd, runDir, {
@@ -164,7 +190,7 @@ describe('openshell executor', () => {
 
 		await executor.initialize(1000);
 		const first = await executor.run(
-			cwd,
+			join(cwd, 'src'),
 			{ args: ['--test'], bin: 'node' },
 			1000,
 		);
@@ -199,15 +225,26 @@ describe('openshell executor', () => {
 		assert.ok(create.args.includes('--no-bootstrap'));
 		assert.ok(create.args.includes('--policy'));
 		assert.deepEqual(create.args.slice(-2), ['--', '/bin/true']);
-		const execCalls = calls.filter(
-			(call) =>
-				call.args[0] === 'sandbox' &&
-				call.args[1] === 'exec' &&
-				call.args.at(-1) !== '--help',
+		const execCalls = calls.filter(isExecCall);
+		const userExecCalls = execCalls.filter(
+			(call) => !['/bin/mkdir', '/bin/rm'].includes(execCommand(call)[0]),
 		);
-		assert.equal(execCalls.length, 2);
-		assert.deepEqual(execCalls[0].args.slice(-2), ['node', '--test']);
-		assert.equal(execCalls[1].input, '{"tool":"run_command"}');
+		assert.equal(userExecCalls.length, 2);
+		assert.deepEqual(execCommand(userExecCalls[0]), ['node', '--test']);
+		assert.equal(
+			userExecCalls[0].args[userExecCalls[0].args.indexOf('--workdir') + 1],
+			'/sandbox/src',
+		);
+		assert.equal(userExecCalls[1].input, '{"tool":"run_command"}');
+		assert.equal(
+			calls.some(
+				(call) =>
+					call.args[0] === 'sandbox' &&
+					call.args[1] === 'upload' &&
+					call.args.at(-1) === '/sandbox/src/app.mjs',
+			),
+			true,
+		);
 		assert.equal(
 			calls.some(
 				(call) =>
@@ -229,9 +266,55 @@ describe('openshell executor', () => {
 		assert.equal(snapshotEntries.includes('.kodr'), false);
 		assert.equal(snapshotEntries.includes('KODR_MEMORY.md'), false);
 		assert.equal(snapshotEntries.includes('.env'), false);
+		assert.equal(snapshotEntries.includes('.npmrc'), false);
+		assert.equal(snapshotEntries.includes('.pypirc'), false);
+		assert.equal(snapshotEntries.includes('.netrc'), false);
+		assert.equal(snapshotEntries.includes('.cargo'), false);
 		assert.match(
 			await readFile(executor.policyPath, 'utf8'),
 			/network_policies: \{\}/u,
+		);
+	});
+
+	it('removes stale tracked snapshot paths without deleting sandbox-only state', async () => {
+		const cwd = await fixtureDir();
+		await writeFixture(cwd, 'src/old.mjs', 'export const old = true;\n');
+		await writeFixture(cwd, 'src/switch', 'file\n');
+		const calls = [];
+		const executor = new OpenShellExecutor(cwd, join(cwd, '.kodr', 'sync'), {
+			openshellRunner: fakeRunner(calls),
+			openshellSandbox: true,
+		});
+
+		await executor.initialize(1000);
+		await rm(join(cwd, 'src', 'old.mjs'));
+		await rm(join(cwd, 'src', 'switch'));
+		await writeFixture(cwd, 'src/new.mjs', 'export const next = true;\n');
+		await writeFixture(cwd, 'src/switch/nested.txt', 'directory\n');
+		await executor.syncWorkspace(1000);
+
+		const removedCommands = calls
+			.filter(isExecCall)
+			.map(execCommand)
+			.filter((command) => command[0] === '/bin/rm');
+		assert.deepEqual(removedCommands, [
+			['/bin/rm', '-rf', '/sandbox/src/old.mjs'],
+			['/bin/rm', '-rf', '/sandbox/src/switch'],
+		]);
+		assert.equal(
+			removedCommands.some((command) =>
+				command.includes('/sandbox/node_modules'),
+			),
+			false,
+		);
+		assert.equal(
+			calls.some(
+				(call) =>
+					call.args[0] === 'sandbox' &&
+					call.args[1] === 'upload' &&
+					call.args.at(-1) === '/sandbox/src/new.mjs',
+			),
+			true,
 		);
 	});
 
@@ -255,6 +338,21 @@ describe('openshell executor', () => {
 			false,
 		);
 		assert.equal(executor.metadata().kept, true);
+	});
+
+	it('rejects command working directories outside the workspace', async () => {
+		const cwd = await fixtureDir();
+		const outside = await fixtureDir();
+		const executor = new OpenShellExecutor(cwd, join(cwd, '.kodr', 'cwd'), {
+			openshellRunner: fakeRunner([]),
+			openshellSandbox: true,
+		});
+		await executor.initialize(1000);
+
+		await assert.rejects(
+			() => executor.run(outside, { args: [], bin: 'pwd' }, 1000),
+			/command cwd escapes workspace/u,
+		);
 	});
 
 	it('rejects snapshot symlinks that escape the workspace', async () => {

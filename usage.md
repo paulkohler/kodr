@@ -172,8 +172,11 @@ OpenShell sandboxing is deliberately strict:
   are refused because they would receive workspace files.
 - `--install` requires an explicit `--openshell-policy` file.
 - Without an explicit policy, Kodr creates a default-deny policy for the run.
-- `.git`, `.kodr`, `node_modules`, private memory, and environment secret files
-  are excluded from the upload snapshot.
+- `.git`, `.kodr`, `node_modules`, private memory, environment secret files,
+  and common package-manager or user credential files are excluded from the
+  upload snapshot.
+- Files are synchronized to exact paths under `/sandbox`; stale uploaded files
+  are removed while sandbox-only dependency state is preserved.
 - Command-created files remain in the sandbox. Kodr does not download arbitrary
   sandbox changes over the host workspace.
 - The sandbox is deleted after the run unless `--openshell-keep` is present.

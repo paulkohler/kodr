@@ -16,8 +16,22 @@ const SAFE_NAME = /[^a-zA-Z0-9_.-]+/gu;
 const SNAPSHOT_DIR = 'openshell-upload';
 const DEFAULT_POLICY_FILE = 'openshell-default-deny.yaml';
 const EXCLUDED_NAMES = new Set([
+	'.aws',
+	'.cargo',
+	'.config',
+	'.docker',
 	'.git',
+	'.git-credentials',
 	'.kodr',
+	'.netrc',
+	'.npmrc',
+	'.pypirc',
+	'.ssh',
+	'.yarnrc',
+	'.yarnrc.yml',
+	'credentials',
+	'credentials.json',
+	'credentials.toml',
 	'node_modules',
 	'KODR_MEMORY.md',
 ]);
@@ -82,6 +96,7 @@ export class OpenShellExecutor {
 		this.finalized = false;
 		this.error = null;
 		this.syncCount = 0;
+		this.syncedPaths = new Map();
 	}
 
 	async initialize(timeoutMs = 60000) {
@@ -159,10 +174,10 @@ export class OpenShellExecutor {
 		this.gateway = { endpoint, local: true };
 	}
 
-	async run(_cwd, parsed, timeoutMs) {
+	async run(cwd, parsed, timeoutMs) {
 		await this.initialize(timeoutMs);
 		await this.syncWorkspace(timeoutMs);
-		const args = this.execArgs(parsed, timeoutMs);
+		const args = this.execArgs(parsed, timeoutMs, this.sandboxWorkdir(cwd));
 		const command = `${parsed.bin} ${parsed.args.join(' ')}`.trim();
 		const startedAt = new Date().toISOString();
 		const started = performance.now();
@@ -189,13 +204,14 @@ export class OpenShellExecutor {
 	hookExecutor() {
 		return {
 			environment: 'openshell',
-			runHook: async (_cwd, hook, input, timeoutMs) => {
+			runHook: async (cwd, hook, input, timeoutMs) => {
 				await this.initialize(timeoutMs);
 				await this.syncWorkspace(timeoutMs);
 				return this.runner(
 					this.execArgs(
 						{ args: (hook.args || []).map(String), bin: hook.command },
 						timeoutMs,
+						this.sandboxWorkdir(cwd),
 					),
 					timeoutMs,
 					input,
@@ -211,10 +227,27 @@ export class OpenShellExecutor {
 		await buildWorkspaceSnapshot(this.hostCwd, this.snapshotDir, {
 			excludePaths: [this.runDir],
 		});
-		const entries = await readdir(this.snapshotDir, { withFileTypes: true });
-		for (const entry of entries) {
-			const localPath = join(this.snapshotDir, entry.name);
-			const destination = `${this.workdir}/${entry.name}`;
+		const entries = await collectSnapshotEntries(this.snapshotDir);
+		const nextPaths = new Map(entries.map((entry) => [entry.path, entry.kind]));
+		const removed = [...this.syncedPaths]
+			.filter(([path, kind]) => nextPaths.get(path) !== kind)
+			.map(([path]) => path)
+			.sort((a, b) => b.length - a.length);
+		for (const path of removed) {
+			await this.runInternal(
+				['/bin/rm', '-rf', sandboxPath(this.workdir, path)],
+				timeoutMs,
+			);
+		}
+		for (const entry of entries.filter((item) => item.kind === 'directory')) {
+			await this.runInternal(
+				['/bin/mkdir', '-p', sandboxPath(this.workdir, entry.path)],
+				timeoutMs,
+			);
+		}
+		for (const entry of entries.filter((item) => item.kind !== 'directory')) {
+			const localPath = join(this.snapshotDir, entry.path);
+			const destination = sandboxPath(this.workdir, entry.path);
 			const args = [
 				'sandbox',
 				'upload',
@@ -232,6 +265,7 @@ export class OpenShellExecutor {
 				);
 			}
 		}
+		this.syncedPaths = nextPaths;
 		this.syncCount += 1;
 	}
 
@@ -279,14 +313,14 @@ export class OpenShellExecutor {
 		};
 	}
 
-	execArgs(parsed, timeoutMs) {
+	execArgs(parsed, timeoutMs, workdir = this.workdir) {
 		return [
 			'sandbox',
 			'exec',
 			'-n',
 			this.sandboxId,
 			'--workdir',
-			this.workdir,
+			workdir,
 			'--timeout',
 			String(Math.max(1, Math.ceil(timeoutMs / 1000))),
 			'--no-tty',
@@ -294,6 +328,33 @@ export class OpenShellExecutor {
 			parsed.bin,
 			...parsed.args,
 		];
+	}
+
+	sandboxWorkdir(cwd) {
+		const root = resolve(this.hostCwd);
+		const target = resolve(cwd);
+		const rel = relative(root, target);
+		if (rel.startsWith('..') || isAbsolute(rel)) {
+			throw new OpenShellSandboxError(
+				`OpenShell command cwd escapes workspace: ${cwd}`,
+			);
+		}
+		return rel ? sandboxPath(this.workdir, rel) : this.workdir;
+	}
+
+	async runInternal(command, timeoutMs) {
+		const args = this.execArgs(
+			{ args: command.slice(1), bin: command[0] },
+			timeoutMs,
+		);
+		const result = await this.runner(args, timeoutMs);
+		if (result.exitCode !== 0 || result.timedOut) {
+			throw commandError(
+				'Could not synchronize OpenShell workspace',
+				args,
+				result,
+			);
+		}
 	}
 
 	async resolvePolicy() {
@@ -372,6 +433,32 @@ function isExcluded(name) {
 	return (
 		name === '.env' || (name.startsWith('.env.') && name !== '.env.example')
 	);
+}
+
+async function collectSnapshotEntries(root) {
+	const entries = [];
+	await walkSnapshot(root, root, entries);
+	return entries.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function walkSnapshot(root, dir, entries) {
+	const children = await readdir(dir, { withFileTypes: true });
+	for (const child of children) {
+		const absolute = join(dir, child.name);
+		const path = relative(root, absolute);
+		if (child.isDirectory()) {
+			entries.push({ kind: 'directory', path });
+			await walkSnapshot(root, absolute, entries);
+		} else if (child.isSymbolicLink()) {
+			entries.push({ kind: 'symlink', path });
+		} else {
+			entries.push({ kind: 'file', path });
+		}
+	}
+}
+
+function sandboxPath(root, path) {
+	return `${root}/${path.split(/[\\/]+/u).join('/')}`;
 }
 
 async function validateSnapshotPath(root, path) {

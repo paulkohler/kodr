@@ -1040,8 +1040,8 @@ export async function handleChannelRequest(request, io) {
 			join(io.cwd, '.kodr', 'verify'),
 			request.options,
 		);
-		await initializeExecutor(activeExecutor, request.options.timeoutMs);
 		try {
+			await initializeExecutor(activeExecutor, request.options.timeoutMs);
 			return await runVerification(
 				await verificationCwd(io.cwd, request.options),
 				request.options.testCommand,

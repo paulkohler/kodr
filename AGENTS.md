@@ -21,6 +21,7 @@ This repo is built as a learning tool. Preserve the process, not just the code.
 - If generation fails, diagnose whether the harness or example needs repair before stabilizing manually. Only hand-edit an example as a last resort and document why in `process/failures.jsonl`.
 - Blog posts should capture important harness and app failures discovered during the phase.
 - Route new user-facing surfaces through shared channel/request handling instead of duplicating CLI execution paths.
+- Security-boundary features must be checked against the real external tool's documented semantics and, when available, a real integration run before the phase is marked complete.
 
 ## Required Loop
 
