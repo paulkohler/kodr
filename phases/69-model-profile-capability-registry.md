@@ -1,4 +1,4 @@
-# Phase 68: Model Profile And Capability Registry
+# Phase 69: Model Profile And Capability Registry
 
 ## Goal
 

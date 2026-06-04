@@ -1,10 +1,10 @@
-# Phase 67: Skill Code Execution
+# Phase 68: Skill Code Execution
 
 ## Goal
 
 Allow skills to provide executable helper scripts, gated by explicit permission.
 
-This is separate from Phase 64 resource references because executable skill
+This is separate from Phase 65 resource references because executable skill
 content changes the trust model. The model must treat skill scripts as
 untrusted project-adjacent code, and Kodr must never run them implicitly.
 
@@ -18,7 +18,12 @@ Add frontmatter metadata for skill commands:
 - allowed arguments schema or fixed argument list
 
 Execution must use the controlled-exec pattern, workspace/skill-directory jails,
-timeouts, artifact logging, and the TUI permission path from Phase 66.
+timeouts, artifact logging, and the TUI permission path from Phase 67.
+
+Executable skills must run through an active sandbox executor. Prefer the
+OpenShell backend from Phase 60 when configured, while retaining Docker as a
+supported fallback. Fail clearly instead of silently executing skill code on the
+host when no sandbox backend is active.
 
 ## Non-Goals
 
@@ -31,6 +36,8 @@ timeouts, artifact logging, and the TUI permission path from Phase 66.
 - [ ] Parse executable command metadata from `SKILL.md` frontmatter.
 - [ ] Expose command names/descriptions without exposing full script bodies.
 - [ ] Execute only declared, jailed commands after explicit approval.
+- [ ] Require an active sandbox executor; never silently execute skill code on
+      the host.
 - [ ] Record stdout/stderr as artifacts.
 - [ ] Add tests for approval, denial, timeout, and path traversal.
 - [ ] Record decisions and any failures.

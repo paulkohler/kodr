@@ -7,7 +7,7 @@ registry to the run/packing flow. Today the registry only powers the
 `inspect --registry` listing in `app.mjs`; it does not enrich any run.
 
 This closes the biggest capability gap versus Aider's repo-map. Combined with
-the Phase 60 budget, better ranking means the most relevant context in the
+the Phase 61 budget, better ranking means the most relevant context in the
 fewest tokens — exactly what small models need.
 
 ## Design
@@ -16,7 +16,7 @@ fewest tokens — exactly what small models need.
   weighting over the regex index) with a documented, deterministic score.
 - Let an available registry tool (e.g. tree-sitter) enrich the normalized index
   when present, falling back cleanly to the built-in inspector when not.
-- Feed the ranked output into the Phase 60 budget-aware packer.
+- Feed the ranked output into the Phase 61 budget-aware packer.
 
 ## Non-Goals
 

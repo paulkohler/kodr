@@ -1,6 +1,6 @@
-# Phase 75: Docker Sandbox
+# Phase 76: Docker Sandbox
 
-Phase 75 adds an opt-in Docker command boundary for Kodr runs.
+Phase 76 adds an opt-in Docker command boundary for Kodr runs.
 
 The important decision was to keep model calls and safe writes on the host for
 the first pass, while routing dependency installs, verification, and native
@@ -41,7 +41,7 @@ debug without loosening the default lifecycle for normal runs.
 ## Example Run
 
 After the phase landed, Kodr was pointed at a copied todo CLI example under
-`examples/phase-75/todo-cli-docker-kodr`. The task was to add a `clear` command
+`examples/phase-76/todo-cli-docker-kodr`. The task was to add a `clear` command
 and verify it with `npm test` inside Docker.
 
 The first useful failure was not Docker-related. Nemotron emitted duplicate

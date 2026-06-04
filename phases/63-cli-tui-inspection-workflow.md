@@ -1,4 +1,4 @@
-# Phase 62: CLI/TUI Inspection Workflow
+# Phase 63: CLI/TUI Inspection Workflow
 
 ## Goal
 
@@ -18,10 +18,10 @@ only adds the missing pieces:
 - TUI `/refs symbol`
 
 Do **not** add a `/context` slash command — it re-exposes the heavy context blob,
-matching the `inspect_context` tool dropped in Phase 61.
+matching the `inspect_context` tool dropped in Phase 62.
 
 Keep output line-oriented and dependency-free. Reuse the same built-in
-`inspectWorkspace` / `findReferences` engine as Phase 61 so model and human
+`inspectWorkspace` / `findReferences` engine as Phase 62 so model and human
 surfaces stay consistent.
 
 ## Non-Goals

@@ -1,4 +1,4 @@
-# Phase 71: Multi-Turn Self-Healing Loop
+# Phase 72: Multi-Turn Self-Healing Loop
 
 ## Goal
 
@@ -25,11 +25,11 @@ Wire the `workflow.mjs` / `cycles.mjs` loop to:
 - enforce a wall-clock timeout for the whole repair turn and write failure
   artifacts even when the model transport never returns
 
-Builds directly on the turn-forwarding wiring introduced in Phase 62.
+Builds directly on the turn-forwarding wiring introduced in Phase 63.
 
 ## Non-Goals
 
-- No git integration (that is Phase 73).
+- No git integration (that is Phase 74).
 - No new model providers or streaming changes.
 
 ## Done Criteria

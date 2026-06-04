@@ -1,4 +1,4 @@
-# Phase 77: OpenShell Sandbox Backend
+# Phase 60: OpenShell Sandbox Backend
 
 ## Goal
 
@@ -72,6 +72,9 @@ so reject snapshot symlinks that resolve outside the host workspace.
 `--docker-sandbox` remains the simple local baseline. `--openshell-sandbox` is a
 more capable optional backend for users who have OpenShell installed and want
 stronger policy primitives.
+
+The Docker executor work is already implemented and should be reused even
+though the completed Docker phase appears later in the reordered roadmap.
 
 Shared executor behavior should stay behind a common interface:
 

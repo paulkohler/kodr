@@ -1,10 +1,10 @@
-# Phase 69: Session Compaction And Summaries
+# Phase 70: Session Compaction And Summaries
 
 Session continuation originally sent the complete previous conversation back to
 the model on every turn. That is simple and faithful, but it eventually makes a
 long session unusable for a small local model.
 
-Phase 69 adds deterministic session compaction. When a continued transcript
+Phase 70 adds deterministic session compaction. When a continued transcript
 exceeds the configured character budget, Kodr keeps the frozen system prompt
 and the newest user-led turns, then replaces older turns with an extractive
 summary. The summary gathers user intent, constraints, changed file paths,
@@ -13,7 +13,7 @@ from existing artifacts.
 
 This phase deliberately uses characters rather than claiming exact token
 accounting. Kodr does not yet have the model-profile context-window data planned
-for Phase 68 or a provider-neutral tokenizer. The default budget is 48,000
+for Phase 69 or a provider-neutral tokenizer. The default budget is 48,000
 characters and `--session-context-chars` makes it explicit and testable.
 
 The artifact split matters:

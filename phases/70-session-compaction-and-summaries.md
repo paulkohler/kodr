@@ -1,4 +1,4 @@
-# Phase 69: Session Compaction And Summaries
+# Phase 70: Session Compaction And Summaries
 
 ## Goal
 
@@ -23,7 +23,7 @@ Prefer extractive summaries from existing artifacts where possible. If a model
 summary is used later, it must be clearly marked as model-generated and bounded.
 
 Use a character budget for this phase because Kodr does not yet have the
-model-profile context-window data planned in Phase 68 or a provider-neutral
+model-profile context-window data planned in Phase 69 or a provider-neutral
 tokenizer. The default is 48,000 characters and can be overridden with
 `--session-context-chars`.
 

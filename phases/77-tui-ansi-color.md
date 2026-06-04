@@ -1,4 +1,4 @@
-# Phase 76: TUI ANSI Color
+# Phase 77: TUI ANSI Color
 
 ## Goal
 

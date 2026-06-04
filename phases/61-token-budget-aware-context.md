@@ -1,4 +1,4 @@
-# Phase 60: Token-Budget-Aware Context Assembly
+# Phase 61: Token-Budget-Aware Context Assembly
 
 ## Goal
 
@@ -19,7 +19,7 @@ is hit, emitting a summary of what was dropped.
 - Reuse the Phase 41 token-usage machinery for counting.
 - Reuse the inspection chunk builder in `src/context-packer.mjs` for candidates.
 - Add an explicit context-window option with a conservative documented default.
-  Phase 68 can later source the same value from model profiles.
+  Phase 69 can later source the same value from model profiles.
 - Configurable reserve margin with a sane default.
 - Record the active window, reserve, packed estimate, and dropped estimate in
   run artifacts.

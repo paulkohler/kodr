@@ -1,4 +1,4 @@
-# Phase 66: Interactive TUI Permission Prompts
+# Phase 67: Interactive TUI Permission Prompts
 
 ## Goal
 

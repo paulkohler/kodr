@@ -1,4 +1,4 @@
-# Phase 64: Dependency Install Workflow
+# Phase 65: Dependency Install Workflow
 
 The Nemotron Postgres example reached the point where model quality and harness
 control were colliding.
@@ -8,7 +8,7 @@ and tests. Phase 58 then made sure the run failed when no verification happened.
 That was the correct failure, but it left the next practical gap: a generated
 Node app often cannot be tested until dependencies are installed.
 
-Phase 64 adds a controlled install step. `kodr run --install` runs after applied
+Phase 65 adds a controlled install step. `kodr run --install` runs after applied
 writes and before verification. It is not a shell escape and it is not a model
 tool for arbitrary package-manager commands. The allowlist accepts only
 `npm install` and `npm ci`; Kodr chooses `npm ci` when `package-lock.json`
@@ -41,12 +41,12 @@ now reach that failure itself rather than needing a human-driven install step.
 
 Take6 confirmed that. Install passed with `npm install`, verification ran, and
 `npm test` failed on `ReferenceError: describe is not defined`. That is the
-right failure boundary for Phase 64.
+right failure boundary for Phase 65.
 
 A manual Kodr repair attempt then exposed the next phase more clearly. The
 repair request was small, but the local model call stayed alive past the
 configured request timeout and only partial artifacts existed
-(`context.md`, `prompt.md`, and `raw-request.json`). Phase 71 needs to turn this
+(`context.md`, `prompt.md`, and `raw-request.json`). Phase 72 needs to turn this
 into a bounded repair loop: feed `tests.json` and the failing file into the next
 turn, keep the repair context narrow, and write timeout artifacts when a repair
 call hangs.

@@ -1,4 +1,4 @@
-# Phase 71: Multi-Turn Self-Healing Loop
+# Phase 72: Multi-Turn Self-Healing Loop
 
 Take6 finally reached the useful failure: install passed, verification ran, and
 the generated app failed because its tests used Jest globals instead of native
@@ -9,7 +9,7 @@ but the model call stayed alive beyond the configured timeout and left only
 partial artifacts. That is not a good repair loop; a failed repair turn needs to
 be bounded and inspectable.
 
-Phase 71 adds explicit `--heal` support. After an applied run fails
+Phase 72 adds explicit `--heal` support. After an applied run fails
 verification, Kodr can start a bounded repair loop. The repair context is narrow:
 it includes `tests.json`, the failing path from the stack trace, and nearby
 source such as the sibling implementation file for a failing test.

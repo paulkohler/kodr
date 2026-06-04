@@ -1,4 +1,4 @@
-# Phase 72: Undo/Redo Run Reverts
+# Phase 73: Undo/Redo Run Reverts
 
 ## Goal
 
@@ -17,7 +17,7 @@ Build on run artifacts and patch snapshots:
 - show what will change before applying the revert
 
 Prefer patch artifacts over git for the first pass so this works in repositories
-without clean git state. Phase 73 can later add git-aware boundaries.
+without clean git state. Phase 74 can later add git-aware boundaries.
 
 ## Non-Goals
 

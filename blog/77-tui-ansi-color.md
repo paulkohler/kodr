@@ -1,6 +1,6 @@
-# Phase 76: TUI ANSI Color
+# Phase 77: TUI ANSI Color
 
-Phase 76 adds zero-dependency ANSI color to `kodr tui`.
+Phase 77 adds zero-dependency ANSI color to `kodr tui`.
 
 The goal was not to build a theme system. It was to make simple terminal turns
 easier to scan: status and info in gray, success in green, warnings and pending

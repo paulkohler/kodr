@@ -1,4 +1,4 @@
-# Phase 73: Git-Aware Apply and Commit
+# Phase 74: Git-Aware Apply and Commit
 
 ## Goal
 
@@ -7,7 +7,7 @@ applied changes with a generated message.
 
 Auto-commit is a signature Aider feature and makes Kodr usable for real
 iterative work — clean per-turn commits and easy revert. It also gives the
-Phase 71 self-healing loop a natural rollback boundary.
+Phase 72 self-healing loop a natural rollback boundary.
 
 ## Design
 

@@ -62,24 +62,24 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 57 Persistent Planning Scratchpad
 - [x] 58 Staged Complex Execution
 - [x] 59 Ranked Repo-Map
-- [ ] 60 Token-Budget-Aware Context Assembly
-- [ ] 61 Inspector Tool Calls
-- [ ] 62 CLI/TUI Inspection Workflow
-- [ ] 63 Patch Planning From Inspection
-- [x] 64 Dependency Install Workflow
-- [ ] 65 Skill Resource References
-- [ ] 66 Interactive TUI Permission Prompts
-- [ ] 67 Skill Code Execution
-- [ ] 68 Model Profile And Capability Registry
-- [x] 69 Session Compaction And Summaries
-- [ ] 70 Self-Dev: Plan-Then-Execute Run
-- [x] 71 Multi-Turn Self-Healing Loop
-- [ ] 72 Undo/Redo Run Reverts
-- [ ] 73 Git-Aware Apply and Commit
-- [ ] 74 Optional LSP Adapter
-- [x] 75 Docker Sandbox
-- [x] 76 TUI ANSI Color
-- [ ] 77 OpenShell Sandbox Backend
+- [ ] 60 OpenShell Sandbox Backend
+- [ ] 61 Token-Budget-Aware Context Assembly
+- [ ] 62 Inspector Tool Calls
+- [ ] 63 CLI/TUI Inspection Workflow
+- [ ] 64 Patch Planning From Inspection
+- [x] 65 Dependency Install Workflow
+- [ ] 66 Skill Resource References
+- [ ] 67 Interactive TUI Permission Prompts
+- [ ] 68 Skill Code Execution
+- [ ] 69 Model Profile And Capability Registry
+- [x] 70 Session Compaction And Summaries
+- [ ] 71 Self-Dev: Plan-Then-Execute Run
+- [x] 72 Multi-Turn Self-Healing Loop
+- [ ] 73 Undo/Redo Run Reverts
+- [ ] 74 Git-Aware Apply and Commit
+- [ ] 75 Optional LSP Adapter
+- [x] 76 Docker Sandbox
+- [x] 77 TUI ANSI Color
 - [x] 78 Command Hooks And Stop Control
 - [x] 79 Hook Execution Hardening
 - [x] 80 Subagent Stage Orchestration

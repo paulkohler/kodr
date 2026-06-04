@@ -1,4 +1,4 @@
-# Phase 74: Optional LSP Adapter
+# Phase 75: Optional LSP Adapter
 
 ## Goal
 

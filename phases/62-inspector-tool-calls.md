@@ -1,4 +1,4 @@
-# Phase 61: Inspector Tool Calls
+# Phase 62: Inspector Tool Calls
 
 ## Goal
 
