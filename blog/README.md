@@ -43,5 +43,6 @@ This blog records the build as a learning sequence. Keep posts terse and concret
 37. [Phase 80: Subagent Stage Orchestration](./80-subagent-stage-orchestration.md)
 38. [Phase 81: Agent Progress Events And Start Hooks](./81-agent-progress-events-start-hooks.md)
 39. [Phase 82: Per-Agent Model Specs](./82-per-agent-model-specs.md)
+40. [Phase 83: Compact Subagent Handoffs And Verification](./83-compact-subagent-handoffs-verification.md)
 
 Future posts should track the roadmap phases and include what changed, why, how it failed, and how it was verified.

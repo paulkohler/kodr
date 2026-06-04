@@ -61,6 +61,23 @@ Supported subagent names are `planner`, `implementer`, and `reviewer`. Plain
 remain supported. `--agent-model` only applies when `--subagent-stages` is set;
 normal runs use the primary `--model`.
 
+Subagent stages use isolated conversations with compact handoffs. The planner
+passes a plan to the implementer once, Kodr applies the proposal, then Kodr runs
+requested dependency installation and verification before the reviewer starts.
+The reviewer receives a write manifest and verification result and reads only
+the files it needs to inspect.
+
+```sh
+./kodr run -p "Implement the feature" --subagent-stages \
+  --yes \
+  --install \
+  --test "npm test"
+```
+
+If `npm test` is requested for a generated native Node test suite that has no
+`package.json`, Kodr records the requested command and resolves verification to
+`node --test` instead of allowing npm to search a parent project.
+
 ### Dry-Run A Task
 
 Dry-run is the default. Kodr asks the model for a proposal, records artifacts,

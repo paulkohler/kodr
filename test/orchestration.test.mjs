@@ -95,6 +95,14 @@ describe('subagent stage orchestration', () => {
 				await readFile(join(runDir, 'implementer', 'proposal.json'), 'utf8'),
 			);
 			assert.equal(proposal.messages[0].content, 'implemented greet');
+			const request = JSON.parse(
+				await readFile(join(runDir, 'implementer', 'request.json'), 'utf8'),
+			);
+			assert.doesNotMatch(
+				request.messages[0].content,
+				/Create src\/greet\.mjs/u,
+			);
+			assert.match(request.messages[1].content, /Create src\/greet\.mjs/u);
 		} finally {
 			await server.close();
 		}
@@ -122,12 +130,11 @@ describe('subagent stage orchestration', () => {
 				'reviewer: run tests after',
 				'Create src/greet.mjs',
 				{
-					files: [
-						{
-							path: 'src/greet.mjs',
-							content: 'export const greet = () => "hi";\n',
-						},
-					],
+					verification: null,
+					writeResult: {
+						applied: true,
+						writes: [{ path: 'src/greet.mjs', status: 'create' }],
+					},
 				},
 				options(server),
 			);
@@ -137,6 +144,15 @@ describe('subagent stage orchestration', () => {
 				await readFile(join(runDir, 'reviewer', 'request.json'), 'utf8'),
 			);
 			assert.match(request.messages[1].content, /run tests after/u);
+			assert.doesNotMatch(
+				request.messages[0].content,
+				/Create src\/greet\.mjs/u,
+			);
+			assert.match(request.messages[1].content, /src\/greet\.mjs/u);
+			assert.equal(
+				request.tools.some((tool) => tool.function.name === 'run_command'),
+				false,
+			);
 		} finally {
 			await server.close();
 		}
@@ -303,6 +319,125 @@ describe('subagent stage orchestration', () => {
 		}
 	});
 
+	it('runs deterministic verification and hands a compact result to the reviewer', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-verification-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create test/greet.test.mjs'),
+				chatText(
+					JSON.stringify({
+						files: [
+							{
+								content:
+									'import test from "node:test";\nimport assert from "node:assert/strict";\ntest("ok", () => assert.equal(1, 1));\n',
+								path: 'test/greet.test.mjs',
+							},
+						],
+						status: 'OK',
+					}),
+				),
+				chatText(
+					JSON.stringify({
+						pass: true,
+						issues: [],
+						summary: 'Verified.',
+					}),
+				),
+			],
+		});
+
+		try {
+			const result = await runSubagentStages(cwd, runDir, 'Add a test.', {
+				...options(server),
+				testCommand: 'npm test',
+				yes: true,
+			});
+
+			assert.equal(result.ok, true);
+			assert.equal(result.tested, true);
+			assert.equal(result.testResult.ok, true);
+			assert.equal(result.verification.requestedCommand, 'npm test');
+			assert.equal(result.verification.resolvedCommand, 'node --test');
+			const reviewerRequest = JSON.parse(
+				await readFile(
+					join(runDir, 'subagents', 'reviewer', 'request.json'),
+					'utf8',
+				),
+			);
+			assert.match(reviewerRequest.messages[1].content, /node --test/u);
+			assert.doesNotMatch(
+				reviewerRequest.messages[1].content,
+				/import test from/u,
+			);
+			assert.equal(
+				reviewerRequest.tools.some(
+					(tool) => tool.function.name === 'run_command',
+				),
+				false,
+			);
+			const tests = JSON.parse(
+				await readFile(join(runDir, 'tests.json'), 'utf8'),
+			);
+			assert.equal(tests.resolvedCommand, 'node --test');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runs dependency installation before verification', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-install-'));
+		const commands = [];
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create package.json'),
+				chatText(
+					JSON.stringify({
+						files: [
+							{
+								content: '{"scripts":{"test":"node --test"},"type":"module"}\n',
+								path: 'package.json',
+							},
+						],
+						status: 'OK',
+					}),
+				),
+				chatText(
+					JSON.stringify({
+						pass: true,
+						issues: [],
+						summary: 'Verified.',
+					}),
+				),
+			],
+		});
+
+		try {
+			const result = await runSubagentStages(cwd, runDir, 'Add a package.', {
+				...options(server),
+				commandRunner: async (_cwd, parsed) => {
+					commands.push(`${parsed.bin} ${parsed.args.join(' ')}`);
+					return {
+						exitCode: 0,
+						stderr: '',
+						stdout: 'ok',
+						timedOut: false,
+					};
+				},
+				installDependencies: true,
+				testCommand: 'npm test',
+				yes: true,
+			});
+
+			assert.deepEqual(commands, ['npm install', 'npm test']);
+			assert.equal(result.installResult.ok, true);
+			assert.equal(result.testResult.ok, true);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('surfaces reviewer failure without throwing', async () => {
 		const cwd = await makeWorkspace();
 		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-review-fail-'));
@@ -398,12 +533,17 @@ describe('subagent stage orchestration', () => {
 				'Add greet.',
 				'Create src/greet.mjs',
 				{
-					files: [
-						{
-							content: 'export const greet = () => "hi";\n',
-							path: 'src/greet.mjs',
-						},
-					],
+					verification: null,
+					writeResult: {
+						applied: false,
+						writes: [
+							{
+								diff: '+export const greet = () => "hi";',
+								path: 'src/greet.mjs',
+								status: 'create',
+							},
+						],
+					},
 				},
 				options(server),
 			);

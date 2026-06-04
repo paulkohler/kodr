@@ -1,4 +1,4 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { access, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { writeJson, writeText } from './artifacts.mjs';
 import {
@@ -6,6 +6,7 @@ import {
 	renderContextMarkdown,
 } from './context-packer.mjs';
 import { extractJson, extractProposal } from './json-extractor.mjs';
+import { runDependencyInstall } from './dependency-installer.mjs';
 import { emitProgress, runStartHook } from './progress.mjs';
 import { prepareChanges } from './safe-writes.mjs';
 import {
@@ -19,6 +20,10 @@ import {
 } from './tool-calls.mjs';
 import { listContextFiles } from './context-packer.mjs';
 import { jailedPath } from './safe-writes.mjs';
+import {
+	resolveVerificationCommand,
+	runVerification,
+} from './verification-runner.mjs';
 
 const AGENTS = ['planner', 'implementer', 'reviewer'];
 
@@ -79,12 +84,42 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 		writeResult = { applied: false, error: writeError, writes: [] };
 	}
 
+	const verificationRoot = await orchestrationVerificationCwd(cwd, options);
+	const installResult =
+		options.installDependencies &&
+		options.yes &&
+		!writeError &&
+		(await fileExists(join(verificationRoot, 'package.json')))
+			? await runDependencyInstall(verificationRoot, {
+					runner: commandRunner,
+					timeoutMs: options.timeoutMs,
+				})
+			: null;
+	const runError =
+		installResult && !installResult.ok
+			? {
+					message: `Dependency install failed: ${installResult.command}`,
+					name: 'DependencyInstallError',
+				}
+			: null;
+	const verification = await runOrchestrationVerification(
+		verificationRoot,
+		options,
+		commandRunner,
+		writeError || runError,
+	);
+	await writeJson(join(runDir, 'install.json'), installResult);
+	await writeJson(join(runDir, 'tests.json'), verification?.result || null);
+
 	const reviewer = await runReviewerAgent(
 		cwd,
 		join(subagentRoot, 'reviewer'),
 		prompt,
 		planner.plan,
-		implementer.proposal,
+		{
+			verification,
+			writeResult,
+		},
 		{
 			...options,
 			commandRunner,
@@ -119,9 +154,15 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 				provider: reviewer.provider,
 			},
 		},
-		ok: !writeError && reviewer.review.pass,
+		install: installResult,
+		ok:
+			!writeError &&
+			!runError &&
+			(!verification?.result || verification.result.ok) &&
+			reviewer.review.pass,
 		plan: planner.plan,
 		review: reviewer.review,
+		verification,
 		writeCount: writeResult.writes.length,
 	};
 	await writeJson(join(runDir, 'orchestration.json'), orchestration);
@@ -156,7 +197,11 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 		response: implementer.completion.text,
 		responses,
 		review: reviewer.review,
-		tested: false,
+		installResult,
+		runError,
+		tested: Boolean(verification?.result),
+		testResult: verification?.result || null,
+		verification,
 		writeCount: writeResult.writes.length,
 		writeError,
 		writeResult,
@@ -209,10 +254,7 @@ export async function runImplementerAgent(
 	agentOptions,
 ) {
 	const activeOptions = optionsForAgent(agentOptions, 'implementer');
-	const systemPrompt = await buildAgentSystemPrompt('implementer', [
-		'## Plan',
-		plan,
-	]);
+	const systemPrompt = await buildAgentSystemPrompt('implementer');
 	const userPrompt = renderAgentUserPrompt('implementer', prompt, [
 		'## Workspace context',
 		renderContextMarkdown(workspaceContext),
@@ -250,29 +292,20 @@ export async function runReviewerAgent(
 	subDir,
 	prompt,
 	plan,
-	proposal,
+	reviewContext,
 	agentOptions,
 ) {
 	const activeOptions = optionsForAgent(agentOptions, 'reviewer');
-	const systemPrompt = await buildAgentSystemPrompt('reviewer', [
-		'## Plan',
-		plan,
-		'## Proposed writes',
-		JSON.stringify(proposal || { files: [], patches: [] }, null, 2),
-	]);
+	const systemPrompt = await buildAgentSystemPrompt('reviewer');
 	const userPrompt = renderAgentUserPrompt('reviewer', prompt, [
 		'## Plan',
 		plan,
-		'## Proposed writes',
-		JSON.stringify(proposal || { files: [], patches: [] }, null, 2),
-		activeOptions.testCommand
-			? `## Test command\nUse run_command with: ${activeOptions.testCommand}`
-			: '',
+		'## Write manifest',
+		renderWriteManifest(reviewContext?.writeResult),
+		'## Verification',
+		renderVerificationHandoff(reviewContext?.verification),
 	]);
-	const registry = createBuiltinRegistry(cwd, {
-		commandRunner: activeOptions.commandRunner || null,
-		hooks: activeOptions.hooks || null,
-	});
+	const registry = createReadOnlyRegistry(cwd);
 	const completion = await runAgentCompletion({
 		agentName: 'reviewer',
 		agentOptions: {
@@ -429,6 +462,98 @@ function renderAgentUserPrompt(agentName, prompt, sections = []) {
 	]
 		.filter(Boolean)
 		.join('\n\n');
+}
+
+async function runOrchestrationVerification(
+	cwd,
+	options,
+	commandRunner,
+	blockingError,
+) {
+	if (!options.testCommand || !options.yes || blockingError) {
+		return null;
+	}
+	const resolved = await resolveVerificationCommand(cwd, options.testCommand);
+	const result = await runVerification(cwd, resolved.command, {
+		runner: commandRunner,
+		timeoutMs: options.timeoutMs,
+	});
+	return {
+		reason: resolved.reason,
+		requestedCommand: resolved.requestedCommand,
+		resolvedCommand: resolved.command,
+		result: {
+			...result,
+			reason: resolved.reason,
+			requestedCommand: resolved.requestedCommand,
+			resolvedCommand: resolved.command,
+		},
+	};
+}
+
+async function orchestrationVerificationCwd(cwd, options) {
+	if (!options.testCwd) {
+		return cwd;
+	}
+	return (await jailedPath(cwd, options.testCwd)).absolute;
+}
+
+function renderWriteManifest(writeResult) {
+	const writes = writeResult?.writes || [];
+	if (writes.length === 0) {
+		return 'No writes were prepared.';
+	}
+	const manifest = writes.map((write) => ({
+		path: write.path,
+		status: write.status,
+		...(writeResult.applied ? {} : { diff: capText(write.diff, 4000) }),
+	}));
+	return JSON.stringify(
+		{
+			applied: writeResult.applied,
+			writes: manifest,
+		},
+		null,
+		2,
+	);
+}
+
+function renderVerificationHandoff(verification) {
+	if (!verification?.result) {
+		return 'No deterministic verification command ran.';
+	}
+	const result = verification.result;
+	return JSON.stringify(
+		{
+			command: result.command,
+			ok: result.ok,
+			exitCode: result.exitCode,
+			timedOut: result.timedOut,
+			requestedCommand: verification.requestedCommand,
+			resolvedCommand: verification.resolvedCommand,
+			reason: verification.reason,
+			stdout: capText(result.stdout, 2000),
+			stderr: capText(result.stderr, 2000),
+		},
+		null,
+		2,
+	);
+}
+
+function capText(value, maxChars) {
+	if (typeof value !== 'string' || value.length <= maxChars) {
+		return value || '';
+	}
+	return `${value.slice(0, maxChars)}\n...[truncated]`;
+}
+
+async function fileExists(path) {
+	try {
+		await access(path);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 function createReadOnlyRegistry(cwd) {

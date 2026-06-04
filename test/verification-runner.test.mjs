@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	parseVerificationCommand,
+	resolveVerificationCommand,
 	runVerification,
 	VerificationError,
 } from '../src/verification-runner.mjs';
@@ -69,6 +70,22 @@ describe('verification runner', () => {
 		assert.equal(result.exitCode, null);
 		assert.match(result.stderr, /requires package\.json/u);
 		assert.match(result.stderr, /parent package/u);
+	});
+
+	it('resolves npm verification to native Node tests when package.json is absent', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-resolve-node-'));
+		await mkdir(join(cwd, 'test'));
+		await writeFile(
+			join(cwd, 'test', 'example.test.mjs'),
+			'export {};\n',
+			'utf8',
+		);
+
+		const resolved = await resolveVerificationCommand(cwd, 'npm test');
+
+		assert.equal(resolved.requestedCommand, 'npm test');
+		assert.equal(resolved.command, 'node --test');
+		assert.match(resolved.reason, /native Node tests/u);
 	});
 
 	it('times out long-running allowlisted commands', async () => {

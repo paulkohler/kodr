@@ -1402,10 +1402,12 @@ async function runPrompt(options, io) {
 					rawResponse: 'raw-response.json',
 					docker: 'docker.json',
 					hooks: 'hooks.json',
+					install: 'install.json',
 					response: 'response.md',
 					orchestration: 'orchestration.json',
 					summary: 'summary.json',
 					tasks: 'tasks.json',
+					tests: 'tests.json',
 					writes: 'writes.json',
 				},
 				baseUrl: options.baseUrl,
@@ -1423,14 +1425,21 @@ async function runPrompt(options, io) {
 				review: orchestrationResult.review,
 				sessionId: basename(runDir),
 				subagentStages: true,
-				tested: false,
+				tested: orchestrationResult.tested,
 				timestamp: new Date().toISOString(),
 				usage: usageFromBudget(orchestrationResult.loopBudget),
+				verification: orchestrationResult.verification,
 				workspaceFileCount: context.files.length,
 				writeCount: orchestrationResult.writeCount,
 			};
 			if (orchestrationResult.writeError) {
 				summary.writeError = orchestrationResult.writeError;
+			}
+			if (orchestrationResult.runError) {
+				summary.runError = orchestrationResult.runError;
+			}
+			if (orchestrationResult.installResult) {
+				summary.installed = orchestrationResult.installResult.ok;
 			}
 			taskPlan = updateTasksFromRun(taskPlan, summary);
 			summary.taskCounts = taskCounts(taskPlan);
@@ -1460,12 +1469,14 @@ async function runPrompt(options, io) {
 
 			return {
 				...summary,
+				installResult: orchestrationResult.installResult,
 				proposal: orchestrationResult.proposal,
 				response: orchestrationResult.response,
 				responsePath,
 				runDir,
 				review: orchestrationResult.review,
 				taskPlan,
+				testResult: orchestrationResult.testResult,
 				writeResult: orchestrationResult.writeResult,
 			};
 		}

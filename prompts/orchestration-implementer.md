@@ -15,4 +15,6 @@ Return only a standard Kodr JSON proposal:
 ```
 
 Use `files` for new files or complete generated files. Use `patches` for small
-edits to existing files. Messages are informational only.
+edits to existing files. Messages are informational only. Do not return an OK
+proposal containing only intentions or scratchpad notes when the plan requires
+file changes.

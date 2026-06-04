@@ -1710,6 +1710,18 @@ describe('run', () => {
 				),
 			);
 			assert.equal(orchestration.agents.reviewer.pass, true);
+			assert.equal(
+				JSON.parse(
+					await readFile(join(result.result.runDir, 'install.json'), 'utf8'),
+				),
+				null,
+			);
+			assert.equal(
+				JSON.parse(
+					await readFile(join(result.result.runDir, 'tests.json'), 'utf8'),
+				),
+				null,
+			);
 			const reviewerRequest = JSON.parse(
 				await readFile(
 					join(result.result.runDir, 'subagents', 'reviewer', 'request.json'),

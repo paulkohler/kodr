@@ -114,6 +114,27 @@ export async function runVerification(cwd, command, options = {}) {
 	return summary;
 }
 
+export async function resolveVerificationCommand(cwd, command) {
+	const parsed = parseVerificationCommand(command);
+	if (
+		parsed.bin === 'npm' &&
+		!(await fileExists(join(cwd, 'package.json'))) &&
+		(await hasTestFiles(cwd))
+	) {
+		return {
+			command: 'node --test',
+			reason:
+				'Requested npm verification requires package.json; using native Node tests found in the workspace.',
+			requestedCommand: command,
+		};
+	}
+	return {
+		command,
+		reason: '',
+		requestedCommand: command,
+	};
+}
+
 async function fileExists(path) {
 	try {
 		await access(path);
