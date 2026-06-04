@@ -30,3 +30,7 @@ context.
 The summary is injected as explicitly untrusted historical user context. It is
 not a system message, because prior user, assistant, tool, and artifact text
 must not gain higher instruction priority through compaction.
+
+Kodr also never truncates the current user turn to force it under budget. If the
+frozen system prompt and active request are themselves too large, the summary
+artifact records `overflowChars` so the limit breach is visible.

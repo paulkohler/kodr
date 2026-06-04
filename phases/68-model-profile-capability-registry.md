@@ -24,7 +24,9 @@ Profiles should include:
 - recommended response-envelope mode
 
 Use the profile when assembling context, setting request timeouts, and deciding
-whether native tools are available.
+whether native tools are available. Derive the default session compaction budget
+from the active profile while preserving `--session-context-chars` as an
+explicit override.
 
 ## Non-Goals
 
@@ -36,6 +38,8 @@ whether native tools are available.
 
 - [ ] Add model profile loading with local defaults and config overrides.
 - [ ] Use profiles for context budget and timeout defaults.
+- [ ] Use profiles for the default session compaction budget without overriding
+      an explicit CLI value.
 - [ ] Expose active profile in run/session metadata.
 - [ ] Add tests for default, override, and unknown-model fallback.
 - [ ] Record decisions and any failures.

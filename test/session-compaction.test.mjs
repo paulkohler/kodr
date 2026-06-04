@@ -58,6 +58,23 @@ describe('session compaction', () => {
 		assert.match(result.messages[1].content, /src\/app\.mjs/u);
 		assert.equal(result.messages.at(-1).content, 'Now add validation.');
 		assert.ok(result.summary.packedChars <= 1000);
+		assert.equal(result.summary.overflowChars, 0);
+	});
+
+	it('retains an oversized current user turn and records budget overflow', () => {
+		const currentPrompt = 'z'.repeat(2000);
+		const result = compactSessionConversation(
+			[
+				{ role: 'system', content: 'system' },
+				{ role: 'user', content: 'old turn' },
+				{ role: 'assistant', content: 'old answer' },
+				{ role: 'user', content: currentPrompt },
+			],
+			{ budgetChars: 1000 },
+		);
+
+		assert.equal(result.messages.at(-1).content, currentPrompt);
+		assert.ok(result.summary.overflowChars > 0);
 	});
 
 	it('extracts bounded summary sections from messages and evidence', () => {

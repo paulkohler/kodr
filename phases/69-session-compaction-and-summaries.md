@@ -36,6 +36,10 @@ Inject the summary as explicitly untrusted historical user context. It contains
 prior user, assistant, tool, and artifact text and must not be promoted to
 system-message authority.
 
+Always retain the current user-led turn. If that turn and the frozen system
+prompt cannot fit within the budget, record `overflowChars` rather than
+truncating the current request.
+
 ## Non-Goals
 
 - No vector database.

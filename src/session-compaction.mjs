@@ -77,6 +77,7 @@ export function compactSessionConversation(messages, options = {}) {
 				compacted: false,
 				droppedMessageCount: 0,
 				keptMessageCount: messages.length,
+				overflowChars: Math.max(0, sourceChars - budgetChars),
 				packedChars: sourceChars,
 			},
 		};
@@ -114,6 +115,10 @@ export function compactSessionConversation(messages, options = {}) {
 			compacted: true,
 			droppedMessageCount: messages.length - (system ? 1 : 0) - kept.length,
 			keptMessageCount: compactedMessages.length,
+			overflowChars: Math.max(
+				0,
+				countMessageChars(compactedMessages) - budgetChars,
+			),
 			packedChars: countMessageChars(compactedMessages),
 		},
 	};
@@ -139,6 +144,11 @@ export function createSessionSummary(messages, evidence = {}, metadata = {}) {
 		droppedMessageCount: 0,
 		kind: 'deterministic-extractive',
 		keptMessageCount: messages.length,
+		overflowChars: Math.max(
+			0,
+			(metadata.sourceChars || countMessageChars(messages)) -
+				(metadata.budgetChars || DEFAULT_SESSION_CONTEXT_CHARS),
+		),
 		packedChars: metadata.sourceChars || countMessageChars(messages),
 		sessionId: metadata.sessionId || '',
 		sourceChars: metadata.sourceChars || countMessageChars(messages),
