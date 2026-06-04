@@ -203,6 +203,22 @@ describe('parseArgs', () => {
 		assert.equal(latest.continueSession, true);
 	});
 
+	it('parses session context budget', () => {
+		const options = parseArgs([
+			'run',
+			'--session-context-chars',
+			'12000',
+			'-p',
+			'task',
+		]);
+
+		assert.equal(options.sessionContextChars, 12000);
+		assert.throws(
+			() => parseArgs(['run', '--session-context-chars', '999', '-p', 'task']),
+			/--session-context-chars/u,
+		);
+	});
+
 	it('parses session export flags', () => {
 		const options = parseArgs([
 			'session',
@@ -505,6 +521,7 @@ describe('run', () => {
 			assert.deepEqual(summary.artifacts, {
 				context: 'context.md',
 				conversation: 'conversation.json',
+				conversationRaw: 'conversation-raw.json',
 				messages: 'messages.json',
 				prompt: 'prompt.md',
 				rawRequest: 'raw-request.json',
@@ -514,6 +531,7 @@ describe('run', () => {
 				repairs: 'repairs/repairs.json',
 				response: 'response.md',
 				scratchpad: 'scratchpad.md',
+				sessionSummary: 'session-summary.json',
 				summary: 'summary.json',
 				install: 'install.json',
 				tasks: 'tasks.json',
@@ -3422,6 +3440,136 @@ describe('session continuation', () => {
 			);
 			assert.equal(summary.sessionId, sessionId);
 			assert.equal(summary.parentRunDir, parentDir);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('compacts oversized continuation context while preserving the raw transcript', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'First answer.', role: 'assistant' },
+							},
+						],
+						id: 'r1',
+						object: 'chat.completion',
+					},
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Second answer.', role: 'assistant' },
+							},
+						],
+						id: 'r2',
+						object: 'chat.completion',
+					},
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Third answer.', role: 'assistant' },
+							},
+						],
+						id: 'r3',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-session-compact-'));
+			const longPrompt = `Build the feature. Must use ESM.\n${'detail '.repeat(5000)}`;
+			await firstRun(server, cwd, longPrompt);
+
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Now add tests.',
+					'--continue',
+					'--session-context-chars',
+					'12000',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+
+			const conversation = JSON.parse(
+				await readFile(join(result.result.runDir, 'conversation.json'), 'utf8'),
+			);
+			const rawConversation = JSON.parse(
+				await readFile(
+					join(result.result.runDir, 'conversation-raw.json'),
+					'utf8',
+				),
+			);
+			const sessionSummary = JSON.parse(
+				await readFile(
+					join(result.result.runDir, 'session-summary.json'),
+					'utf8',
+				),
+			);
+			const request = server.recordings.filter(
+				(recording) => recording.url === '/v1/chat/completions',
+			)[1].requestBody;
+
+			assert.equal(sessionSummary.compacted, true);
+			assert.ok(sessionSummary.droppedMessageCount > 0);
+			assert.match(conversation[1].content, /Deterministic Session Summary/u);
+			assert.deepEqual(request.messages, conversation.slice(0, -1));
+			assert.ok(
+				rawConversation.some((message) => message.content === longPrompt),
+			);
+			assert.equal(rawConversation.at(-1).content, 'Second answer.');
+			assert.ok(rawConversation.length > conversation.length);
+
+			const third = await main(
+				[
+					'run',
+					'-p',
+					'One more change.',
+					'--continue',
+					'--session-context-chars',
+					'12000',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+			const thirdSummary = JSON.parse(
+				await readFile(
+					join(third.result.runDir, 'session-summary.json'),
+					'utf8',
+				),
+			);
+			assert.match(thirdSummary.sections.userIntent[0], /Build the feature/u);
 		} finally {
 			await server.close();
 		}

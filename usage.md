@@ -410,6 +410,17 @@ Continue a specific session:
 ./kodr run -p "Tighten the error message" --session <session-id>
 ```
 
+Continued sessions are compacted when the model-facing transcript exceeds
+48,000 characters. Override the deterministic character budget when needed:
+
+```sh
+./kodr run -p "Continue the work" --continue --session-context-chars 24000
+```
+
+Compaction preserves the frozen system prompt and recent user-led turns. Older
+turns are replaced by an extractive summary built from the transcript and run
+artifacts. Raw transcripts remain available in `conversation-raw.json`.
+
 List, show, or export sessions:
 
 ```sh
@@ -621,6 +632,8 @@ Kodr writes run artifacts under `.kodr/runs/<run-id>/`. Common files include:
 
 - `summary.json`
 - `conversation.json`
+- `conversation-raw.json`
+- `session-summary.json`
 - `raw-request.json`
 - `raw-response.json`
 - `context.md`

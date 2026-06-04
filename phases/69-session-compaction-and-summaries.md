@@ -22,6 +22,20 @@ Add deterministic session compaction that summarizes:
 Prefer extractive summaries from existing artifacts where possible. If a model
 summary is used later, it must be clearly marked as model-generated and bounded.
 
+Use a character budget for this phase because Kodr does not yet have the
+model-profile context-window data planned in Phase 68 or a provider-neutral
+tokenizer. The default is 48,000 characters and can be overridden with
+`--session-context-chars`.
+
+`conversation.json` records the compact model-facing transcript.
+`conversation-raw.json` records the complete transcript chain and is preferred
+when loading the next continuation. `session-summary.json` records the
+deterministic extractive summary and compaction metadata.
+
+Inject the summary as explicitly untrusted historical user context. It contains
+prior user, assistant, tool, and artifact text and must not be promoted to
+system-message authority.
+
 ## Non-Goals
 
 - No vector database.
@@ -30,11 +44,11 @@ summary is used later, it must be clearly marked as model-generated and bounded.
 
 ## Done Criteria
 
-- [ ] Add a compact session summary artifact.
-- [ ] Inject compact summaries into continued sessions when transcript budget is
+- [x] Add a compact session summary artifact.
+- [x] Inject compact summaries into continued sessions when transcript budget is
       exceeded.
-- [ ] Preserve raw transcripts separately.
-- [ ] Add tests for compaction triggers and injected summary shape.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Preserve raw transcripts separately.
+- [x] Add tests for compaction triggers and injected summary shape.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.

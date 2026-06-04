@@ -69,6 +69,12 @@ import {
 	scanRunHistory,
 	scanSessions,
 } from './run-history.mjs';
+import {
+	appendCompletionToRawConversation,
+	compactSessionConversation,
+	DEFAULT_SESSION_CONTEXT_CHARS,
+	loadSessionEvidence,
+} from './session-compaction.mjs';
 import { runTui } from './tui.mjs';
 import { VERSION } from './version.mjs';
 
@@ -132,6 +138,7 @@ export function parseArgs(argv, env = {}) {
 		promptId: '',
 		promptHistoryId: '',
 		sessionId: '',
+		sessionContextChars: DEFAULT_SESSION_CONTEXT_CHARS,
 		sessionFormat: 'markdown',
 		sessionSubcommand: '',
 		serveHost: DEFAULT_SERVE_HOST,
@@ -310,6 +317,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '--max-tokens' ||
 			arg === '--max-turns' ||
 			arg === '--session' ||
+			arg === '--session-context-chars' ||
 			arg === '--host' ||
 			arg === '--port' ||
 			arg === '--symbol' ||
@@ -406,6 +414,7 @@ export function parseArgs(argv, env = {}) {
 		);
 	}
 	validateLoopBudgetOptions(options);
+	validateSessionOptions(options);
 	validateServeOptions(options);
 	validateDockerOptions(options);
 
@@ -440,6 +449,17 @@ function validateLoopBudgetOptions(options) {
 			Number(options.maxCostUsd) < 0)
 	) {
 		throw new CliError('--max-cost-usd must be a non-negative number');
+	}
+}
+
+function validateSessionOptions(options) {
+	if (
+		!Number.isInteger(options.sessionContextChars) ||
+		options.sessionContextChars < 1000
+	) {
+		throw new CliError(
+			'--session-context-chars must be an integer greater than or equal to 1000',
+		);
 	}
 }
 
@@ -509,6 +529,9 @@ Local-model defaults:
                        Optional provider/model thinking-token cap.
   --max-tokens N       Optional total token budget from model usage
   --max-cost-usd N     Optional cost budget when the provider reports USD usage
+  --session-context-chars N
+                       Compact continued session context above this character budget.
+                       Default: ${DEFAULT_SESSION_CONTEXT_CHARS}
 
 OpenRouter:
   --openrouter         Use OpenRouter as the provider (base URL: ${OPENROUTER_BASE_URL})
@@ -1150,6 +1173,8 @@ function assignValue(options, flag, value) {
 		options.promptId = value;
 	} else if (flag === '--session') {
 		options.sessionId = value;
+	} else if (flag === '--session-context-chars') {
+		options.sessionContextChars = Number(value);
 	} else if (flag === '--skill') {
 		options.skills.push(value);
 	} else if (flag === '--suite') {
@@ -1293,13 +1318,23 @@ async function runPrompt(options, io) {
 	let memory;
 	let context;
 	let initialMessages;
+	let rawInitialMessages;
+	let sessionCompaction = null;
 
 	if (parent) {
 		// Continuation: freeze the system prompt from the parent transcript.
-		// The parent conversation ends with the model's last reply; append the new
-		// user turn and hand the whole history to the completion function.
+		// The parent raw conversation ends with the model's last reply. Append the
+		// new user turn, then compact only the model-facing copy when needed.
 		const parentMessages = parent.conversation;
-		initialMessages = [...parentMessages, { role: 'user', content: prompt }];
+		rawInitialMessages = [...parentMessages, { role: 'user', content: prompt }];
+		const evidence = await loadSessionEvidence(io.cwd, parent.sessionId);
+		sessionCompaction = compactSessionConversation(rawInitialMessages, {
+			budgetChars: options.sessionContextChars,
+			evidence,
+			sessionId: parent.sessionId,
+			sourceRunDir: parent.runDir,
+		});
+		initialMessages = sessionCompaction.messages;
 		// Build a minimal context for artifacts (context.md, workspaceFileCount).
 		memory = await loadMemory(io.cwd);
 		skills = await loadSkills(io.cwd, options.skills);
@@ -1321,6 +1356,7 @@ async function runPrompt(options, io) {
 			{ role: 'system', content: context.systemPrompt },
 			{ role: 'user', content: prompt },
 		];
+		rawInitialMessages = initialMessages;
 	}
 
 	const registry = options.tools
@@ -1573,6 +1609,7 @@ async function runPrompt(options, io) {
 		artifacts: {
 			context: 'context.md',
 			conversation: 'conversation.json',
+			conversationRaw: 'conversation-raw.json',
 			messages: 'messages.json',
 			prompt: 'prompt.md',
 			rawRequest: 'raw-request.json',
@@ -1582,6 +1619,7 @@ async function runPrompt(options, io) {
 			response: 'response.md',
 			repairs: 'repairs/repairs.json',
 			scratchpad: 'scratchpad.md',
+			sessionSummary: 'session-summary.json',
 			summary: 'summary.json',
 			install: 'install.json',
 			tasks: 'tasks.json',
@@ -1599,6 +1637,7 @@ async function runPrompt(options, io) {
 		promptId,
 		responseChars: completion.text.length,
 		responseCount: completion.responses.length,
+		sessionCompaction: sessionCompaction?.summary || null,
 		sessionId,
 		timestamp: new Date().toISOString(),
 		usage: usageFromBudget(completion.loopBudget),
@@ -1633,7 +1672,13 @@ async function runPrompt(options, io) {
 		};
 
 		await writeText(responsePath, completion.text);
-		await writeJson(join(runDir, 'conversation.json'), completion.messages);
+		await writeConversationArtifacts(
+			runDir,
+			completion.messages,
+			rawInitialMessages,
+			initialMessages,
+			sessionCompaction,
+		);
 		await writeJson(join(runDir, 'messages.json'), []);
 		await writeText(join(runDir, 'scratchpad.md'), '');
 		await writeJson(join(runDir, 'raw-response.json'), {
@@ -1779,7 +1824,13 @@ async function runPrompt(options, io) {
 	summary.taskCounts = taskCounts(taskPlan);
 
 	await writeText(responsePath, completion.text);
-	await writeJson(join(runDir, 'conversation.json'), completion.messages);
+	await writeConversationArtifacts(
+		runDir,
+		completion.messages,
+		rawInitialMessages,
+		initialMessages,
+		sessionCompaction,
+	);
 	await writeJson(join(runDir, 'messages.json'), proposalMessages);
 	await writeText(join(runDir, 'scratchpad.md'), scratchpad);
 	await writeJson(join(runDir, 'raw-response.json'), {
@@ -2426,6 +2477,26 @@ async function verificationCwd(cwd, options) {
 	return testCwd.absolute;
 }
 
+async function writeConversationArtifacts(
+	runDir,
+	completedMessages,
+	rawInitialMessages,
+	sentInitialMessages,
+	sessionCompaction,
+) {
+	const rawConversation = appendCompletionToRawConversation(
+		rawInitialMessages,
+		sentInitialMessages,
+		completedMessages,
+	);
+	await writeJson(join(runDir, 'conversation.json'), completedMessages);
+	await writeJson(join(runDir, 'conversation-raw.json'), rawConversation);
+	await writeJson(
+		join(runDir, 'session-summary.json'),
+		sessionCompaction?.summary || null,
+	);
+}
+
 // Resolve a parent session for --continue or --session <id>.
 // Returns { conversation, model, runDir, sessionId } or null for a fresh run.
 async function resolveParentSession(options, cwd) {
@@ -2461,9 +2532,7 @@ async function resolveParentSession(options, cwd) {
 	let conversation;
 	try {
 		summary = JSON.parse(await readFile(join(runDir, 'summary.json'), 'utf8'));
-		conversation = JSON.parse(
-			await readFile(join(runDir, 'conversation.json'), 'utf8'),
-		);
+		conversation = JSON.parse(await readConversationArtifact(runDir));
 	} catch {
 		const which = sessionId ? `--session ${sessionId}` : '--continue';
 		throw new CliError(
@@ -2481,6 +2550,14 @@ async function resolveParentSession(options, cwd) {
 		runDir,
 		sessionId: summary.sessionId || basename(runDir),
 	};
+}
+
+async function readConversationArtifact(runDir) {
+	try {
+		return await readFile(join(runDir, 'conversation-raw.json'), 'utf8');
+	} catch {
+		return readFile(join(runDir, 'conversation.json'), 'utf8');
+	}
 }
 
 async function loadPrompt(options, cwd) {
