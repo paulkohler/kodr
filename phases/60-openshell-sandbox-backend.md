@@ -31,7 +31,6 @@ Proposed flags:
 - `--openshell-keep`: keep the sandbox after completion for inspection.
 - `--openshell-policy <path>`: explicit OpenShell policy YAML. When omitted,
   use a Kodr-owned default-deny policy with `/sandbox` as the writable workdir.
-- `--openshell-workdir <path>`: internal workspace path, default `/sandbox`.
 
 Do not silently fall back to Docker or host execution when this flag is set. If
 OpenShell is unavailable or incompatible, fail clearly and record the reason.
@@ -202,6 +201,7 @@ they run through this backend.
   later inference-routing phase makes that explicit.
 - No remote OpenShell gateways.
 - No arbitrary sandbox-to-host workspace writeback.
+- No configurable sandbox workdir in the first pass.
 - No broad network allow mode or untested language package-manager presets.
 
 ## Open Questions
