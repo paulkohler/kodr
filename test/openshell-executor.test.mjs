@@ -53,7 +53,7 @@ function fakeRunner(calls, options = {}) {
 						stdout: '',
 						timedOut: false,
 					}
-				: ok(`${command} help`);
+				: ok(options.help?.[command] || `${command} help`);
 		}
 		return ok(options.commandStdout || '');
 	};
@@ -184,7 +184,10 @@ describe('openshell executor', () => {
 		const runDir = join(cwd, '.kodr', 'runs', 'run-1');
 		const calls = [];
 		const executor = new OpenShellExecutor(cwd, runDir, {
-			openshellRunner: fakeRunner(calls, { commandStdout: 'ok' }),
+			openshellRunner: fakeRunner(calls, {
+				commandStdout: 'ok',
+				help: { create: 'create help --no-bootstrap' },
+			}),
 			openshellSandbox: true,
 		});
 
@@ -255,6 +258,7 @@ describe('openshell executor', () => {
 			true,
 		);
 		assert.equal(executor.metadata().commands.length, 1);
+		assert.equal(executor.metadata().capabilities.noBootstrap, true);
 		assert.equal(executor.metadata().syncCount, 3);
 		assert.equal(executor.metadata().workspaceSync.writeback, false);
 
@@ -274,6 +278,26 @@ describe('openshell executor', () => {
 			await readFile(executor.policyPath, 'utf8'),
 			/network_policies: \{\}/u,
 		);
+	});
+
+	it('omits the legacy no-bootstrap flag when the current CLI does not support it', async () => {
+		const cwd = await fixtureDir();
+		const calls = [];
+		const executor = new OpenShellExecutor(cwd, join(cwd, '.kodr', 'current'), {
+			openshellRunner: fakeRunner(calls),
+			openshellSandbox: true,
+		});
+
+		await executor.initialize(1000);
+
+		const create = calls.find(
+			(call) =>
+				call.args[0] === 'sandbox' &&
+				call.args[1] === 'create' &&
+				call.args.at(-1) !== '--help',
+		);
+		assert.equal(create.args.includes('--no-bootstrap'), false);
+		assert.equal(executor.metadata().capabilities.noBootstrap, false);
 	});
 
 	it('removes stale tracked snapshot paths without deleting sandbox-only state', async () => {

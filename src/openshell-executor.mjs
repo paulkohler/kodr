@@ -97,6 +97,7 @@ export class OpenShellExecutor {
 		this.error = null;
 		this.syncCount = 0;
 		this.syncedPaths = new Map();
+		this.supportsNoBootstrap = false;
 	}
 
 	async initialize(timeoutMs = 60000) {
@@ -106,14 +107,10 @@ export class OpenShellExecutor {
 		try {
 			await this.probe(timeoutMs);
 			this.policyPath = await this.resolvePolicy();
-			const args = [
-				'sandbox',
-				'create',
-				'--name',
-				this.sandboxId,
-				'--no-bootstrap',
-				'--no-tty',
-			];
+			const args = ['sandbox', 'create', '--name', this.sandboxId, '--no-tty'];
+			if (this.supportsNoBootstrap) {
+				args.push('--no-bootstrap');
+			}
 			if (this.from) {
 				args.push('--from', this.from);
 			}
@@ -150,6 +147,11 @@ export class OpenShellExecutor {
 						stderr: result.stderr,
 						stdout: result.stdout,
 					},
+				);
+			}
+			if (command === 'create') {
+				this.supportsNoBootstrap = /--no-bootstrap\b/u.test(
+					`${result.stdout}\n${result.stderr}`,
 				);
 			}
 		}
@@ -292,6 +294,9 @@ export class OpenShellExecutor {
 		return {
 			available: this.available,
 			backend: 'openshell',
+			capabilities: {
+				noBootstrap: this.supportsNoBootstrap,
+			},
 			commands: this.commands,
 			enabled: true,
 			error: this.error,

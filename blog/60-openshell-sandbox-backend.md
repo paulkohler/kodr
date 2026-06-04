@@ -43,9 +43,9 @@ uploaded paths, maps command working directories, expands credential
 exclusions, and cleans up a created sandbox when verification initialization
 fails. These are now explicit tests rather than undocumented assumptions.
 
-## Failure Found
+## Failures Found
 
-The locally installed `openshell 0.0.20` does not expose the documented
+The previously installed `openshell 0.0.20` did not expose the documented
 `sandbox exec` command. A real local probe failed before the model call with an
 actionable error and wrote `openshell.json`:
 
@@ -57,9 +57,30 @@ This confirmed that version checks are insufficient for alpha software. Kodr
 checks the command surface directly and records failure metadata instead of
 falling back to host execution.
 
-The phase remains open because the installed CLI cannot perform a compatible
-end-to-end `sandbox exec` run. A real integration run is required before the
-security boundary is considered complete.
+After upgrading the CLI and rebuilding the local gateway on `openshell 0.0.56`,
+a direct base sandbox successfully ran Node.js, npm, and a file write. The first
+Kodr run then found the opposite compatibility problem: Kodr always passed the
+older `--no-bootstrap` create flag, which `0.0.56` removed.
+
+Kodr now capability-detects that optional flag from `sandbox create --help`.
+Older CLIs that advertise it still receive the explicit no-bootstrap request;
+current CLIs can create a sandbox without an unsupported argument. Required
+commands remain strict capabilities, while optional flags are negotiated.
+
+An isolated Kodr example run then created a base sandbox, synchronized its
+workspace, ran `node --test` through OpenShell, recorded the executor metadata,
+and cleaned the sandbox up. The local Nemotron model proposed zero files, so
+verification correctly failed because no tests were discovered. That is an
+example-generation failure, not a sandbox failure, and the example was not
+hand-fixed.
+
+A direct sandbox using Kodr's generated default-deny policy returned HTTP `403`
+for an attempted `https://example.com` request, confirming that the rebuilt
+gateway enforced the closed network policy.
+
+The phase remains open until a compatible end-to-end Kodr run covers nested
+working directories, dependency persistence, network denial, verification, and
+cleanup.
 
 ## Verification
 
@@ -68,6 +89,10 @@ security boundary is considered complete.
 - `npm test`
 - `npm run check`
 - local incompatible-CLI probe against `openshell 0.0.20`
+- upgraded CLI and rebuilt local gateway on `openshell 0.0.56`
+- direct base sandbox Node.js, npm, and file-write smoke test
+- isolated Kodr run reached OpenShell verification and cleanup
+- default-deny network request returned HTTP `403`
 - pending: compatible end-to-end OpenShell run covering nested working
   directories, dependency persistence, network denial, verification, and
   cleanup

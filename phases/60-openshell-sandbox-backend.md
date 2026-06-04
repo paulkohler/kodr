@@ -129,8 +129,9 @@ When `--openshell-sandbox` is set:
 - detect the `openshell` CLI without requiring it for normal Kodr use
 - verify a compatible command surface before starting the run, including
   `sandbox create`, `sandbox exec`, `sandbox upload`, and `sandbox delete`
-- require an already-running local gateway and pass `--no-bootstrap` when
-  creating a sandbox; Kodr must not silently create gateway infrastructure
+- require an already-running local gateway and pass `--no-bootstrap` when the
+  installed CLI supports it; Kodr must not silently create gateway
+  infrastructure
 - fail with actionable setup guidance if unavailable
 - record an `openshell.json` artifact on both success and failure
 
@@ -138,9 +139,10 @@ Do not require NemoClaw. NemoClaw docs and blueprints can inform the design, but
 the implementation should not assume OpenClaw, Hermes, or NemoClaw onboarding.
 
 Do not gate only on a version string. OpenShell is alpha software and command
-surfaces can differ between installed builds. The locally installed
-`openshell 0.0.20`, for example, has upload/download commands but does not expose
-the currently documented `sandbox exec` command.
+surfaces can differ between installed builds. The previously installed
+`openshell 0.0.20` had upload/download commands but did not expose the documented
+`sandbox exec` command. The upgraded `openshell 0.0.56` exposes `sandbox exec`
+but removed the older `--no-bootstrap` create flag.
 
 ## Artifacts
 
@@ -185,9 +187,9 @@ they run through this backend.
 2. Add an OpenShell capability probe and local-gateway check before model calls.
 3. Add a small active-executor interface shared by Docker and OpenShell:
    `run`, `hookExecutor`, `metadata`, and `finalize`.
-4. Build a filtered upload snapshot, create one persistent sandbox with
-   `--no-bootstrap` and a harmless initial command such as `/bin/true`, then
-   synchronize files to exact paths under `/sandbox`.
+4. Build a filtered upload snapshot, create one persistent sandbox with a
+   harmless initial command such as `/bin/true`, pass `--no-bootstrap` when the
+   CLI advertises it, then synchronize files to exact paths under `/sandbox`.
 5. Implement command execution with the documented `openshell sandbox exec`
    surface, without a shell.
 6. Route dependency install, verification, command tools, and hooks through the
