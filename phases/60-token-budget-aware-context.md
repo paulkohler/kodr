@@ -18,7 +18,11 @@ is hit, emitting a summary of what was dropped.
 
 - Reuse the Phase 41 token-usage machinery for counting.
 - Reuse the inspection chunk builder in `src/context-packer.mjs` for candidates.
+- Add an explicit context-window option with a conservative documented default.
+  Phase 68 can later source the same value from model profiles.
 - Configurable reserve margin with a sane default.
+- Record the active window, reserve, packed estimate, and dropped estimate in
+  run artifacts.
 - Deterministic given (window, query, index) so it is unit-testable.
 
 ## Non-Goals
@@ -32,7 +36,9 @@ is hit, emitting a summary of what was dropped.
 - [ ] Packing never exceeds the configured budget in tests with synthetic large
       indexes.
 - [ ] Dropped chunks are reported in a summary block.
+- [ ] Add and document an explicit context-window option.
 - [ ] Configurable reserve margin with a documented default.
+- [ ] Record active context-budget metadata in run artifacts.
 - [ ] Add tests.
 - [ ] Record decisions and any failures.
 - [ ] Blog post.
