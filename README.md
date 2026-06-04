@@ -122,6 +122,13 @@ Kodr treats model output, workspace files, `AGENTS.md`, `SKILL.md`, replay artif
 
 Verification commands are allowlisted and run without a shell, but `npm test` and `npm run test` still execute trusted workspace package scripts. Safe writes create backups for existing files before applying changes; they are controlled writes with backups, not full rollback transactions.
 
+Use `--docker-sandbox` for a simple local container command boundary, or
+`--openshell-sandbox` for an opt-in NVIDIA OpenShell policy boundary. OpenShell
+mode requires a compatible CLI and running local gateway, refuses remote gateway
+uploads, requires an explicit policy for dependency installs, and never silently
+falls back to host execution. See [usage.md](./usage.md#run-commands-in-openshell)
+for the full workflow.
+
 ## License
 
 [MIT](./LICENSE).

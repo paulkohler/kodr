@@ -151,6 +151,38 @@ model call and artifact writes still happen on the host; command effects run in
 Docker. `docker.json` records the image, network, mount, kept container names,
 and inspection commands.
 
+### Run Commands In OpenShell
+
+Use `--openshell-sandbox` when a compatible NVIDIA OpenShell CLI and a selected
+local gateway are available. Kodr uploads a filtered workspace snapshot, then
+runs dependency installs, verification, built-in command tools, and command
+hooks inside one persistent OpenShell sandbox.
+
+```sh
+./kodr run --prompt-file prompt.md --tools --yes --openshell-sandbox --test "npm test"
+./kodr run --prompt-file prompt.md --tools --yes --openshell-sandbox --openshell-policy ./openshell-policy.yaml --install --test "npm test"
+./kodr run -p "Debug a failing run" --yes --openshell-sandbox --openshell-keep --test "npm test"
+```
+
+OpenShell sandboxing is deliberately strict:
+
+- Kodr requires the `sandbox create`, `sandbox exec`, `sandbox upload`, and
+  `sandbox delete` command surfaces.
+- The selected gateway must be running on a loopback address. Remote gateways
+  are refused because they would receive workspace files.
+- `--install` requires an explicit `--openshell-policy` file.
+- Without an explicit policy, Kodr creates a default-deny policy for the run.
+- `.git`, `.kodr`, `node_modules`, private memory, and environment secret files
+  are excluded from the upload snapshot.
+- Command-created files remain in the sandbox. Kodr does not download arbitrary
+  sandbox changes over the host workspace.
+- The sandbox is deleted after the run unless `--openshell-keep` is present.
+
+`openshell.json` records capability failures, gateway metadata, policy choice,
+workspace synchronization, command execution, and sandbox lifecycle. Kodr never
+silently falls back to Docker or host execution when `--openshell-sandbox` is
+requested.
+
 Ask Kodr to run a bounded repair loop after failed verification:
 
 ```sh
@@ -200,9 +232,9 @@ tool use or final stopping decisions:
 Kodr reads `.kodr/hooks.json` by default. Hook commands run without a shell,
 receive JSON on stdin, and are recorded in `hooks.json`. Each recorded run notes
 its execution `environment`. Hooks run on the host cwd by default; when
-`--docker-sandbox` is enabled, hook commands run inside the sandbox so they share
-the install/test/tool environment, and `hooks.json` reports `environment:
-"docker"`.
+`--docker-sandbox` or `--openshell-sandbox` is enabled, hook commands run inside
+the active sandbox so they share the install/test/tool environment, and
+`hooks.json` reports the selected execution environment.
 
 Hooks fire at these points in the model loop:
 
@@ -640,6 +672,7 @@ Kodr writes run artifacts under `.kodr/runs/<run-id>/`. Common files include:
 - `writes.json`
 - `install.json`, when dependency install runs
 - `docker.json`, when Docker sandbox metadata is recorded
+- `openshell.json`, when OpenShell sandbox metadata is recorded
 - `tasks.json`
 - verification output, when tests run
 
@@ -654,4 +687,6 @@ or write phase blog posts.
 - Model output, skills, memory, transcripts, and workspace files are untrusted.
 - Verification commands are allowlisted and run without a shell.
 - `--docker-sandbox` runs install/test/tool commands in a fresh container.
+- `--openshell-sandbox` runs command effects in a policy-controlled local
+  OpenShell sandbox and refuses silent fallback.
 - Local model requests default to a long timeout: `600000ms`.

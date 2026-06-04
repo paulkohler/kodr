@@ -3,7 +3,14 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { describe, it } from 'node:test';
-import { CliError, main, parseArgs, usage, VERSION } from '../src/app.mjs';
+import {
+	CliError,
+	handleChannelRequest,
+	main,
+	parseArgs,
+	usage,
+	VERSION,
+} from '../src/app.mjs';
 import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
 
 describe('parseArgs', () => {
@@ -159,6 +166,49 @@ describe('parseArgs', () => {
 		assert.equal(custom.dockerKeep, true);
 		assert.equal(custom.dockerNetwork, 'none');
 		assert.equal(custom.dockerWorkdir, '/work');
+	});
+
+	it('parses openshell sandbox flags and rejects unsafe combinations', () => {
+		const basic = parseArgs(['run', '--openshell-sandbox', '-p', 'task'], {});
+		assert.equal(basic.openshellSandbox, true);
+		assert.equal(basic.openshellFrom, '');
+		assert.equal(basic.openshellKeep, false);
+		assert.equal(basic.openshellPolicy, '');
+
+		const custom = parseArgs(
+			[
+				'run',
+				'--openshell-sandbox',
+				'--openshell-keep',
+				'--openshell-from',
+				'base',
+				'--openshell-policy',
+				'policy.yaml',
+				'-p',
+				'task',
+			],
+			{},
+		);
+		assert.equal(custom.openshellFrom, 'base');
+		assert.equal(custom.openshellKeep, true);
+		assert.equal(custom.openshellPolicy, 'policy.yaml');
+
+		assert.throws(
+			() =>
+				parseArgs(
+					['run', '--openshell-sandbox', '--docker-sandbox', '-p', 'task'],
+					{},
+				),
+			/ cannot be used together/u,
+		);
+		assert.throws(
+			() =>
+				parseArgs(
+					['run', '--openshell-sandbox', '--install', '-p', 'task'],
+					{},
+				),
+			/--openshell-policy/u,
+		);
 	});
 
 	it('parses heal flag', () => {
@@ -447,6 +497,94 @@ describe('probe', () => {
 });
 
 describe('run', () => {
+	it('fails before the model call when OpenShell is incompatible and writes an artifact', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-openshell-incompatible-'));
+		const out = 'run-output';
+		const options = parseArgs([
+			'run',
+			'--openshell-sandbox',
+			'-p',
+			'Do not run.',
+			'--out',
+			out,
+		]);
+		const calls = [];
+		options.openshellRunner = async (args) => {
+			calls.push(args);
+			if (args[0] === '--version') {
+				return commandResult(0, 'openshell 0.0.20');
+			}
+			if (args[0] === 'sandbox' && args[1] === 'exec') {
+				return commandResult(2, '', 'unrecognized subcommand');
+			}
+			return commandResult(0, 'help');
+		};
+
+		await assert.rejects(
+			() =>
+				handleChannelRequest(
+					{ kind: 'run-turn', options },
+					{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+				),
+			/Sandbox initialization failed/u,
+		);
+		assert.equal(
+			calls.some(
+				(args) =>
+					args[0] === 'sandbox' &&
+					args[1] === 'create' &&
+					args.at(-1) !== '--help',
+			),
+			false,
+		);
+		const artifact = JSON.parse(
+			await readFile(join(cwd, out, 'openshell.json'), 'utf8'),
+		);
+		assert.equal(artifact.enabled, true);
+		assert.match(artifact.error.message, /sandbox exec/u);
+	});
+
+	it('cleans up OpenShell when run setup fails after sandbox creation', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-openshell-setup-failure-'));
+		await mkdir(join(cwd, '.kodr'), { recursive: true });
+		await writeFile(join(cwd, '.kodr', 'hooks.json'), 'not json', 'utf8');
+		const options = parseArgs([
+			'run',
+			'--openshell-sandbox',
+			'--hooks',
+			'-p',
+			'Do not run.',
+			'--out',
+			'run-output',
+		]);
+		const calls = [];
+		options.openshellRunner = async (args) => {
+			calls.push(args);
+			if (args[0] === 'status') {
+				return commandResult(0, 'Server: https://127.0.0.1:8080\n');
+			}
+			return commandResult(0, 'ok');
+		};
+
+		await assert.rejects(
+			() =>
+				handleChannelRequest(
+					{ kind: 'run-turn', options },
+					{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+				),
+			/Could not load hooks config/u,
+		);
+		assert.equal(
+			calls.some(
+				(args) =>
+					args[0] === 'sandbox' &&
+					args[1] === 'delete' &&
+					args.at(-1) !== '--help',
+			),
+			true,
+		);
+	});
+
 	it('runs a prompt and writes inspectable artifacts', async () => {
 		const server = await startFakeModelServer({
 			responses: [
@@ -527,6 +665,7 @@ describe('run', () => {
 				rawRequest: 'raw-request.json',
 				rawResponse: 'raw-response.json',
 				docker: 'docker.json',
+				openshell: 'openshell.json',
 				hooks: 'hooks.json',
 				repairs: 'repairs/repairs.json',
 				response: 'response.md',
@@ -4155,4 +4294,8 @@ function proposalResponseText(content) {
 		id: 'chatcmpl_proposal',
 		object: 'chat.completion',
 	};
+}
+
+function commandResult(exitCode, stdout = '', stderr = '') {
+	return { exitCode, stderr, stdout, timedOut: false };
 }

@@ -51,6 +51,7 @@ export function createDockerExecutor(hostCwd, runDir, options = {}) {
 export class DockerExecutor {
 	constructor(hostCwd, runDir, options = {}) {
 		const defaults = dockerDefaults(options);
+		this.backend = 'docker';
 		this.hostCwd = hostCwd;
 		this.runId = safeName(basename(runDir || 'run'));
 		this.image = defaults.dockerImage;
@@ -61,6 +62,12 @@ export class DockerExecutor {
 		this.commands = [];
 		this.sequence = 0;
 	}
+
+	async initialize() {}
+
+	async syncWorkspace() {}
+
+	async finalize() {}
 
 	async run(cwd, parsed, timeoutMs) {
 		this.sequence += 1;

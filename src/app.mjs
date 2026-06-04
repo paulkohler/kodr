@@ -48,11 +48,18 @@ import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './code-inspector.mjs';
 import { runDependencyInstall } from './dependency-installer.mjs';
+import { dockerDefaults, validateDockerOptions } from './docker-executor.mjs';
 import {
-	createDockerExecutor,
-	dockerDefaults,
-	validateDockerOptions,
-} from './docker-executor.mjs';
+	openshellDefaults,
+	validateOpenShellOptions,
+} from './openshell-executor.mjs';
+import {
+	createActiveExecutor,
+	executorCommandRunner,
+	finalizeExecutor,
+	initializeExecutor,
+	writeExecutorArtifacts,
+} from './active-executor.mjs';
 import {
 	checkAvailability,
 	inspectWithRegistry,
@@ -105,6 +112,10 @@ export function parseArgs(argv, env = {}) {
 		dockerNetwork: '',
 		dockerSandbox: false,
 		dockerWorkdir: '',
+		openshellFrom: '',
+		openshellKeep: false,
+		openshellPolicy: '',
+		openshellSandbox: false,
 		dryRun: true,
 		extraHeaders: {},
 		help: false,
@@ -262,6 +273,16 @@ export function parseArgs(argv, env = {}) {
 			continue;
 		}
 
+		if (arg === '--openshell-sandbox') {
+			options.openshellSandbox = true;
+			continue;
+		}
+
+		if (arg === '--openshell-keep') {
+			options.openshellKeep = true;
+			continue;
+		}
+
 		if (arg === '--staged') {
 			options.staged = true;
 			continue;
@@ -310,6 +331,8 @@ export function parseArgs(argv, env = {}) {
 			arg === '--docker-image' ||
 			arg === '--docker-network' ||
 			arg === '--docker-workdir' ||
+			arg === '--openshell-from' ||
+			arg === '--openshell-policy' ||
 			arg === '--hooks-config' ||
 			arg === '--max-cost-usd' ||
 			arg === '--max-retries' ||
@@ -404,6 +427,9 @@ export function parseArgs(argv, env = {}) {
 	if (options.dockerSandbox) {
 		Object.assign(options, dockerDefaults(options));
 	}
+	if (options.openshellSandbox) {
+		Object.assign(options, openshellDefaults(options));
+	}
 	if (options.subagentStages) {
 		options.tools = true;
 	}
@@ -417,6 +443,7 @@ export function parseArgs(argv, env = {}) {
 	validateSessionOptions(options);
 	validateServeOptions(options);
 	validateDockerOptions(options);
+	validateOpenShellOptions(options);
 
 	return options;
 }
@@ -488,6 +515,7 @@ Usage:
   kodr run -p "task" --dry-run
   kodr run -p "task" --yes [--install] [--test "npm test"] [--test-cwd path] [--heal]
   kodr run -p "task" --yes --docker-sandbox [--docker-keep] [--test "npm test"]
+  kodr run -p "task" --yes --openshell-sandbox [--openshell-keep] [--test "npm test"]
   kodr run -p "task" --tools --hooks [--hooks-config .kodr/hooks.json]
   kodr run -p "task" --yes --protect-existing
   kodr run -p "task" --tools --yes --staged
@@ -556,7 +584,7 @@ OpenRouter:
   --heal               After failed verification, run a bounded repair loop.
   --hooks              Enable configured command hooks. Default config: .kodr/hooks.json
                        Lifecycle: PreToolUse (prevent) -> PostToolUse (audit) -> Stop (loop guard).
-                       Hooks run on the host, or in the sandbox when --docker-sandbox is set.
+                       Hooks run on the host, or in the active Docker/OpenShell sandbox.
   --hooks-config PATH  Hook config path relative to the workspace.
 
 Docker sandbox:
@@ -565,6 +593,12 @@ Docker sandbox:
   --docker-network NET Container network mode. Default: none, or bridge with --install
   --docker-workdir DIR Container workspace mount path. Default: /workspace
   --docker-keep        Keep sandbox containers after commands complete.
+
+OpenShell sandbox:
+  --openshell-sandbox  Run install/test/tool commands inside OpenShell.
+  --openshell-from SRC Optional OpenShell sandbox source accepted by --from.
+  --openshell-policy P Explicit policy YAML. Required with --install.
+  --openshell-keep     Keep the sandbox after the run for inspection.
 
 Web channel:
   kodr serve           Start a local-only JSON HTTP channel.
@@ -1001,19 +1035,24 @@ export async function handleChannelRequest(request, io) {
 		if (!request.options.testCommand) {
 			throw new CliError('No test command configured');
 		}
-		const dockerExecutor = createDockerExecutor(
+		const activeExecutor = createActiveExecutor(
 			io.cwd,
 			join(io.cwd, '.kodr', 'verify'),
 			request.options,
 		);
-		return runVerification(
-			await verificationCwd(io.cwd, request.options),
-			request.options.testCommand,
-			{
-				runner: dockerCommandRunner(dockerExecutor),
-				timeoutMs: request.options.timeoutMs,
-			},
-		);
+		await initializeExecutor(activeExecutor, request.options.timeoutMs);
+		try {
+			return await runVerification(
+				await verificationCwd(io.cwd, request.options),
+				request.options.testCommand,
+				{
+					runner: executorCommandRunner(activeExecutor),
+					timeoutMs: request.options.timeoutMs,
+				},
+			);
+		} finally {
+			await finalizeExecutor(activeExecutor, request.options.timeoutMs);
+		}
 	}
 
 	throw new CliError(`Unknown channel request: ${request.kind}`);
@@ -1195,6 +1234,10 @@ function assignValue(options, flag, value) {
 		options.dockerNetwork = value;
 	} else if (flag === '--docker-workdir') {
 		options.dockerWorkdir = value;
+	} else if (flag === '--openshell-from') {
+		options.openshellFrom = value;
+	} else if (flag === '--openshell-policy') {
+		options.openshellPolicy = value;
 	} else if (flag === '--hooks-config') {
 		options.hooksConfigPath = value;
 	} else if (flag === '--max-cost-usd') {
@@ -1297,379 +1340,545 @@ async function runPrompt(options, io) {
 		: rawPrompt;
 	const promptId = resolvePromptId(options, rawPrompt);
 	const runDir = await createRunArtifacts(io.cwd, options.out);
-	const dockerExecutor = createDockerExecutor(io.cwd, runDir, options);
-	const commandRunner = dockerCommandRunner(dockerExecutor);
-	// When the sandbox is active, route hook commands through it so they share the
-	// install/test/tool environment instead of running on the host cwd.
-	const configuredHooks = await loadConfiguredHooks(io.cwd, options, {
-		executor: dockerExecutor ? dockerExecutor.hookExecutor() : null,
-	});
-	const runOptions = {
-		...options,
-		cwd: io.cwd,
-		hooks: configuredHooks.hooks,
-		responseFormat: proposalResponseFormat(),
-	};
-
-	// Resolve parent session (if --continue or --session was passed).
-	const parent = await resolveParentSession(options, io.cwd);
-
-	let skills;
-	let memory;
-	let context;
-	let initialMessages;
-	let rawInitialMessages;
-	let sessionCompaction = null;
-
-	if (parent) {
-		// Continuation: freeze the system prompt from the parent transcript.
-		// The parent raw conversation ends with the model's last reply. Append the
-		// new user turn, then compact only the model-facing copy when needed.
-		const parentMessages = parent.conversation;
-		rawInitialMessages = [...parentMessages, { role: 'user', content: prompt }];
-		const evidence = await loadSessionEvidence(io.cwd, parent.sessionId);
-		sessionCompaction = compactSessionConversation(rawInitialMessages, {
-			budgetChars: options.sessionContextChars,
-			evidence,
-			sessionId: parent.sessionId,
-			sourceRunDir: parent.runDir,
-		});
-		initialMessages = sessionCompaction.messages;
-		// Build a minimal context for artifacts (context.md, workspaceFileCount).
-		memory = await loadMemory(io.cwd);
-		skills = await loadSkills(io.cwd, options.skills);
-		context = await buildWorkspaceContext(io.cwd, {
-			inspection: await createInspectionContext(io.cwd, options, prompt),
-			memory,
-			skills,
-			toolsMode: options.tools,
-		});
-	} else {
-		skills = await loadSkills(io.cwd, options.skills);
-		memory = await loadMemory(io.cwd);
-		context = await buildWorkspaceContext(io.cwd, {
-			memory,
-			skills,
-			toolsMode: options.tools,
-		});
-		initialMessages = [
-			{ role: 'system', content: context.systemPrompt },
-			{ role: 'user', content: prompt },
-		];
-		rawInitialMessages = initialMessages;
-	}
-
-	const registry = options.tools
-		? createBuiltinRegistry(io.cwd, {
-				commandRunner,
-				hooks: configuredHooks.hooks,
-			})
-		: null;
-	const responsePath = join(runDir, 'response.md');
-	await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
-	await writeText(join(runDir, 'prompt.md'), prompt);
-
-	let model;
-	let completion;
-	let rawRequest;
-
+	const activeExecutor = createActiveExecutor(io.cwd, runDir, options);
 	try {
-		// Only hit GET /models when no model was named. Some OpenAI-compatible
-		// servers don't implement /models, and requiring it would break runs that
-		// already specify --model.
-		if (options.model) {
-			model = options.model;
-		} else {
-			const modelsResponse = await listModels(options);
-			model = firstModelId(modelsResponse.body);
-		}
-
-		if (!model) {
-			throw new CliError(
-				'No model was provided and GET /models did not return a usable model id',
-			);
-		}
-
-		if (parent && model !== parent.model) {
-			io.stderr.write(
-				`Warning: continuing session with model ${model} (parent used ${parent.model})\n`,
-			);
-		}
-
-		rawRequest = {
-			messages: initialMessages,
-			model,
-			response_format: runOptions.responseFormat,
-			url: `${options.baseUrl}/chat/completions`,
+		await initializeExecutor(activeExecutor, options.timeoutMs);
+	} catch (error) {
+		await finalizeExecutorArtifacts(runDir, activeExecutor);
+		throw new CliError(
+			`Sandbox initialization failed: ${error.message} Artifacts: ${runDir}`,
+		);
+	}
+	try {
+		const commandRunner = executorCommandRunner(activeExecutor);
+		// When the sandbox is active, route hook commands through it so they share the
+		// install/test/tool environment instead of running on the host cwd.
+		const configuredHooks = await loadConfiguredHooks(io.cwd, options, {
+			executor: activeExecutor ? activeExecutor.hookExecutor() : null,
+		});
+		const runOptions = {
+			...options,
+			cwd: io.cwd,
+			hooks: configuredHooks.hooks,
+			responseFormat: proposalResponseFormat(),
 		};
-		if (registry) {
-			rawRequest.tools = registry.toApiTools();
-		}
-		if (runOptions.maxThinkingTokens !== '') {
-			rawRequest.max_thinking_tokens = runOptions.maxThinkingTokens;
-		}
-		await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 
-		if (options.subagentStages && !parent) {
-			const orchestrationResult = await runSubagentStages(
-				io.cwd,
-				runDir,
-				prompt,
-				{
-					...runOptions,
+		// Resolve parent session (if --continue or --session was passed).
+		const parent = await resolveParentSession(options, io.cwd);
+
+		let skills;
+		let memory;
+		let context;
+		let initialMessages;
+		let rawInitialMessages;
+		let sessionCompaction = null;
+
+		if (parent) {
+			// Continuation: freeze the system prompt from the parent transcript.
+			// The parent raw conversation ends with the model's last reply. Append the
+			// new user turn, then compact only the model-facing copy when needed.
+			const parentMessages = parent.conversation;
+			rawInitialMessages = [
+				...parentMessages,
+				{ role: 'user', content: prompt },
+			];
+			const evidence = await loadSessionEvidence(io.cwd, parent.sessionId);
+			sessionCompaction = compactSessionConversation(rawInitialMessages, {
+				budgetChars: options.sessionContextChars,
+				evidence,
+				sessionId: parent.sessionId,
+				sourceRunDir: parent.runDir,
+			});
+			initialMessages = sessionCompaction.messages;
+			// Build a minimal context for artifacts (context.md, workspaceFileCount).
+			memory = await loadMemory(io.cwd);
+			skills = await loadSkills(io.cwd, options.skills);
+			context = await buildWorkspaceContext(io.cwd, {
+				inspection: await createInspectionContext(io.cwd, options, prompt),
+				memory,
+				skills,
+				toolsMode: options.tools,
+			});
+		} else {
+			skills = await loadSkills(io.cwd, options.skills);
+			memory = await loadMemory(io.cwd);
+			context = await buildWorkspaceContext(io.cwd, {
+				memory,
+				skills,
+				toolsMode: options.tools,
+			});
+			initialMessages = [
+				{ role: 'system', content: context.systemPrompt },
+				{ role: 'user', content: prompt },
+			];
+			rawInitialMessages = initialMessages;
+		}
+
+		const registry = options.tools
+			? createBuiltinRegistry(io.cwd, {
 					commandRunner,
-					workspaceContext: context,
-				},
-				io,
-			);
-			let taskPlan = createTaskPlan(
-				prompt,
-				orchestrationResult.writeResult.writes.map((write) => write.path),
-			);
-			const summary = {
-				applied: orchestrationResult.applied,
-				applyRequested: options.yes,
-				artifacts: {
-					context: 'context.md',
-					conversation: 'conversation.json',
-					messages: 'messages.json',
-					prompt: 'prompt.md',
-					rawRequest: 'raw-request.json',
-					rawResponse: 'raw-response.json',
-					docker: 'docker.json',
-					hooks: 'hooks.json',
-					install: 'install.json',
-					response: 'response.md',
-					orchestration: 'orchestration.json',
-					summary: 'summary.json',
-					tasks: 'tasks.json',
-					tests: 'tests.json',
-					writes: 'writes.json',
-				},
-				baseUrl: options.baseUrl,
-				finishReasons: orchestrationResult.finishReasons,
-				loopBudget: orchestrationResult.loopBudget,
+					hooks: configuredHooks.hooks,
+				})
+			: null;
+		const responsePath = join(runDir, 'response.md');
+		await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
+		await writeText(join(runDir, 'prompt.md'), prompt);
+
+		let model;
+		let completion;
+		let rawRequest;
+
+		try {
+			// Only hit GET /models when no model was named. Some OpenAI-compatible
+			// servers don't implement /models, and requiring it would break runs that
+			// already specify --model.
+			if (options.model) {
+				model = options.model;
+			} else {
+				const modelsResponse = await listModels(options);
+				model = firstModelId(modelsResponse.body);
+			}
+
+			if (!model) {
+				throw new CliError(
+					'No model was provided and GET /models did not return a usable model id',
+				);
+			}
+
+			if (parent && model !== parent.model) {
+				io.stderr.write(
+					`Warning: continuing session with model ${model} (parent used ${parent.model})\n`,
+				);
+			}
+
+			rawRequest = {
+				messages: initialMessages,
 				model,
-				ok: orchestrationResult.ok,
-				parentRunDir: null,
-				promptChars: prompt.length,
-				promptId,
-				proposalFound: orchestrationResult.proposalFound,
-				proposalStatus: orchestrationResult.proposalStatus,
-				responseChars: orchestrationResult.response.length,
-				responseCount: orchestrationResult.responses.length,
-				review: orchestrationResult.review,
-				sessionId: basename(runDir),
-				subagentStages: true,
-				tested: orchestrationResult.tested,
-				timestamp: new Date().toISOString(),
-				usage: usageFromBudget(orchestrationResult.loopBudget),
-				verification: orchestrationResult.verification,
-				workspaceFileCount: context.files.length,
-				writeCount: orchestrationResult.writeCount,
+				response_format: runOptions.responseFormat,
+				url: `${options.baseUrl}/chat/completions`,
 			};
-			if (orchestrationResult.writeError) {
-				summary.writeError = orchestrationResult.writeError;
+			if (registry) {
+				rawRequest.tools = registry.toApiTools();
 			}
-			if (orchestrationResult.runError) {
-				summary.runError = orchestrationResult.runError;
+			if (runOptions.maxThinkingTokens !== '') {
+				rawRequest.max_thinking_tokens = runOptions.maxThinkingTokens;
 			}
-			if (orchestrationResult.installResult) {
-				summary.installed = orchestrationResult.installResult.ok;
+			await writeJson(join(runDir, 'raw-request.json'), rawRequest);
+
+			if (options.subagentStages && !parent) {
+				const orchestrationResult = await runSubagentStages(
+					io.cwd,
+					runDir,
+					prompt,
+					{
+						...runOptions,
+						commandRunner,
+						workspaceContext: context,
+					},
+					io,
+				);
+				let taskPlan = createTaskPlan(
+					prompt,
+					orchestrationResult.writeResult.writes.map((write) => write.path),
+				);
+				const summary = {
+					applied: orchestrationResult.applied,
+					applyRequested: options.yes,
+					artifacts: {
+						context: 'context.md',
+						conversation: 'conversation.json',
+						messages: 'messages.json',
+						prompt: 'prompt.md',
+						rawRequest: 'raw-request.json',
+						rawResponse: 'raw-response.json',
+						docker: 'docker.json',
+						openshell: 'openshell.json',
+						hooks: 'hooks.json',
+						install: 'install.json',
+						response: 'response.md',
+						orchestration: 'orchestration.json',
+						summary: 'summary.json',
+						tasks: 'tasks.json',
+						tests: 'tests.json',
+						writes: 'writes.json',
+					},
+					baseUrl: options.baseUrl,
+					finishReasons: orchestrationResult.finishReasons,
+					loopBudget: orchestrationResult.loopBudget,
+					model,
+					ok: orchestrationResult.ok,
+					parentRunDir: null,
+					promptChars: prompt.length,
+					promptId,
+					proposalFound: orchestrationResult.proposalFound,
+					proposalStatus: orchestrationResult.proposalStatus,
+					responseChars: orchestrationResult.response.length,
+					responseCount: orchestrationResult.responses.length,
+					review: orchestrationResult.review,
+					sessionId: basename(runDir),
+					subagentStages: true,
+					tested: orchestrationResult.tested,
+					timestamp: new Date().toISOString(),
+					usage: usageFromBudget(orchestrationResult.loopBudget),
+					verification: orchestrationResult.verification,
+					workspaceFileCount: context.files.length,
+					writeCount: orchestrationResult.writeCount,
+				};
+				if (orchestrationResult.writeError) {
+					summary.writeError = orchestrationResult.writeError;
+				}
+				if (orchestrationResult.runError) {
+					summary.runError = orchestrationResult.runError;
+				}
+				if (orchestrationResult.installResult) {
+					summary.installed = orchestrationResult.installResult.ok;
+				}
+				taskPlan = updateTasksFromRun(taskPlan, summary);
+				summary.taskCounts = taskCounts(taskPlan);
+
+				await writeText(responsePath, orchestrationResult.response);
+				await writeJson(
+					join(runDir, 'conversation.json'),
+					orchestrationResult.messages,
+				);
+				await writeJson(
+					join(runDir, 'messages.json'),
+					orchestrationResult.proposal?.messages || [],
+				);
+				await writeJson(join(runDir, 'raw-response.json'), {
+					loopBudget: orchestrationResult.loopBudget,
+					responses: orchestrationResult.responses,
+				});
+				await finalizeExecutorArtifacts(runDir, activeExecutor);
+				await writeHookArtifact(runDir, configuredHooks);
+				await writeJson(join(runDir, 'summary.json'), summary);
+				await writeJson(join(runDir, 'tasks.json'), taskPlan);
+				await writeJson(
+					join(runDir, 'writes.json'),
+					orchestrationResult.writeResult,
+				);
+				await writeLastRun(io.cwd, runDir);
+
+				return {
+					...summary,
+					installResult: orchestrationResult.installResult,
+					proposal: orchestrationResult.proposal,
+					response: orchestrationResult.response,
+					responsePath,
+					runDir,
+					review: orchestrationResult.review,
+					taskPlan,
+					testResult: orchestrationResult.testResult,
+					writeResult: orchestrationResult.writeResult,
+				};
 			}
+
+			if (
+				shouldUseStagedExecution(options, prompt, context) &&
+				!parent &&
+				registry
+			) {
+				return runStagedPrompt({
+					commandRunner,
+					configuredHooks,
+					context,
+					activeExecutor,
+					io,
+					memory,
+					model,
+					options: runOptions,
+					prompt,
+					promptId,
+					rawRequest,
+					registry,
+					responsePath,
+					runDir,
+					skills,
+				});
+			}
+
+			const contOpts = parent ? { initialMessages } : {};
+			const agentStartedAt = performance.now();
+			const progressBase = {
+				agent: 'standard',
+				model,
+				runDir,
+			};
+			emitProgress(runOptions, {
+				...progressBase,
+				event: 'agent_start',
+				message: 'standard agent started',
+			});
+			await runStartHook(runOptions, 'agent_start', progressBase);
+			completion = options.tools
+				? await completeWithToolCalls(
+						runOptions,
+						model,
+						prompt,
+						context.systemPrompt,
+						registry,
+						contOpts,
+					)
+				: await completeWithContinuations(
+						runOptions,
+						model,
+						prompt,
+						context.systemPrompt,
+						contOpts,
+					);
+			emitProgress(runOptions, {
+				...progressBase,
+				durationMs: Math.round(performance.now() - agentStartedAt),
+				event: 'agent_finish',
+				message: 'standard agent finished',
+				responseChars: completion.text.length,
+			});
+
+			await writeJson(join(runDir, 'raw-request.json'), {
+				...rawRequest,
+				messages: completion.messages,
+			});
+		} catch (error) {
+			await writeRunFailure(runDir, {
+				baseUrl: options.baseUrl,
+				context,
+				error,
+				initialMessages,
+				model: model || options.model || '',
+				prompt,
+				promptId,
+				rawRequest,
+				rawRequestTools: registry ? registry.toApiTools() : null,
+				responsePath,
+				activeExecutor,
+				configuredHooks,
+			});
+			throw new CliError(
+				`Model run failed: ${error.message}. Artifacts: ${runDir}`,
+			);
+		}
+
+		// For continuations, inherit the parent's sessionId to keep the chain
+		// grouped; parentRunDir records the immediate predecessor.
+		const sessionId = parent ? parent.sessionId : basename(runDir);
+		const summary = {
+			artifacts: {
+				context: 'context.md',
+				conversation: 'conversation.json',
+				conversationRaw: 'conversation-raw.json',
+				messages: 'messages.json',
+				prompt: 'prompt.md',
+				rawRequest: 'raw-request.json',
+				rawResponse: 'raw-response.json',
+				docker: 'docker.json',
+				openshell: 'openshell.json',
+				hooks: 'hooks.json',
+				response: 'response.md',
+				repairs: 'repairs/repairs.json',
+				scratchpad: 'scratchpad.md',
+				sessionSummary: 'session-summary.json',
+				summary: 'summary.json',
+				install: 'install.json',
+				tasks: 'tasks.json',
+				tests: 'tests.json',
+				writes: 'writes.json',
+			},
+			baseUrl: options.baseUrl,
+			applyRequested: options.yes,
+			finishReasons: completion.finishReasons,
+			loopBudget: completion.loopBudget,
+			model,
+			ok: true,
+			parentRunDir: parent ? parent.runDir : null,
+			promptChars: prompt.length,
+			promptId,
+			responseChars: completion.text.length,
+			responseCount: completion.responses.length,
+			sessionCompaction: sessionCompaction?.summary || null,
+			sessionId,
+			timestamp: new Date().toISOString(),
+			usage: usageFromBudget(completion.loopBudget),
+			workspaceFileCount: context.files.length,
+		};
+		let proposal = null;
+		let proposalError = null;
+		try {
+			proposal = extractProposal(completion.text);
+		} catch (error) {
+			proposalError = {
+				message: error.message,
+				name: error.name,
+			};
+		}
+
+		if (proposalError) {
+			let taskPlan = createTaskPlan(prompt);
+			summary.applied = false;
+			summary.ok = false;
+			summary.proposalError = proposalError;
+			summary.proposalFound = false;
+			summary.tested = false;
+			summary.writeCount = 0;
 			taskPlan = updateTasksFromRun(taskPlan, summary);
 			summary.taskCounts = taskCounts(taskPlan);
 
-			await writeText(responsePath, orchestrationResult.response);
-			await writeJson(
-				join(runDir, 'conversation.json'),
-				orchestrationResult.messages,
+			const writeResult = {
+				applied: false,
+				error: proposalError,
+				writes: [],
+			};
+
+			await writeText(responsePath, completion.text);
+			await writeConversationArtifacts(
+				runDir,
+				completion.messages,
+				rawInitialMessages,
+				initialMessages,
+				sessionCompaction,
 			);
-			await writeJson(
-				join(runDir, 'messages.json'),
-				orchestrationResult.proposal?.messages || [],
-			);
+			await writeJson(join(runDir, 'messages.json'), []);
+			await writeText(join(runDir, 'scratchpad.md'), '');
 			await writeJson(join(runDir, 'raw-response.json'), {
-				loopBudget: orchestrationResult.loopBudget,
-				responses: orchestrationResult.responses,
+				loopBudget: completion.loopBudget,
+				responses: completion.responses,
 			});
-			await writeDockerArtifact(runDir, dockerExecutor);
+			await finalizeExecutorArtifacts(runDir, activeExecutor);
 			await writeHookArtifact(runDir, configuredHooks);
 			await writeJson(join(runDir, 'summary.json'), summary);
+			await writeJson(join(runDir, 'install.json'), null);
 			await writeJson(join(runDir, 'tasks.json'), taskPlan);
-			await writeJson(
-				join(runDir, 'writes.json'),
-				orchestrationResult.writeResult,
-			);
+			await writeJson(join(runDir, 'writes.json'), writeResult);
+			await writeJson(join(runDir, 'tests.json'), null);
 			await writeLastRun(io.cwd, runDir);
 
 			return {
 				...summary,
-				installResult: orchestrationResult.installResult,
-				proposal: orchestrationResult.proposal,
-				response: orchestrationResult.response,
+				proposal: null,
+				response: completion.text,
 				responsePath,
 				runDir,
-				review: orchestrationResult.review,
+				testResult: null,
 				taskPlan,
-				testResult: orchestrationResult.testResult,
-				writeResult: orchestrationResult.writeResult,
+				writeResult,
 			};
 		}
 
-		if (
-			shouldUseStagedExecution(options, prompt, context) &&
-			!parent &&
-			registry
-		) {
-			return runStagedPrompt({
-				commandRunner,
-				configuredHooks,
-				context,
-				dockerExecutor,
-				io,
-				memory,
-				model,
-				options: runOptions,
-				prompt,
-				promptId,
-				rawRequest,
-				registry,
-				responsePath,
-				runDir,
-				skills,
-			});
-		}
-
-		const contOpts = parent ? { initialMessages } : {};
-		const agentStartedAt = performance.now();
-		const progressBase = {
-			agent: 'standard',
-			model,
-			runDir,
-		};
-		emitProgress(runOptions, {
-			...progressBase,
-			event: 'agent_start',
-			message: 'standard agent started',
-		});
-		await runStartHook(runOptions, 'agent_start', progressBase);
-		completion = options.tools
-			? await completeWithToolCalls(
-					runOptions,
-					model,
-					prompt,
-					context.systemPrompt,
-					registry,
-					contOpts,
-				)
-			: await completeWithContinuations(
-					runOptions,
-					model,
-					prompt,
-					context.systemPrompt,
-					contOpts,
-				);
-		emitProgress(runOptions, {
-			...progressBase,
-			durationMs: Math.round(performance.now() - agentStartedAt),
-			event: 'agent_finish',
-			message: 'standard agent finished',
-			responseChars: completion.text.length,
-		});
-
-		await writeJson(join(runDir, 'raw-request.json'), {
-			...rawRequest,
-			messages: completion.messages,
-		});
-	} catch (error) {
-		await writeRunFailure(runDir, {
-			baseUrl: options.baseUrl,
-			context,
-			error,
-			initialMessages,
-			model: model || options.model || '',
+		const scratchpad = proposal?.scratchpad || '';
+		const proposalMessages = proposal?.messages || [];
+		let taskPlan = createTaskPlan(
 			prompt,
-			promptId,
-			rawRequest,
-			rawRequestTools: registry ? registry.toApiTools() : null,
-			responsePath,
-			dockerExecutor,
-			configuredHooks,
-		});
-		throw new CliError(
-			`Model run failed: ${error.message}. Artifacts: ${runDir}`,
+			proposal ? proposalPaths(proposal) : [],
 		);
-	}
-
-	// For continuations, inherit the parent's sessionId to keep the chain
-	// grouped; parentRunDir records the immediate predecessor.
-	const sessionId = parent ? parent.sessionId : basename(runDir);
-	const summary = {
-		artifacts: {
-			context: 'context.md',
-			conversation: 'conversation.json',
-			conversationRaw: 'conversation-raw.json',
-			messages: 'messages.json',
-			prompt: 'prompt.md',
-			rawRequest: 'raw-request.json',
-			rawResponse: 'raw-response.json',
-			docker: 'docker.json',
-			hooks: 'hooks.json',
-			response: 'response.md',
-			repairs: 'repairs/repairs.json',
-			scratchpad: 'scratchpad.md',
-			sessionSummary: 'session-summary.json',
-			summary: 'summary.json',
-			install: 'install.json',
-			tasks: 'tasks.json',
-			tests: 'tests.json',
-			writes: 'writes.json',
-		},
-		baseUrl: options.baseUrl,
-		applyRequested: options.yes,
-		finishReasons: completion.finishReasons,
-		loopBudget: completion.loopBudget,
-		model,
-		ok: true,
-		parentRunDir: parent ? parent.runDir : null,
-		promptChars: prompt.length,
-		promptId,
-		responseChars: completion.text.length,
-		responseCount: completion.responses.length,
-		sessionCompaction: sessionCompaction?.summary || null,
-		sessionId,
-		timestamp: new Date().toISOString(),
-		usage: usageFromBudget(completion.loopBudget),
-		workspaceFileCount: context.files.length,
-	};
-	let proposal = null;
-	let proposalError = null;
-	try {
-		proposal = extractProposal(completion.text);
-	} catch (error) {
-		proposalError = {
-			message: error.message,
-			name: error.name,
-		};
-	}
-
-	if (proposalError) {
-		let taskPlan = createTaskPlan(prompt);
-		summary.applied = false;
-		summary.ok = false;
-		summary.proposalError = proposalError;
-		summary.proposalFound = false;
-		summary.tested = false;
-		summary.writeCount = 0;
-		taskPlan = updateTasksFromRun(taskPlan, summary);
-		summary.taskCounts = taskCounts(taskPlan);
-
-		const writeResult = {
+		let writeResult = {
 			applied: false,
-			error: proposalError,
 			writes: [],
 		};
+		let writeError = null;
+		if (!proposal && (options.yes || options.testCommand)) {
+			writeError = {
+				message:
+					'Model response did not include a proposal, so no writes or verification were run',
+				name: 'ProposalMissingError',
+			};
+			writeResult = {
+				applied: false,
+				error: writeError,
+				writes: [],
+			};
+		} else if (proposal?.status === 'ERROR') {
+			writeError = {
+				message:
+					proposalMessages
+						.map((message) => message.content)
+						.filter(Boolean)
+						.join('\n') || 'Model returned status ERROR',
+				name: 'ProposalStatusError',
+			};
+			writeResult = {
+				applied: false,
+				error: writeError,
+				writes: [],
+			};
+		} else if (proposal) {
+			try {
+				writeResult = await prepareChanges(io.cwd, proposal, {
+					apply: options.yes,
+					protectExisting: options.protectExisting,
+				});
+			} catch (error) {
+				writeError = {
+					message: error.message,
+					name: error.name,
+				};
+				writeResult = {
+					applied: false,
+					error: writeError,
+					writes: [],
+				};
+			}
+		}
+		const installResult =
+			options.installDependencies && options.yes && !writeError
+				? await runDependencyInstall(await verificationCwd(io.cwd, options), {
+						runner: commandRunner,
+						timeoutMs: options.timeoutMs,
+					})
+				: null;
+		const runError =
+			installResult && !installResult.ok
+				? {
+						message: `Dependency install failed: ${installResult.command}`,
+						name: 'DependencyInstallError',
+					}
+				: null;
+		const dependencyInstallRequired = hasDependencyMetadataWrites(
+			writeResult.writes,
+		);
+		let testResult =
+			options.testCommand && options.yes && !writeError && !runError
+				? await runVerification(
+						await verificationCwd(io.cwd, options),
+						options.testCommand,
+						{
+							runner: commandRunner,
+							timeoutMs: options.timeoutMs,
+						},
+					)
+				: null;
+		const healingResult = await runHealingIfNeeded({
+			cwd: await verificationCwd(io.cwd, options),
+			commandRunner,
+			model,
+			options,
+			registry,
+			runDir,
+			systemPrompt: context.systemPrompt,
+			testResult,
+		});
+		if (healingResult?.finalVerification) {
+			testResult = healingResult.finalVerification;
+		}
+
+		summary.applied = writeResult.applied;
+		summary.dependencyInstallRequired = dependencyInstallRequired;
+		summary.healed = healingResult ? healingResult.healed : false;
+		summary.healStopReason = healingResult?.stopReason || '';
+		summary.installed = installResult !== null;
+		summary.ok =
+			writeError || runError ? false : testResult ? testResult.ok : true;
+		summary.proposalMessageCount = proposalMessages.length;
+		summary.proposalFound = proposal !== null;
+		summary.proposalStatus = proposal?.status || '';
+		if (runError) {
+			summary.runError = runError;
+		}
+		summary.tested = testResult !== null;
+		if (writeError) {
+			summary.writeError = writeError;
+		}
+		summary.writeCount = writeResult.writes.length;
+		taskPlan = updateTasksFromRun(taskPlan, summary);
+		summary.taskCounts = taskCounts(taskPlan);
 
 		await writeText(responsePath, completion.text);
 		await writeConversationArtifacts(
@@ -1679,193 +1888,44 @@ async function runPrompt(options, io) {
 			initialMessages,
 			sessionCompaction,
 		);
-		await writeJson(join(runDir, 'messages.json'), []);
-		await writeText(join(runDir, 'scratchpad.md'), '');
+		await writeJson(join(runDir, 'messages.json'), proposalMessages);
+		await writeText(join(runDir, 'scratchpad.md'), scratchpad);
 		await writeJson(join(runDir, 'raw-response.json'), {
 			loopBudget: completion.loopBudget,
 			responses: completion.responses,
 		});
-		await writeDockerArtifact(runDir, dockerExecutor);
+		await finalizeExecutorArtifacts(runDir, activeExecutor);
 		await writeHookArtifact(runDir, configuredHooks);
 		await writeJson(join(runDir, 'summary.json'), summary);
-		await writeJson(join(runDir, 'install.json'), null);
+		await writeJson(join(runDir, 'install.json'), installResult);
 		await writeJson(join(runDir, 'tasks.json'), taskPlan);
 		await writeJson(join(runDir, 'writes.json'), writeResult);
-		await writeJson(join(runDir, 'tests.json'), null);
+		await writeJson(join(runDir, 'tests.json'), testResult);
 		await writeLastRun(io.cwd, runDir);
 
 		return {
 			...summary,
-			proposal: null,
+			proposal,
 			response: completion.text,
 			responsePath,
 			runDir,
-			testResult: null,
+			installResult,
+			healingResult,
+			scratchpad,
+			testResult,
 			taskPlan,
 			writeResult,
 		};
+	} finally {
+		await finalizeExecutorArtifacts(runDir, activeExecutor, options.timeoutMs);
 	}
-
-	const scratchpad = proposal?.scratchpad || '';
-	const proposalMessages = proposal?.messages || [];
-	let taskPlan = createTaskPlan(
-		prompt,
-		proposal ? proposalPaths(proposal) : [],
-	);
-	let writeResult = {
-		applied: false,
-		writes: [],
-	};
-	let writeError = null;
-	if (!proposal && (options.yes || options.testCommand)) {
-		writeError = {
-			message:
-				'Model response did not include a proposal, so no writes or verification were run',
-			name: 'ProposalMissingError',
-		};
-		writeResult = {
-			applied: false,
-			error: writeError,
-			writes: [],
-		};
-	} else if (proposal?.status === 'ERROR') {
-		writeError = {
-			message:
-				proposalMessages
-					.map((message) => message.content)
-					.filter(Boolean)
-					.join('\n') || 'Model returned status ERROR',
-			name: 'ProposalStatusError',
-		};
-		writeResult = {
-			applied: false,
-			error: writeError,
-			writes: [],
-		};
-	} else if (proposal) {
-		try {
-			writeResult = await prepareChanges(io.cwd, proposal, {
-				apply: options.yes,
-				protectExisting: options.protectExisting,
-			});
-		} catch (error) {
-			writeError = {
-				message: error.message,
-				name: error.name,
-			};
-			writeResult = {
-				applied: false,
-				error: writeError,
-				writes: [],
-			};
-		}
-	}
-	const installResult =
-		options.installDependencies && options.yes && !writeError
-			? await runDependencyInstall(await verificationCwd(io.cwd, options), {
-					runner: commandRunner,
-					timeoutMs: options.timeoutMs,
-				})
-			: null;
-	const runError =
-		installResult && !installResult.ok
-			? {
-					message: `Dependency install failed: ${installResult.command}`,
-					name: 'DependencyInstallError',
-				}
-			: null;
-	const dependencyInstallRequired = hasDependencyMetadataWrites(
-		writeResult.writes,
-	);
-	let testResult =
-		options.testCommand && options.yes && !writeError && !runError
-			? await runVerification(
-					await verificationCwd(io.cwd, options),
-					options.testCommand,
-					{
-						runner: commandRunner,
-						timeoutMs: options.timeoutMs,
-					},
-				)
-			: null;
-	const healingResult = await runHealingIfNeeded({
-		cwd: await verificationCwd(io.cwd, options),
-		commandRunner,
-		model,
-		options,
-		registry,
-		runDir,
-		systemPrompt: context.systemPrompt,
-		testResult,
-	});
-	if (healingResult?.finalVerification) {
-		testResult = healingResult.finalVerification;
-	}
-
-	summary.applied = writeResult.applied;
-	summary.dependencyInstallRequired = dependencyInstallRequired;
-	summary.healed = healingResult ? healingResult.healed : false;
-	summary.healStopReason = healingResult?.stopReason || '';
-	summary.installed = installResult !== null;
-	summary.ok =
-		writeError || runError ? false : testResult ? testResult.ok : true;
-	summary.proposalMessageCount = proposalMessages.length;
-	summary.proposalFound = proposal !== null;
-	summary.proposalStatus = proposal?.status || '';
-	if (runError) {
-		summary.runError = runError;
-	}
-	summary.tested = testResult !== null;
-	if (writeError) {
-		summary.writeError = writeError;
-	}
-	summary.writeCount = writeResult.writes.length;
-	taskPlan = updateTasksFromRun(taskPlan, summary);
-	summary.taskCounts = taskCounts(taskPlan);
-
-	await writeText(responsePath, completion.text);
-	await writeConversationArtifacts(
-		runDir,
-		completion.messages,
-		rawInitialMessages,
-		initialMessages,
-		sessionCompaction,
-	);
-	await writeJson(join(runDir, 'messages.json'), proposalMessages);
-	await writeText(join(runDir, 'scratchpad.md'), scratchpad);
-	await writeJson(join(runDir, 'raw-response.json'), {
-		loopBudget: completion.loopBudget,
-		responses: completion.responses,
-	});
-	await writeDockerArtifact(runDir, dockerExecutor);
-	await writeHookArtifact(runDir, configuredHooks);
-	await writeJson(join(runDir, 'summary.json'), summary);
-	await writeJson(join(runDir, 'install.json'), installResult);
-	await writeJson(join(runDir, 'tasks.json'), taskPlan);
-	await writeJson(join(runDir, 'writes.json'), writeResult);
-	await writeJson(join(runDir, 'tests.json'), testResult);
-	await writeLastRun(io.cwd, runDir);
-
-	return {
-		...summary,
-		proposal,
-		response: completion.text,
-		responsePath,
-		runDir,
-		installResult,
-		healingResult,
-		scratchpad,
-		testResult,
-		taskPlan,
-		writeResult,
-	};
 }
 
 async function runStagedPrompt({
 	commandRunner,
 	configuredHooks,
 	context,
-	dockerExecutor,
+	activeExecutor,
 	io,
 	memory,
 	model,
@@ -2148,6 +2208,7 @@ async function runStagedPrompt({
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			docker: 'docker.json',
+			openshell: 'openshell.json',
 			hooks: 'hooks.json',
 			response: 'response.md',
 			repairs: 'repairs/repairs.json',
@@ -2221,7 +2282,7 @@ async function runStagedPrompt({
 		responses,
 		stages: stageRecords,
 	});
-	await writeDockerArtifact(runDir, dockerExecutor);
+	await finalizeExecutorArtifacts(runDir, activeExecutor);
 	await writeHookArtifact(runDir, configuredHooks);
 	await writeJson(join(runDir, 'summary.json'), summary);
 	await writeJson(join(runDir, 'install.json'), installResult);
@@ -2323,16 +2384,16 @@ async function runHealingIfNeeded({
 	});
 }
 
-function dockerCommandRunner(dockerExecutor) {
-	return dockerExecutor ? dockerExecutor.run.bind(dockerExecutor) : null;
-}
-
-function dockerMetadata(dockerExecutor) {
-	return dockerExecutor ? dockerExecutor.metadata() : { enabled: false };
-}
-
-async function writeDockerArtifact(runDir, dockerExecutor) {
-	await writeJson(join(runDir, 'docker.json'), dockerMetadata(dockerExecutor));
+async function finalizeExecutorArtifacts(
+	runDir,
+	activeExecutor,
+	timeoutMs = 60000,
+) {
+	try {
+		await finalizeExecutor(activeExecutor, timeoutMs);
+	} finally {
+		await writeExecutorArtifacts(runDir, activeExecutor);
+	}
 }
 
 function mergeLoopBudgets(responses) {
@@ -2390,6 +2451,7 @@ async function writeRunFailure(runDir, details) {
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			docker: 'docker.json',
+			openshell: 'openshell.json',
 			hooks: 'hooks.json',
 			response: 'response.md',
 			scratchpad: 'scratchpad.md',
@@ -2422,7 +2484,7 @@ async function writeRunFailure(runDir, details) {
 	await writeJson(join(runDir, 'error.json'), error);
 	await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 	await writeJson(join(runDir, 'raw-response.json'), { responses: [] });
-	await writeDockerArtifact(runDir, details.dockerExecutor);
+	await finalizeExecutorArtifacts(runDir, details.activeExecutor);
 	await writeHookArtifact(runDir, details.configuredHooks);
 	await writeJson(join(runDir, 'summary.json'), summary);
 	await writeJson(join(runDir, 'install.json'), null);

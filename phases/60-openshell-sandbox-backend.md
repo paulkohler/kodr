@@ -217,27 +217,27 @@ they run through this backend.
 
 ## Done Criteria
 
-- [ ] CLI parses and documents `--openshell-sandbox` flags.
-- [ ] OpenShell availability detection is explicit and does not affect normal
+- [x] CLI parses and documents `--openshell-sandbox` flags.
+- [x] OpenShell availability detection is explicit and does not affect normal
       Kodr runs.
-- [ ] Capability detection rejects incompatible CLI surfaces without relying
+- [x] Capability detection rejects incompatible CLI surfaces without relying
       only on a version string.
-- [ ] A running local gateway is required; Kodr does not auto-bootstrap one.
-- [ ] Docker and OpenShell execution share a small active-executor contract
+- [x] A running local gateway is required; Kodr does not auto-bootstrap one.
+- [x] Docker and OpenShell execution share a small active-executor contract
       without changing normal host execution behavior.
-- [ ] One persistent sandbox is used for all command effects in a run.
-- [ ] A filtered workspace snapshot is uploaded without harness/private state.
-- [ ] Snapshot creation rejects symlinks that resolve outside the host
+- [x] One persistent sandbox is used for all command effects in a run.
+- [x] A filtered workspace snapshot is uploaded without harness/private state.
+- [x] Snapshot creation rejects symlinks that resolve outside the host
       workspace.
-- [ ] Dependency install can run through the OpenShell executor.
-- [ ] Verification can run through the OpenShell executor.
-- [ ] `run_command` tools can run through the OpenShell executor.
-- [ ] Command hooks can run through the OpenShell executor.
-- [ ] Policy selection is artifacted and defaults closed.
-- [ ] Dependency installation without an explicit suitable policy fails clearly.
-- [ ] `openshell.json` records sandbox lifecycle and command metadata.
-- [ ] Tests cover unavailable OpenShell, successful fake execution, failure
+- [x] Dependency install can run through the OpenShell executor.
+- [x] Verification can run through the OpenShell executor.
+- [x] `run_command` tools can run through the OpenShell executor.
+- [x] Command hooks can run through the OpenShell executor.
+- [x] Policy selection is artifacted and defaults closed.
+- [x] Dependency installation without an explicit suitable policy fails clearly.
+- [x] `openshell.json` records sandbox lifecycle and command metadata.
+- [x] Tests cover unavailable OpenShell, successful fake execution, failure
       artifacts, and no silent fallback.
-- [ ] Record decisions and failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Record decisions and failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
