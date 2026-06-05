@@ -151,7 +151,11 @@ changes `package.json`:
 
 Dependency installs are a separate allowlisted workflow. Kodr runs `npm ci`
 when `package-lock.json` exists, otherwise `npm install`, and records the result
-in `install.json`.
+in `install.json`. Because `npm ci` is strict — it refuses when the lockfile is
+out of sync with `package.json`, which happens easily when a generated
+`package.json` lands over a stale lock — Kodr automatically falls back to
+`npm install` (which regenerates the lock) if the auto-chosen `npm ci` fails.
+`install.json` records `fallbackFrom` and `fallbackReason` when this happens.
 
 ### Run Commands In Docker
 

@@ -36,20 +36,48 @@ export async function chooseDependencyInstallCommand(cwd) {
 }
 
 export async function runDependencyInstall(cwd, options = {}) {
+	const explicit = Boolean(options.command);
 	const command =
 		options.command || (await chooseDependencyInstallCommand(cwd));
-	const parsed = parseDependencyInstallCommand(command);
 	const timeoutMs = options.timeoutMs || 60000;
 	const runner = options.runner || spawnCommand;
+
+	let summary = await attemptInstall(cwd, command, timeoutMs, runner);
+
+	// `npm ci` is auto-chosen whenever a lockfile exists, but it is strict: if
+	// the lockfile is out of sync with package.json (common after the model
+	// rewrites package.json over a stale lock) it fails with EUSAGE. Fall back
+	// to `npm install`, which regenerates the lockfile. Only do this for the
+	// auto-chosen command so an explicit request stays strict, and not after a
+	// timeout (a retry would likely time out again).
+	if (!explicit && command === 'npm ci' && !summary.ok && !summary.timedOut) {
+		const fallback = await attemptInstall(
+			cwd,
+			'npm install',
+			timeoutMs,
+			runner,
+		);
+		fallback.fallbackFrom = 'npm ci';
+		fallback.fallbackReason = lockfileOutOfSync(summary.stderr)
+			? 'lockfile out of sync with package.json'
+			: 'npm ci failed';
+		summary = fallback;
+	}
+
+	await writeLastInstall(cwd, summary);
+	return summary;
+}
+
+async function attemptInstall(cwd, command, timeoutMs, runner) {
+	const parsed = parseDependencyInstallCommand(command);
 	const startedAt = new Date().toISOString();
 	const started = performance.now();
 	const result = await runner(cwd, parsed, timeoutMs);
-	const finishedAt = new Date().toISOString();
-	const summary = {
+	return {
 		command,
 		durationMs: Math.round(performance.now() - started),
 		exitCode: result.exitCode,
-		finishedAt,
+		finishedAt: new Date().toISOString(),
 		ok: result.exitCode === 0 && !result.timedOut,
 		stderr: result.stderr,
 		stdout: result.stdout,
@@ -59,9 +87,12 @@ export async function runDependencyInstall(cwd, options = {}) {
 		trustBoundary:
 			'Dependency install commands are allowlisted and run without a shell, but npm lifecycle behavior executes trusted workspace package code.',
 	};
+}
 
-	await writeLastInstall(cwd, summary);
-	return summary;
+function lockfileOutOfSync(stderr) {
+	return /can only install packages when your package\.json and package-lock\.json|in sync/u.test(
+		stderr || '',
+	);
 }
 
 async function fileExists(path) {
