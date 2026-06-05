@@ -326,6 +326,49 @@ describe('subagent stage orchestration', () => {
 		}
 	});
 
+	it('skips the reviewer stage when skipReview is set', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-skip-review-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/greet.mjs'),
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [
+							{
+								path: 'src/greet.mjs',
+								content: 'export const greet = () => "hi";\n',
+							},
+						],
+						messages: [],
+					}),
+				),
+				// No reviewer response is queued; if the reviewer ran it would hit
+				// the default model response and the assertion below would fail.
+			],
+		});
+
+		try {
+			const result = await runSubagentStages(cwd, runDir, 'Add greet.', {
+				...options(server),
+				skipReview: true,
+				yes: true,
+			});
+
+			assert.equal(result.review.unavailable, true);
+			assert.match(result.review.summary, /--no-review/u);
+			assert.equal(result.ok, true);
+			// Only planner + implementer hit the model server.
+			const completions = server.recordings.filter(
+				(entry) => entry.url === '/v1/chat/completions',
+			);
+			assert.equal(completions.length, 2);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('treats a reviewer model failure as unavailable, not a crashed run', async () => {
 		const cwd = await makeWorkspace();
 		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-reviewer-down-'));

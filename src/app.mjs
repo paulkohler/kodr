@@ -90,6 +90,10 @@ export { VERSION };
 const DEFAULT_BASE_URL = 'http://localhost:1234/v1';
 const DEFAULT_MODEL_ID = 'qwen/qwen3.6-35b-a3b';
 const DEFAULT_TIMEOUT_MS = 600000;
+// The reviewer is advisory and non-fatal, so it fails fast by default rather
+// than tying up a full model timeout. Capped against --timeout-ms and
+// overridable with --review-timeout-ms.
+const DEFAULT_REVIEW_TIMEOUT_MS = 180000;
 const DEFAULT_SERVE_HOST = '127.0.0.1';
 const DEFAULT_SERVE_PORT = 8787;
 const PROBE_PROMPT = 'Reply with exactly: kodr-probe-ok';
@@ -156,6 +160,8 @@ export function parseArgs(argv, env = {}) {
 		servePort: DEFAULT_SERVE_PORT,
 		staged: 'auto',
 		subagentStages: false,
+		skipReview: false,
+		reviewTimeoutMs: '',
 		tools: false,
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
@@ -253,6 +259,11 @@ export function parseArgs(argv, env = {}) {
 			continue;
 		}
 
+		if (arg === '--no-review') {
+			options.skipReview = true;
+			continue;
+		}
+
 		if (arg === '--heal') {
 			options.heal = true;
 			continue;
@@ -326,6 +337,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '--test' ||
 			arg === '--test-cwd' ||
 			arg === '--timeout-ms' ||
+			arg === '--review-timeout-ms' ||
 			arg === '--transcript-file' ||
 			arg === '--format' ||
 			arg === '--docker-image' ||
@@ -437,6 +449,15 @@ export function parseArgs(argv, env = {}) {
 	if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 100) {
 		throw new CliError(
 			'--timeout-ms must be an integer greater than or equal to 100',
+		);
+	}
+	if (
+		options.reviewTimeoutMs !== '' &&
+		(!Number.isInteger(options.reviewTimeoutMs) ||
+			options.reviewTimeoutMs < 100)
+	) {
+		throw new CliError(
+			'--review-timeout-ms must be an integer greater than or equal to 100',
 		);
 	}
 	validateLoopBudgetOptions(options);
@@ -579,6 +600,8 @@ OpenRouter:
   --staged             Force plan-first staged execution for complex work.
   --no-staged          Disable automatic staged execution.
   --subagent-stages    Run planner, implementer, and reviewer as isolated tool agents.
+  --no-review          Skip the advisory reviewer stage in --subagent-stages runs.
+  --review-timeout-ms N  Reviewer model timeout. Default: min(--timeout-ms, ${DEFAULT_REVIEW_TIMEOUT_MS}).
   --install            Run controlled dependency install after applied writes.
                        Uses npm ci when package-lock.json exists, otherwise npm install.
   --heal               After failed verification, run a bounded repair loop.
@@ -1224,6 +1247,8 @@ function assignValue(options, flag, value) {
 		options.testCwd = value;
 	} else if (flag === '--timeout-ms') {
 		options.timeoutMs = Number(value);
+	} else if (flag === '--review-timeout-ms') {
+		options.reviewTimeoutMs = Number(value);
 	} else if (flag === '--transcript-file') {
 		options.transcriptFile = value;
 	} else if (flag === '--format') {
@@ -1474,6 +1499,8 @@ async function runPrompt(options, io) {
 						...runOptions,
 						commandRunner,
 						protectedPaths: protectedWritePaths(options),
+						reviewTimeoutMs: resolveReviewTimeoutMs(options),
+						skipReview: options.skipReview,
 						workspaceContext: context,
 					},
 					io,
@@ -2362,6 +2389,16 @@ function shouldUseStagedExecution(options, prompt, context) {
 // and weak models sometimes echo it back as a file to "create".
 function protectedWritePaths(options) {
 	return options.promptFile ? [options.promptFile] : [];
+}
+
+// The reviewer is advisory and non-fatal, so cap its wait well below the full
+// model timeout unless the user overrides it. Keeps a slow or stuck local
+// reviewer from tying up a run for the full --timeout-ms.
+function resolveReviewTimeoutMs(options) {
+	if (options.reviewTimeoutMs !== '') {
+		return options.reviewTimeoutMs;
+	}
+	return Math.min(options.timeoutMs, DEFAULT_REVIEW_TIMEOUT_MS);
 }
 
 async function runHealingIfNeeded({

@@ -115,29 +115,42 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 	// The reviewer is advisory: deterministic verification is the authoritative
 	// signal. A reviewer model error or timeout must not crash the run and
 	// discard a successful implement/install/verify, so treat it as
-	// "review unavailable" rather than a hard failure.
+	// "review unavailable" rather than a hard failure. It can also be skipped.
+	const reviewerDir = join(subagentRoot, 'reviewer');
 	let reviewer;
-	try {
-		reviewer = await runReviewerAgent(
-			cwd,
-			join(subagentRoot, 'reviewer'),
-			prompt,
-			planner.plan,
-			{
-				verification,
-				writeResult,
-			},
-			{
-				...options,
-				commandRunner,
-			},
-		);
-	} catch (error) {
+	if (options.skipReview) {
 		reviewer = await makeUnavailableReviewer(
-			join(subagentRoot, 'reviewer'),
+			reviewerDir,
 			optionsForAgent({ ...options, commandRunner }, 'reviewer'),
-			error,
+			{ name: 'ReviewSkipped', message: 'reviewer skipped (--no-review)' },
 		);
+	} else {
+		const reviewerOptions = {
+			...options,
+			commandRunner,
+			...(options.reviewTimeoutMs
+				? { timeoutMs: options.reviewTimeoutMs }
+				: {}),
+		};
+		try {
+			reviewer = await runReviewerAgent(
+				cwd,
+				reviewerDir,
+				prompt,
+				planner.plan,
+				{
+					verification,
+					writeResult,
+				},
+				reviewerOptions,
+			);
+		} catch (error) {
+			reviewer = await makeUnavailableReviewer(
+				reviewerDir,
+				optionsForAgent(reviewerOptions, 'reviewer'),
+				error,
+			);
+		}
 	}
 
 	const responses = [

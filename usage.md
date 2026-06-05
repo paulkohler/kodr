@@ -75,6 +75,18 @@ nothing) and merges the results. This suits small local models that cannot emit
 a whole multi-file project in one response. `orchestration.json` records the
 implementer `manifestCount` and any `missingFiles`.
 
+The reviewer stage is advisory; deterministic verification is authoritative. A
+reviewer model error or timeout is recorded as "reviewer unavailable" and does
+not fail the run or discard applied writes. The reviewer also fails fast: its
+model timeout defaults to `min(--timeout-ms, 180000)` so a slow local reviewer
+cannot tie up a run for the full timeout. Override it with `--review-timeout-ms`,
+or skip the stage entirely with `--no-review`:
+
+```sh
+./kodr run -p "Implement the feature" --subagent-stages --yes --no-review
+./kodr run -p "Implement the feature" --subagent-stages --yes --review-timeout-ms 60000
+```
+
 `--heal` also applies to subagent runs: if verification fails after the
 implementer's writes, Kodr runs the same bounded repair loop used by normal
 runs, driven by the primary `--model` (the implementer). The active
