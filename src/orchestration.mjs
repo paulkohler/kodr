@@ -251,8 +251,13 @@ export async function runPlannerAgent(
 // Upper bound on implementer turns. Small local models cannot emit a whole
 // multi-file project in one proposal, so when the plan names several target
 // files Kodr drives the implementer file-by-file until the plan's manifest is
-// satisfied or progress stalls.
-const MAX_IMPLEMENTER_PASSES = 6;
+// satisfied or progress stalls. Local implementer passes are typically cost-0,
+// so the cap favors completing a multi-file manifest.
+const MAX_IMPLEMENTER_PASSES = 8;
+// How many consecutive passes may add no new files before Kodr gives up. A weak
+// model often spends its first turn on an intention/empty proposal, so a single
+// barren pass must not end the loop.
+const MAX_NO_PROGRESS_PASSES = 2;
 
 export async function runImplementerAgent(
 	cwd,
@@ -277,6 +282,7 @@ export async function runImplementerAgent(
 	let merged = null;
 	let remaining = manifest.slice();
 	let pass = 0;
+	let noProgressStreak = 0;
 
 	while (pass < maxPasses) {
 		pass += 1;
@@ -296,7 +302,7 @@ export async function runImplementerAgent(
 					: '- (none)',
 				'## Remaining files to implement',
 				remaining.map((path) => `- ${path}`).join('\n'),
-				'Return a proposal containing only the remaining files listed above. Do not resend files that are already implemented.',
+				'Return a JSON proposal whose `files` array holds the full contents of the remaining files listed above. Do not resend already-implemented files. Do not return an empty proposal or intention-only messages — write the files now.',
 			);
 		}
 		const userPrompt = renderAgentUserPrompt('implementer', prompt, sections);
@@ -326,8 +332,15 @@ export async function runImplementerAgent(
 		remaining = manifest.filter(
 			(path) => !have.has(normalizeManifestPath(path)),
 		);
-		const progressed = proposalPathCount(merged) > before;
-		if (remaining.length === 0 || !progressed) {
+		if (remaining.length === 0) {
+			break;
+		}
+		// An empty or stalled pass is tolerated briefly: weak models often warm
+		// up with an intention before producing files. Only stop after several
+		// barren passes in a row.
+		noProgressStreak =
+			proposalPathCount(merged) > before ? 0 : noProgressStreak + 1;
+		if (noProgressStreak >= MAX_NO_PROGRESS_PASSES) {
 			break;
 		}
 	}

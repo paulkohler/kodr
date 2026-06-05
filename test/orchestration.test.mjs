@@ -280,6 +280,52 @@ describe('subagent stage orchestration', () => {
 		}
 	});
 
+	it('recovers when the implementer first returns an intention-only proposal', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-empty-first-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/a.mjs\n2. Create src/b.mjs'),
+				// Pass 1: an OK proposal with no files, just an intention message.
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [],
+						messages: [{ level: 'info', content: 'Starting implementation.' }],
+					}),
+				),
+				// Pass 2: a barren pass must not have ended the loop — deliver now.
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [
+							{ path: 'src/a.mjs', content: 'export const a = 1;\n' },
+							{ path: 'src/b.mjs', content: 'export const b = 2;\n' },
+						],
+						messages: [],
+					}),
+				),
+				chatText(JSON.stringify({ pass: true, issues: [], summary: 'ok' })),
+			],
+		});
+
+		try {
+			const result = await runSubagentStages(cwd, runDir, 'Add a and b.', {
+				...options(server),
+				yes: true,
+			});
+
+			const paths = result.writeResult.writes.map((write) => write.path).sort();
+			assert.deepEqual(paths, ['src/a.mjs', 'src/b.mjs']);
+			const orchestration = JSON.parse(
+				await readFile(join(runDir, 'orchestration.json'), 'utf8'),
+			);
+			assert.deepEqual(orchestration.agents.implementer.missingFiles, []);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('skips writes that target a protected input path', async () => {
 		const cwd = await makeWorkspace();
 		await writeFile(join(cwd, 'prompt.md'), 'original task\n', 'utf8');
