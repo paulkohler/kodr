@@ -7,6 +7,7 @@ import { buildWorkspaceContext } from '../src/context-packer.mjs';
 import {
 	runImplementerAgent,
 	runPlannerAgent,
+	extractPlanManifest,
 	runReviewerAgent,
 	runSubagentStages,
 	splitAgentDirectives,
@@ -198,6 +199,82 @@ describe('subagent stage orchestration', () => {
 			);
 			assert.equal(summary.agents.reviewer.pass, true);
 			assert.match(summary.plan, /Create src\/greet\.mjs/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('extracts target file paths from a free-form plan', () => {
+		const plan = [
+			'# Plan',
+			'Create `package.json` from scratch (npm init -y).',
+			'### src/extract.mjs — link extraction',
+			'- export extractLinks(markdown)',
+			'Add test/extract.test.mjs and README.md.',
+			'Use marked: "^13.0.0" and run `node --test test/*.test.mjs`.',
+			'Import fs/promises and node:test; call process.cwd().',
+		].join('\n');
+
+		const manifest = extractPlanManifest(plan);
+
+		assert.deepEqual([...manifest].sort(), [
+			'README.md',
+			'package.json',
+			'src/extract.mjs',
+			'test/extract.test.mjs',
+		]);
+		// Globs, bare module specifiers, and version strings are excluded.
+		assert.ok(!manifest.some((path) => path.includes('*')));
+		assert.ok(!manifest.includes('fs/promises'));
+	});
+
+	it('drives the implementer file-by-file until the plan manifest is met', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-incremental-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/a.mjs\n2. Create src/b.mjs'),
+				// Pass 1: implementer only delivers one of the two planned files.
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [{ path: 'src/a.mjs', content: 'export const a = 1;\n' }],
+						messages: [],
+					}),
+				),
+				// Pass 2: Kodr re-prompts for the remaining file.
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [{ path: 'src/b.mjs', content: 'export const b = 2;\n' }],
+						messages: [],
+					}),
+				),
+				chatText(JSON.stringify({ pass: true, issues: [], summary: 'ok' })),
+			],
+		});
+
+		try {
+			const result = await runSubagentStages(cwd, runDir, 'Add a and b.', {
+				...options(server),
+				yes: true,
+			});
+
+			const paths = result.writeResult.writes.map((write) => write.path).sort();
+			assert.deepEqual(paths, ['src/a.mjs', 'src/b.mjs']);
+			assert.equal(
+				await readFile(join(cwd, 'src/a.mjs'), 'utf8'),
+				'export const a = 1;\n',
+			);
+			assert.equal(
+				await readFile(join(cwd, 'src/b.mjs'), 'utf8'),
+				'export const b = 2;\n',
+			);
+			const orchestration = JSON.parse(
+				await readFile(join(runDir, 'orchestration.json'), 'utf8'),
+			);
+			assert.equal(orchestration.agents.implementer.manifestCount, 2);
+			assert.deepEqual(orchestration.agents.implementer.missingFiles, []);
 		} finally {
 			await server.close();
 		}
@@ -610,7 +687,9 @@ function options(server) {
 		baseUrl: server.baseUrl,
 		model: 'fake-local-model',
 		provider: 'local',
-		timeoutMs: 1000,
+		// Some cases run a real `node --test` child for verification; under full
+		// suite load that can exceed a 1s budget, so give it headroom.
+		timeoutMs: 5000,
 		maxTurns: 3,
 		maxRetries: 0,
 		maxTokens: '',

@@ -67,6 +67,14 @@ requested dependency installation and verification before the reviewer starts.
 The reviewer receives a write manifest and verification result and reads only
 the files it needs to inspect.
 
+When the plan names several target files, Kodr drives the implementer
+file-by-file: it parses the planned file paths into a manifest, and if the
+first proposal omits some of them it re-prompts the implementer for the missing
+files (bounded passes, stopping when the manifest is satisfied or a pass adds
+nothing) and merges the results. This suits small local models that cannot emit
+a whole multi-file project in one response. `orchestration.json` records the
+implementer `manifestCount` and any `missingFiles`.
+
 `--heal` also applies to subagent runs: if verification fails after the
 implementer's writes, Kodr runs the same bounded repair loop used by normal
 runs, driven by the primary `--model` (the implementer). The active

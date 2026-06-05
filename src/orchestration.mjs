@@ -143,6 +143,8 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 			},
 			implementer: {
 				artifactDir: relativeArtifact(runDir, implementer.artifactDir),
+				manifestCount: implementer.manifest?.length || 0,
+				missingFiles: implementer.remaining || [],
 				model: implementer.model,
 				proposalFound: implementer.proposal !== null,
 				provider: implementer.provider,
@@ -246,6 +248,12 @@ export async function runPlannerAgent(
 	};
 }
 
+// Upper bound on implementer turns. Small local models cannot emit a whole
+// multi-file project in one proposal, so when the plan names several target
+// files Kodr drives the implementer file-by-file until the plan's manifest is
+// satisfied or progress stalls.
+const MAX_IMPLEMENTER_PASSES = 6;
+
 export async function runImplementerAgent(
 	cwd,
 	subDir,
@@ -256,35 +264,241 @@ export async function runImplementerAgent(
 ) {
 	const activeOptions = optionsForAgent(agentOptions, 'implementer');
 	const systemPrompt = await buildAgentSystemPrompt('implementer');
-	const userPrompt = renderAgentUserPrompt('implementer', prompt, [
-		'## Workspace context',
-		renderContextMarkdown(workspaceContext),
-		'## Plan',
-		plan,
-	]);
 	const registry = createBuiltinRegistry(cwd, {
 		commandRunner: activeOptions.commandRunner || null,
 		hooks: activeOptions.hooks || null,
 	});
-	const completion = await runAgentCompletion({
-		agentName: 'implementer',
-		agentOptions: {
-			...activeOptions,
-			responseFormat: proposalResponseFormat(),
-		},
-		registry,
-		subDir,
-		systemPrompt,
-		userPrompt,
+
+	const manifest = extractPlanManifest(plan);
+	const maxPasses =
+		manifest.length > 1 ? Math.min(manifest.length, MAX_IMPLEMENTER_PASSES) : 1;
+
+	const completions = [];
+	let merged = null;
+	let remaining = manifest.slice();
+	let pass = 0;
+
+	while (pass < maxPasses) {
+		pass += 1;
+		const passDir = pass === 1 ? subDir : join(subDir, `pass-${pass}`);
+		const sections = [
+			'## Workspace context',
+			renderContextMarkdown(workspaceContext),
+			'## Plan',
+			plan,
+		];
+		if (pass > 1) {
+			const done = manifest.filter((path) => !remaining.includes(path));
+			sections.push(
+				'## Already implemented',
+				done.length > 0
+					? done.map((path) => `- ${path}`).join('\n')
+					: '- (none)',
+				'## Remaining files to implement',
+				remaining.map((path) => `- ${path}`).join('\n'),
+				'Return a proposal containing only the remaining files listed above. Do not resend files that are already implemented.',
+			);
+		}
+		const userPrompt = renderAgentUserPrompt('implementer', prompt, sections);
+		const completion = await runAgentCompletion({
+			agentName: 'implementer',
+			agentOptions: {
+				...activeOptions,
+				responseFormat: proposalResponseFormat(),
+			},
+			registry,
+			subDir: passDir,
+			systemPrompt,
+			userPrompt,
+		});
+		completions.push(completion);
+
+		const proposal = extractProposal(completion.text);
+		if (!proposal) {
+			// No usable proposal this pass. On the first pass this becomes a
+			// missing-proposal failure downstream; later it just ends the loop.
+			break;
+		}
+
+		const before = merged ? proposalPathCount(merged) : 0;
+		merged = mergeProposals(merged, proposal);
+		const have = proposalPaths(merged);
+		remaining = manifest.filter(
+			(path) => !have.has(normalizeManifestPath(path)),
+		);
+		const progressed = proposalPathCount(merged) > before;
+		if (remaining.length === 0 || !progressed) {
+			break;
+		}
+	}
+
+	await writeJson(join(subDir, 'proposal.json'), merged);
+	await writeJson(join(subDir, 'manifest.json'), {
+		manifest,
+		passes: pass,
+		remaining,
 	});
-	const proposal = extractProposal(completion.text);
-	await writeJson(join(subDir, 'proposal.json'), proposal);
+
 	return {
 		artifactDir: subDir,
-		completion,
+		completion: combineImplementerCompletions(completions),
+		manifest,
 		model: activeOptions.model,
-		proposal,
+		proposal: merged,
 		provider: activeOptions.provider,
+		remaining,
+	};
+}
+
+// Pull likely target file paths out of a free-form plan so Kodr can tell when
+// the implementer has only delivered part of the work. Heuristic and forgiving:
+// over-inclusion costs at most one extra bounded pass, and the progress guard
+// stops the loop when a pass adds nothing.
+const MANIFEST_EXTENSIONS = new Set([
+	'mjs',
+	'cjs',
+	'js',
+	'jsx',
+	'ts',
+	'tsx',
+	'json',
+	'md',
+	'txt',
+	'yml',
+	'yaml',
+	'toml',
+	'sql',
+	'html',
+	'css',
+]);
+const MANIFEST_ROOT_FILES = new Set([
+	'package.json',
+	'readme.md',
+	'.gitignore',
+	'.npmrc',
+	'tsconfig.json',
+	'.env.example',
+	'docker-compose.yml',
+]);
+
+export function extractPlanManifest(plan) {
+	if (!plan || typeof plan !== 'string') {
+		return [];
+	}
+	const tokens = plan.split(/[\s`'"()[\]{}<>,;]+/u);
+	const seen = new Set();
+	const manifest = [];
+	for (const raw of tokens) {
+		const token = raw.replace(/^\.\//u, '').replace(/[*:.]+$/u, '');
+		if (!isManifestPath(token)) {
+			continue;
+		}
+		const key = normalizeManifestPath(token);
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		manifest.push(token);
+	}
+	return manifest;
+}
+
+function isManifestPath(token) {
+	if (!token || token.includes('://') || token.includes('*')) {
+		return false;
+	}
+	if (token.startsWith('/') || token.includes('..')) {
+		return false;
+	}
+	const lower = token.toLowerCase();
+	const dot = lower.lastIndexOf('.');
+	if (dot <= 0) {
+		return false;
+	}
+	const ext = lower.slice(dot + 1);
+	if (token.includes('/')) {
+		return MANIFEST_EXTENSIONS.has(ext);
+	}
+	return MANIFEST_ROOT_FILES.has(lower);
+}
+
+function normalizeManifestPath(path) {
+	return path
+		.replace(/^\.\//u, '')
+		.split(/[\\/]+/u)
+		.filter((part) => part !== '' && part !== '.')
+		.join('/')
+		.toLowerCase();
+}
+
+function proposalPaths(proposal) {
+	const paths = new Set();
+	for (const file of proposal?.files || []) {
+		paths.add(normalizeManifestPath(file.path));
+	}
+	for (const patch of proposal?.patches || []) {
+		paths.add(normalizeManifestPath(patch.path));
+	}
+	return paths;
+}
+
+function proposalPathCount(proposal) {
+	return proposalPaths(proposal).size;
+}
+
+// Accumulate files/patches across passes. The first content for a given path
+// wins so a later pass cannot truncate or clobber an already-delivered file.
+function mergeProposals(base, next) {
+	if (!next) {
+		return base;
+	}
+	if (!base) {
+		return {
+			files: [...(next.files || [])],
+			messages: [...(next.messages || [])],
+			patches: [...(next.patches || [])],
+			status: next.status || 'OK',
+		};
+	}
+	const filePaths = new Set(base.files.map((file) => file.path));
+	for (const file of next.files || []) {
+		if (!filePaths.has(file.path)) {
+			base.files.push(file);
+			filePaths.add(file.path);
+		}
+	}
+	const patchKeys = new Set(
+		base.patches.map((patch) => `${patch.path} ${patch.search}`),
+	);
+	for (const patch of next.patches || []) {
+		const key = `${patch.path} ${patch.search}`;
+		if (!patchKeys.has(key)) {
+			base.patches.push(patch);
+			patchKeys.add(key);
+		}
+	}
+	base.messages.push(...(next.messages || []));
+	return base;
+}
+
+function combineImplementerCompletions(completions) {
+	if (completions.length === 1) {
+		return completions[0];
+	}
+	const responses = completions.flatMap(
+		(completion) => completion.responses || [],
+	);
+	return {
+		finishReasons: completions.flatMap(
+			(completion) => completion.finishReasons || [],
+		),
+		loopBudget: mergeLoopBudgets(responses),
+		messages: completions.flatMap((completion) => completion.messages || []),
+		responses,
+		text: completions
+			.map((completion) => completion.text)
+			.filter(Boolean)
+			.join('\n\n'),
 	};
 }
 
