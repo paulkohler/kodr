@@ -203,6 +203,49 @@ describe('subagent stage orchestration', () => {
 		}
 	});
 
+	it('skips writes that target a protected input path', async () => {
+		const cwd = await makeWorkspace();
+		await writeFile(join(cwd, 'prompt.md'), 'original task\n', 'utf8');
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-protect-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/greet.mjs'),
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [
+							{ path: 'prompt.md', content: 'tampered\n' },
+							{
+								path: 'src/greet.mjs',
+								content: 'export const greet = () => "hi";\n',
+							},
+						],
+						messages: [],
+					}),
+				),
+				chatText(JSON.stringify({ pass: true, issues: [], summary: 'ok' })),
+			],
+		});
+
+		try {
+			const result = await runSubagentStages(cwd, runDir, 'Add greet.', {
+				...options(server),
+				yes: true,
+				protectedPaths: ['prompt.md'],
+			});
+
+			assert.equal(result.writeResult.writes.length, 1);
+			assert.equal(result.writeResult.writes[0].path, 'src/greet.mjs');
+			assert.equal(result.writeResult.protected.length, 1);
+			assert.equal(
+				await readFile(join(cwd, 'prompt.md'), 'utf8'),
+				'original task\n',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('emits subagent progress callbacks', async () => {
 		const cwd = await makeWorkspace();
 		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-progress-'));

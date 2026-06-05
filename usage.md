@@ -67,6 +67,13 @@ requested dependency installation and verification before the reviewer starts.
 The reviewer receives a write manifest and verification result and reads only
 the files it needs to inspect.
 
+`--heal` also applies to subagent runs: if verification fails after the
+implementer's writes, Kodr runs the same bounded repair loop used by normal
+runs, driven by the primary `--model` (the implementer). The active
+`--prompt-file` is always protected from being written — it is a run input, so
+proposals that try to recreate or edit it are dropped and recorded under
+`writes.json` `protected` rather than applied.
+
 ```sh
 ./kodr run -p "Implement the feature" --subagent-stages \
   --yes \

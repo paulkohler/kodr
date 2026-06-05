@@ -77,6 +77,7 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 			? await prepareChanges(cwd, implementer.proposal, {
 					apply: options.yes,
 					protectExisting: options.protectExisting,
+					protectedPaths: options.protectedPaths,
 				})
 			: writeResult;
 	} catch (error) {

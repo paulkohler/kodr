@@ -17,11 +17,30 @@ export class SafeWriteError extends Error {
 }
 
 export async function prepareChanges(cwd, proposal, options = {}) {
-	const files = proposal.files || [];
-	const patches = proposal.patches || [];
 	const apply = options.apply === true;
 	const timestamp =
 		options.timestamp || new Date().toISOString().replaceAll(':', '-');
+
+	const protectedSet = new Set(
+		(options.protectedPaths || [])
+			.map((path) => toWorkspaceRelative(cwd, path))
+			.filter(Boolean),
+	);
+	const protectedChanges = [];
+	const keep = (change) => {
+		const rel = toWorkspaceRelative(cwd, change.path);
+		if (rel && protectedSet.has(rel)) {
+			protectedChanges.push({
+				path: change.path,
+				reason: 'protected input file (e.g. --prompt-file)',
+			});
+			return false;
+		}
+		return true;
+	};
+
+	const files = (proposal.files || []).filter(keep);
+	const patches = (proposal.patches || []).filter(keep);
 
 	if (options.protectExisting) {
 		for (const file of files) {
@@ -44,8 +63,26 @@ export async function prepareChanges(cwd, proposal, options = {}) {
 
 	return {
 		applied: apply,
+		protected: protectedChanges,
 		writes: [...fileResult.writes, ...patchResult.writes],
 	};
+}
+
+// Normalize a relative or absolute path to a forward-slash workspace-relative
+// form so protected-path matching is independent of separators and `./` noise.
+// Returns '' when the path escapes the workspace.
+function toWorkspaceRelative(cwd, path) {
+	if (!path || typeof path !== 'string') {
+		return '';
+	}
+	const rel = isAbsolute(path) ? relative(cwd, path) : path;
+	const parts = rel
+		.split(/[\\/]+/u)
+		.filter((part) => part !== '' && part !== '.');
+	if (parts.length === 0 || parts[0] === '..') {
+		return '';
+	}
+	return parts.join('/');
 }
 
 export async function prepareWrites(cwd, files, options = {}) {

@@ -1473,10 +1473,34 @@ async function runPrompt(options, io) {
 					{
 						...runOptions,
 						commandRunner,
+						protectedPaths: protectedWritePaths(options),
 						workspaceContext: context,
 					},
 					io,
 				);
+				// Subagent stages return their own verification result. Run the same
+				// bounded heal loop the standard path uses so --heal is honored here
+				// too; the primary --model is the implementer, so it owns repairs.
+				let testResult = orchestrationResult.testResult;
+				const healingResult = await runHealingIfNeeded({
+					cwd: await verificationCwd(io.cwd, options),
+					commandRunner,
+					model,
+					options,
+					registry,
+					runDir,
+					systemPrompt: context.systemPrompt,
+					testResult,
+				});
+				if (healingResult?.finalVerification) {
+					testResult = healingResult.finalVerification;
+					await writeJson(join(runDir, 'tests.json'), testResult);
+				}
+				const runOk =
+					!orchestrationResult.writeError &&
+					!orchestrationResult.runError &&
+					(!testResult || testResult.ok) &&
+					orchestrationResult.review.pass;
 				let taskPlan = createTaskPlan(
 					prompt,
 					orchestrationResult.writeResult.writes.map((write) => write.path),
@@ -1506,7 +1530,7 @@ async function runPrompt(options, io) {
 					finishReasons: orchestrationResult.finishReasons,
 					loopBudget: orchestrationResult.loopBudget,
 					model,
-					ok: orchestrationResult.ok,
+					ok: runOk,
 					parentRunDir: null,
 					promptChars: prompt.length,
 					promptId,
@@ -1517,7 +1541,7 @@ async function runPrompt(options, io) {
 					review: orchestrationResult.review,
 					sessionId: basename(runDir),
 					subagentStages: true,
-					tested: orchestrationResult.tested,
+					tested: Boolean(testResult),
 					timestamp: new Date().toISOString(),
 					usage: usageFromBudget(orchestrationResult.loopBudget),
 					verification: orchestrationResult.verification,
@@ -1533,6 +1557,8 @@ async function runPrompt(options, io) {
 				if (orchestrationResult.installResult) {
 					summary.installed = orchestrationResult.installResult.ok;
 				}
+				summary.healed = healingResult ? healingResult.healed : false;
+				summary.healStopReason = healingResult?.stopReason || '';
 				taskPlan = updateTasksFromRun(taskPlan, summary);
 				summary.taskCounts = taskCounts(taskPlan);
 
@@ -1568,7 +1594,7 @@ async function runPrompt(options, io) {
 					runDir,
 					review: orchestrationResult.review,
 					taskPlan,
-					testResult: orchestrationResult.testResult,
+					testResult,
 					writeResult: orchestrationResult.writeResult,
 				};
 			}
@@ -1804,6 +1830,7 @@ async function runPrompt(options, io) {
 				writeResult = await prepareChanges(io.cwd, proposal, {
 					apply: options.yes,
 					protectExisting: options.protectExisting,
+					protectedPaths: protectedWritePaths(options),
 				});
 			} catch (error) {
 				writeError = {
@@ -2106,6 +2133,7 @@ async function runStagedPrompt({
 			writeResult = await prepareChanges(io.cwd, proposal, {
 				apply: options.yes,
 				protectExisting: options.protectExisting,
+				protectedPaths: protectedWritePaths(options),
 			});
 		} catch (error) {
 			writeError = {
@@ -2326,6 +2354,13 @@ function shouldUseStagedExecution(options, prompt, context) {
 		'api',
 	].filter((term) => haystack.includes(term));
 	return matches.length >= 3;
+}
+
+// Inputs Kodr feeds into a run must never be writable targets. The active
+// --prompt-file is the most common foot-gun: it appears in workspace context,
+// and weak models sometimes echo it back as a file to "create".
+function protectedWritePaths(options) {
+	return options.promptFile ? [options.promptFile] : [];
 }
 
 async function runHealingIfNeeded({

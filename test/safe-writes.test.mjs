@@ -318,6 +318,55 @@ describe('safe writes', () => {
 			'hello world\n',
 		);
 	});
+
+	it('drops writes that target a protected input path', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-protect-'));
+		await writeFile(join(cwd, 'prompt.md'), 'original task\n', 'utf8');
+
+		const result = await prepareChanges(
+			cwd,
+			{
+				files: [
+					{ content: 'tampered task\n', path: 'prompt.md' },
+					{ content: 'real output\n', path: 'src/cli.mjs' },
+				],
+			},
+			{ apply: true, protectedPaths: ['prompt.md'] },
+		);
+
+		assert.equal(result.writes.length, 1);
+		assert.equal(result.writes[0].path, 'src/cli.mjs');
+		assert.equal(result.protected.length, 1);
+		assert.equal(result.protected[0].path, 'prompt.md');
+		// The protected input file is untouched on disk.
+		assert.equal(
+			await readFile(join(cwd, 'prompt.md'), 'utf8'),
+			'original task\n',
+		);
+		assert.equal(
+			await readFile(join(cwd, 'src/cli.mjs'), 'utf8'),
+			'real output\n',
+		);
+	});
+
+	it('protects patches and matches regardless of separators or absolute form', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-protect-patch-'));
+		await writeFile(join(cwd, 'prompt.md'), 'keep me\n', 'utf8');
+
+		const result = await prepareChanges(
+			cwd,
+			{
+				patches: [
+					{ path: './prompt.md', replace: 'rewritten\n', search: 'keep me\n' },
+				],
+			},
+			{ apply: true, protectedPaths: [join(cwd, 'prompt.md')] },
+		);
+
+		assert.equal(result.writes.length, 0);
+		assert.equal(result.protected.length, 1);
+		assert.equal(await readFile(join(cwd, 'prompt.md'), 'utf8'), 'keep me\n');
+	});
 });
 
 describe('makeDiff', () => {
