@@ -326,6 +326,63 @@ describe('subagent stage orchestration', () => {
 		}
 	});
 
+	it('treats a reviewer model failure as unavailable, not a crashed run', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-reviewer-down-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/greet.mjs'),
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [
+							{
+								path: 'src/greet.mjs',
+								content: 'export const greet = () => "hi";\n',
+							},
+						],
+						messages: [],
+					}),
+				),
+				// Reviewer call errors (e.g. timeout/5xx) instead of returning JSON.
+				{
+					body: { error: { message: 'reviewer exploded' } },
+					method: 'POST',
+					status: 500,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		const stderr = {
+			text: '',
+			write(chunk) {
+				this.text += chunk;
+			},
+		};
+
+		try {
+			const result = await runSubagentStages(
+				cwd,
+				runDir,
+				'Add greet.',
+				{ ...options(server), yes: true },
+				{ stderr },
+			);
+
+			// Implement step succeeded, so the run is not a hard failure.
+			assert.equal(result.writeResult.writes.length, 1);
+			assert.equal(result.review.unavailable, true);
+			assert.equal(result.ok, true);
+			assert.match(stderr.text, /Reviewer unavailable/u);
+			assert.equal(
+				await readFile(join(cwd, 'src/greet.mjs'), 'utf8'),
+				'export const greet = () => "hi";\n',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('skips writes that target a protected input path', async () => {
 		const cwd = await makeWorkspace();
 		await writeFile(join(cwd, 'prompt.md'), 'original task\n', 'utf8');

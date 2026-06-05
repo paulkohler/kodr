@@ -112,20 +112,33 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 	await writeJson(join(runDir, 'install.json'), installResult);
 	await writeJson(join(runDir, 'tests.json'), verification?.result || null);
 
-	const reviewer = await runReviewerAgent(
-		cwd,
-		join(subagentRoot, 'reviewer'),
-		prompt,
-		planner.plan,
-		{
-			verification,
-			writeResult,
-		},
-		{
-			...options,
-			commandRunner,
-		},
-	);
+	// The reviewer is advisory: deterministic verification is the authoritative
+	// signal. A reviewer model error or timeout must not crash the run and
+	// discard a successful implement/install/verify, so treat it as
+	// "review unavailable" rather than a hard failure.
+	let reviewer;
+	try {
+		reviewer = await runReviewerAgent(
+			cwd,
+			join(subagentRoot, 'reviewer'),
+			prompt,
+			planner.plan,
+			{
+				verification,
+				writeResult,
+			},
+			{
+				...options,
+				commandRunner,
+			},
+		);
+	} catch (error) {
+		reviewer = await makeUnavailableReviewer(
+			join(subagentRoot, 'reviewer'),
+			optionsForAgent({ ...options, commandRunner }, 'reviewer'),
+			error,
+		);
+	}
 
 	const responses = [
 		...planner.completion.responses,
@@ -155,6 +168,7 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 				issueCount: reviewer.review.issues.length,
 				model: reviewer.model,
 				provider: reviewer.provider,
+				unavailable: reviewer.review.unavailable === true,
 			},
 		},
 		install: installResult,
@@ -162,7 +176,7 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 			!writeError &&
 			!runError &&
 			(!verification?.result || verification.result.ok) &&
-			reviewer.review.pass,
+			(reviewer.review.pass || reviewer.review.unavailable === true),
 		plan: planner.plan,
 		review: reviewer.review,
 		verification,
@@ -170,7 +184,11 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 	};
 	await writeJson(join(runDir, 'orchestration.json'), orchestration);
 
-	if (!reviewer.review.pass && io.stderr?.write) {
+	if (reviewer.review.unavailable === true && io.stderr?.write) {
+		io.stderr.write(
+			`Reviewer unavailable (${reviewer.review.summary}); relying on deterministic verification.\n`,
+		);
+	} else if (!reviewer.review.pass && io.stderr?.write) {
 		io.stderr.write(
 			`Reviewer blocked completion: ${reviewer.review.summary}\n`,
 		);
@@ -550,6 +568,34 @@ export async function runReviewerAgent(
 	return {
 		artifactDir: subDir,
 		completion,
+		model: activeOptions.model,
+		provider: activeOptions.provider,
+		review,
+	};
+}
+
+// Synthesize a reviewer result for when the reviewer model errored or timed out.
+// Marked `unavailable` so it does not block the run: the deterministic
+// verification already ran and is the authoritative signal.
+async function makeUnavailableReviewer(subDir, activeOptions, error) {
+	const review = {
+		issues: [],
+		pass: false,
+		summary: error?.message || 'reviewer model did not complete',
+		unavailable: true,
+		error: { message: error?.message || '', name: error?.name || 'Error' },
+	};
+	await mkdir(subDir, { recursive: true });
+	await writeJson(join(subDir, 'result.json'), review);
+	return {
+		artifactDir: subDir,
+		completion: {
+			finishReasons: [],
+			loopBudget: null,
+			messages: [],
+			responses: [],
+			text: '',
+		},
 		model: activeOptions.model,
 		provider: activeOptions.provider,
 		review,

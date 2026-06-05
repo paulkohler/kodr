@@ -1500,7 +1500,8 @@ async function runPrompt(options, io) {
 					!orchestrationResult.writeError &&
 					!orchestrationResult.runError &&
 					(!testResult || testResult.ok) &&
-					orchestrationResult.review.pass;
+					(orchestrationResult.review.pass ||
+						orchestrationResult.review.unavailable === true);
 				let taskPlan = createTaskPlan(
 					prompt,
 					orchestrationResult.writeResult.writes.map((write) => write.path),
