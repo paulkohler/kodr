@@ -46,6 +46,8 @@ describe('parseArgs', () => {
 			'2',
 			'--max-thinking-tokens',
 			'1024',
+			'--prompt-cache',
+			'off',
 			'--max-tokens',
 			'100',
 			'--max-cost-usd',
@@ -63,9 +65,18 @@ describe('parseArgs', () => {
 		assert.equal(options.maxTurns, 3);
 		assert.equal(options.maxRetries, 2);
 		assert.equal(options.maxThinkingTokens, 1024);
+		assert.equal(options.promptCache, 'off');
 		assert.equal(options.maxTokens, 100);
 		assert.equal(options.maxCostUsd, '0.01');
 		assert.equal(options.json, true);
+	});
+
+	it('validates prompt cache policy', () => {
+		assert.equal(parseArgs([]).promptCache, 'auto');
+		assert.throws(
+			() => parseArgs(['run', '--prompt-cache', 'always', '-p', 'task']),
+			/--prompt-cache/u,
+		);
 	});
 
 	it('parses staged execution flags', () => {
@@ -3032,6 +3043,78 @@ describe('token usage reporting', () => {
 				promptTokens: 7,
 				tokens: 10,
 			});
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('sends Anthropic cache control and reports cache usage', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'ok', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_anthropic_cache',
+						object: 'chat.completion',
+						usage: {
+							cache_creation_input_tokens: 11,
+							cache_read_input_tokens: 22,
+							cost: 0.002,
+							input_tokens: 40,
+							output_tokens: 5,
+						},
+					},
+				},
+			],
+		});
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-cache-usage-'));
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'hi',
+					'--model',
+					'openrouter/anthropic/claude-sonnet-4.5',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{
+					cwd,
+					env: { OPENROUTER_API_KEY: 'or-test-key' },
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.deepEqual(server.recordings[0].requestBody.cache_control, {
+				type: 'ephemeral',
+			});
+			assert.deepEqual(result.result.usage, {
+				cacheReadTokens: 22,
+				cacheWriteTokens: 11,
+				completionTokens: 5,
+				cost: 0.002,
+				costUsd: 0.002,
+				promptTokens: 40,
+				tokens: 45,
+			});
+			const rawRequest = JSON.parse(
+				await readFile(join(result.result.runDir, 'raw-request.json'), 'utf8'),
+			);
+			assert.deepEqual(rawRequest.cache_control, { type: 'ephemeral' });
 		} finally {
 			await server.close();
 		}

@@ -88,6 +88,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 83 Compact Subagent Handoffs And Verification
 - [ ] 84 Linkrot Example (Deps + Sonnet Planner)
 - [ ] 85 Async HTTP Run Control And Observability
+- [x] 86 Prompt Caching
 
 ## Phase Contract
 

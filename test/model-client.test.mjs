@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { describe, it } from 'node:test';
 import {
+	buildChatRequestBody,
 	createChatCompletion,
 	firstAssistantMessage,
+	isOllamaCloudModel,
 	ModelClientError,
+	shouldUseAnthropicRootCacheControl,
 } from '../src/model-client.mjs';
 import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
 
@@ -65,6 +68,50 @@ describe('firstAssistantMessage', () => {
 	});
 });
 
+describe('prompt cache request shaping', () => {
+	it('adds root Anthropic cache control for remote Anthropic model ids', () => {
+		const body = {
+			messages: [{ role: 'user', content: 'hi' }],
+			model: 'anthropic/claude-sonnet-4.5',
+		};
+		const request = buildChatRequestBody(
+			{ provider: 'openrouter', promptCache: 'auto' },
+			body,
+		);
+
+		assert.deepEqual(request.cache_control, { type: 'ephemeral' });
+		assert.equal(Object.hasOwn(body, 'cache_control'), false);
+	});
+
+	it('does not add prompt cache control for local or disabled requests', () => {
+		assert.equal(
+			shouldUseAnthropicRootCacheControl(
+				{ provider: 'lmstudio' },
+				'anthropic/local-test',
+			),
+			false,
+		);
+		assert.deepEqual(
+			buildChatRequestBody(
+				{ provider: 'openrouter', promptCache: 'off' },
+				{
+					messages: [{ role: 'user', content: 'hi' }],
+					model: 'anthropic/claude-sonnet-4.5',
+				},
+			),
+			{
+				messages: [{ role: 'user', content: 'hi' }],
+				model: 'anthropic/claude-sonnet-4.5',
+			},
+		);
+	});
+
+	it('detects Ollama cloud model suffixes', () => {
+		assert.equal(isOllamaCloudModel('minimax-m3:cloud'), true);
+		assert.equal(isOllamaCloudModel('llama3.2'), false);
+	});
+});
+
 describe('createChatCompletion streaming', () => {
 	it('passes opt-in thinking-token caps through request bodies', async () => {
 		const server = await startFakeModelServer({
@@ -102,6 +149,50 @@ describe('createChatCompletion streaming', () => {
 			);
 
 			assert.equal(server.recordings[0].requestBody.max_thinking_tokens, 512);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('sends root cache control on Anthropic remote requests', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								message: { content: 'ok', role: 'assistant' },
+								finish_reason: 'stop',
+							},
+						],
+						id: 'chatcmpl_cache',
+						object: 'chat.completion',
+					},
+				},
+			],
+		});
+
+		try {
+			await createChatCompletion(
+				{
+					baseUrl: server.baseUrl,
+					extraHeaders: {},
+					provider: 'openrouter',
+					promptCache: 'auto',
+					timeoutMs: 5000,
+				},
+				{
+					messages: [{ role: 'user', content: 'hi' }],
+					model: 'anthropic/claude-sonnet-4.5',
+				},
+			);
+
+			assert.deepEqual(server.recordings[0].requestBody.cache_control, {
+				type: 'ephemeral',
+			});
 		} finally {
 			await server.close();
 		}

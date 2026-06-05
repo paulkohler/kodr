@@ -61,6 +61,22 @@ Supported subagent names are `planner`, `implementer`, and `reviewer`. Plain
 remain supported. `--agent-model` only applies when `--subagent-stages` is set;
 normal runs use the primary `--model`.
 
+Prompt caching is enabled by default for supported remote model ids:
+
+```sh
+./kodr run -p "Review the repo" --model openrouter/anthropic/claude-sonnet-4.5
+./kodr run -p "Review the repo" --model openrouter/anthropic/claude-sonnet-4.5 --prompt-cache off
+```
+
+In `auto` mode, Anthropic model ids receive root
+`cache_control: { "type": "ephemeral" }`. OpenAI, DeepSeek, Gemini, Qwen, and
+other remote models are report-only in this phase: Kodr does not send explicit
+cache controls, but records cache usage fields when the provider returns them.
+Local LM Studio and non-cloud Ollama models do not receive prompt cache fields.
+Ollama model ids ending in `:cloud` are treated as remote for usage/cost
+assumptions, but still do not receive provider-specific cache controls unless a
+future adapter supports that model.
+
 Subagent stages use isolated conversations with compact handoffs. The planner
 passes a plan to the implementer once, Kodr applies the proposal, then Kodr runs
 requested dependency installation and verification before the reviewer starts.
@@ -408,6 +424,11 @@ instead of silently enforcing the wrong budget.
 `--max-thinking-tokens` is an opt-in request parameter for reasoning models and
 servers that accept `max_thinking_tokens`. Kodr leaves it unset by default so
 strict OpenAI-compatible local servers are not sent unknown fields.
+
+Prompt cache counters are folded into usage summaries when providers report
+them. `cached` means tokens read from a cache, while `cache write` means tokens
+used to establish a cache entry. OpenRouter's `usage.cost` remains the
+authoritative cost value.
 
 ### Inspect Workspace Context
 

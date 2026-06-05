@@ -152,6 +152,7 @@ export async function completeWithToolCalls(
 		budget.recordUsage(
 			normalizeModelUsage(options.provider, chatResponse.body?.usage, {
 				maxCostUsd: options.maxCostUsd,
+				model,
 			}),
 		);
 

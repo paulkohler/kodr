@@ -8,6 +8,9 @@ export class LoopBudgetError extends Error {
 
 export function createLoopBudget(options = {}) {
 	const state = {
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		cachedTokens: 0,
 		completionTokens: 0,
 		cost: 0,
 		costUsd: 0,
@@ -46,6 +49,9 @@ export function createLoopBudget(options = {}) {
 			);
 			state.promptTokens += prompt;
 			state.completionTokens += completion;
+			state.cachedTokens += Number(usage.cachedTokens || 0);
+			state.cacheReadTokens += Number(usage.cacheReadTokens || 0);
+			state.cacheWriteTokens += Number(usage.cacheWriteTokens || 0);
 			// usageTokens() prefers total_tokens when present. Some providers report
 			// a total that differs from prompt+completion (cached tokens etc.), so
 			// state.tokens may not equal the breakdown sum. Intentional: budgets
@@ -114,7 +120,7 @@ function numberOrInfinity(value) {
 }
 
 function snapshot(state) {
-	return {
+	const result = {
 		completionTokens: state.completionTokens,
 		cost: state.cost,
 		costUsd: state.costUsd,
@@ -128,6 +134,16 @@ function snapshot(state) {
 		tokens: state.tokens,
 		turns: state.turns,
 	};
+	if (state.cacheReadTokens > 0) {
+		result.cacheReadTokens = state.cacheReadTokens;
+	}
+	if (state.cacheWriteTokens > 0) {
+		result.cacheWriteTokens = state.cacheWriteTokens;
+	}
+	if (state.cachedTokens > 0) {
+		result.cachedTokens = state.cachedTokens;
+	}
+	return result;
 }
 
 function finiteOrNull(value) {

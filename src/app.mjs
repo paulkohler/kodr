@@ -9,6 +9,7 @@ import {
 } from './context-packer.mjs';
 import { extractProposal } from './json-extractor.mjs';
 import {
+	buildChatRequestBody,
 	createChatCompletion,
 	firstAssistantMessage,
 	firstModelId,
@@ -137,6 +138,7 @@ export function parseArgs(argv, env = {}) {
 		out: '',
 		apiKey: env.OPENAI_API_KEY || '',
 		prompt: '',
+		promptCache: 'auto',
 		promptFile: '',
 		provider: 'local',
 		replayDir: '',
@@ -331,6 +333,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '-p' ||
 			arg === '--prompt' ||
 			arg === '--prompt-file' ||
+			arg === '--prompt-cache' ||
 			arg === '--prompt-id' ||
 			arg === '--skill' ||
 			arg === '--suite' ||
@@ -461,6 +464,7 @@ export function parseArgs(argv, env = {}) {
 		);
 	}
 	validateLoopBudgetOptions(options);
+	validatePromptCacheOptions(options);
 	validateSessionOptions(options);
 	validateServeOptions(options);
 	validateDockerOptions(options);
@@ -497,6 +501,12 @@ function validateLoopBudgetOptions(options) {
 			Number(options.maxCostUsd) < 0)
 	) {
 		throw new CliError('--max-cost-usd must be a non-negative number');
+	}
+}
+
+function validatePromptCacheOptions(options) {
+	if (!['auto', 'off'].includes(options.promptCache)) {
+		throw new CliError('--prompt-cache must be "auto" or "off"');
 	}
 }
 
@@ -576,6 +586,8 @@ Local-model defaults:
   --max-retries N      Max continuation retries after length stops. Default: 7
   --max-thinking-tokens N
                        Optional provider/model thinking-token cap.
+  --prompt-cache MODE  Prompt cache policy: auto or off. Default: auto.
+                       Remote Anthropic model ids receive root cache_control.
   --max-tokens N       Optional total token budget from model usage
   --max-cost-usd N     Optional cost budget when the provider reports USD usage
   --session-context-chars N
@@ -1231,6 +1243,8 @@ function assignValue(options, flag, value) {
 		options.prompt = value;
 	} else if (flag === '--prompt-file') {
 		options.promptFile = value;
+	} else if (flag === '--prompt-cache') {
+		options.promptCache = value;
 	} else if (flag === '--prompt-id') {
 		options.promptId = value;
 	} else if (flag === '--session') {
@@ -1476,18 +1490,19 @@ async function runPrompt(options, io) {
 				);
 			}
 
-			rawRequest = {
+			const rawRequestBase = {
 				messages: initialMessages,
 				model,
 				response_format: runOptions.responseFormat,
 				url: `${options.baseUrl}/chat/completions`,
 			};
 			if (registry) {
-				rawRequest.tools = registry.toApiTools();
+				rawRequestBase.tools = registry.toApiTools();
 			}
-			if (runOptions.maxThinkingTokens !== '') {
-				rawRequest.max_thinking_tokens = runOptions.maxThinkingTokens;
-			}
+			rawRequest = {
+				...buildChatRequestBody(runOptions, rawRequestBase),
+				url: rawRequestBase.url,
+			};
 			await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 
 			if (options.subagentStages && !parent) {
@@ -2476,11 +2491,23 @@ function mergeLoopBudgets(responses) {
 			total.promptTokens += current.promptTokens;
 			total.completionTokens += current.completionTokens;
 			total.tokens += current.tokens;
+			total.cachedTokens += current.cachedTokens;
+			total.cacheReadTokens += current.cacheReadTokens;
+			total.cacheWriteTokens += current.cacheWriteTokens;
 			total.cost += current.cost;
 			total.costUsd += current.costUsd;
 			return total;
 		},
-		{ completionTokens: 0, cost: 0, costUsd: 0, promptTokens: 0, tokens: 0 },
+		{
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			cachedTokens: 0,
+			completionTokens: 0,
+			cost: 0,
+			costUsd: 0,
+			promptTokens: 0,
+			tokens: 0,
+		},
 	);
 	return {
 		...usage,
@@ -2495,12 +2522,23 @@ function mergeLoopBudgets(responses) {
 }
 
 function normalizeUsageForMerge(usage) {
+	const promptTokens =
+		usage?.prompt_tokens || usage?.promptTokens || usage?.input_tokens || 0;
+	const completionTokens =
+		usage?.completion_tokens ||
+		usage?.completionTokens ||
+		usage?.output_tokens ||
+		0;
 	return {
-		completionTokens: usage?.completion_tokens || usage?.completionTokens || 0,
+		cacheReadTokens: usage?.cacheReadTokens || 0,
+		cacheWriteTokens: usage?.cacheWriteTokens || 0,
+		cachedTokens: usage?.cachedTokens || 0,
+		completionTokens,
 		cost: usage?.cost || 0,
 		costUsd: usage?.costUsd || usage?.cost_usd || 0,
-		promptTokens: usage?.prompt_tokens || usage?.promptTokens || 0,
-		tokens: usage?.total_tokens || usage?.tokens || 0,
+		promptTokens,
+		tokens:
+			usage?.total_tokens || usage?.tokens || promptTokens + completionTokens,
 	};
 }
 
@@ -2925,19 +2963,38 @@ function usageFromBudget(budget) {
 		tokens,
 		promptTokens,
 		completionTokens,
+		cacheReadTokens = 0,
+		cacheWriteTokens = 0,
+		cachedTokens = 0,
 		cost = 0,
 		costUsd = cost,
 	} = budget;
-	if (tokens === 0 && cost === 0) {
+	if (
+		tokens === 0 &&
+		cost === 0 &&
+		cacheReadTokens === 0 &&
+		cacheWriteTokens === 0 &&
+		cachedTokens === 0
+	) {
 		return null;
 	}
-	return {
+	const result = {
 		completionTokens: completionTokens ?? 0,
 		cost,
 		costUsd,
 		promptTokens: promptTokens ?? 0,
 		tokens: tokens ?? 0,
 	};
+	if (cacheReadTokens > 0) {
+		result.cacheReadTokens = cacheReadTokens;
+	}
+	if (cacheWriteTokens > 0) {
+		result.cacheWriteTokens = cacheWriteTokens;
+	}
+	if (cachedTokens > 0) {
+		result.cachedTokens = cachedTokens;
+	}
+	return result;
 }
 
 // Format a usage object as a single human-readable line.
@@ -2948,8 +3005,27 @@ function renderUsageLine(usage) {
 	}
 	const total = usage.tokens.toLocaleString();
 	let line = `Tokens: ${total}`;
-	if (usage.promptTokens > 0 || usage.completionTokens > 0) {
-		line += ` (prompt ${usage.promptTokens.toLocaleString()} / completion ${usage.completionTokens.toLocaleString()})`;
+	const details = [];
+	if (usage.promptTokens > 0) {
+		details.push(`prompt ${usage.promptTokens.toLocaleString()}`);
+	}
+	if (usage.completionTokens > 0) {
+		details.push(`completion ${usage.completionTokens.toLocaleString()}`);
+	}
+	if (usage.cachedTokens > 0) {
+		details.push(`cached ${usage.cachedTokens.toLocaleString()}`);
+	}
+	if (
+		usage.cacheReadTokens > 0 &&
+		usage.cacheReadTokens !== usage.cachedTokens
+	) {
+		details.push(`cache read ${usage.cacheReadTokens.toLocaleString()}`);
+	}
+	if (usage.cacheWriteTokens > 0) {
+		details.push(`cache write ${usage.cacheWriteTokens.toLocaleString()}`);
+	}
+	if (details.length > 0) {
+		line += ` (${details.join(' / ')})`;
 	}
 	const cost = usage.cost ?? usage.costUsd ?? 0;
 	if (cost > 0) {

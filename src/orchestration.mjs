@@ -18,6 +18,7 @@ import {
 	createBuiltinRegistry,
 	ToolRegistry,
 } from './tool-calls.mjs';
+import { buildChatRequestBody } from './model-client.mjs';
 import { listContextFiles } from './context-packer.mjs';
 import { jailedPath } from './safe-writes.mjs';
 import {
@@ -658,7 +659,7 @@ async function runAgentCompletion({
 		message: `${agentName} started`,
 	});
 	await runStartHook(agentOptions, 'subagent_start', progressBase);
-	const request = {
+	const requestBase = {
 		agent: agentName,
 		messages: [
 			{ role: 'system', content: systemPrompt },
@@ -669,9 +670,7 @@ async function runAgentCompletion({
 		response_format: agentOptions.responseFormat || null,
 		tools: registry.toApiTools(),
 	};
-	if (agentOptions.maxThinkingTokens !== '') {
-		request.max_thinking_tokens = agentOptions.maxThinkingTokens;
-	}
+	const request = buildChatRequestBody(agentOptions, requestBase);
 	await writeJson(join(subDir, 'request.json'), request);
 	const completion = await completeWithToolCalls(
 		agentOptions,

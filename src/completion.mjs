@@ -58,6 +58,7 @@ export async function completeWithContinuations(
 		budget.recordUsage(
 			normalizeModelUsage(options.provider, chatResponse.body?.usage, {
 				maxCostUsd: options.maxCostUsd,
+				model,
 			}),
 		);
 		const content = firstAssistantMessage(chatResponse.body);

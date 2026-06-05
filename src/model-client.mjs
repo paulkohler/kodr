@@ -20,7 +20,7 @@ export async function listModels(options) {
 }
 
 export async function createChatCompletion(options, body) {
-	const requestBody = applyRequestParameters(options, body);
+	const requestBody = buildChatRequestBody(options, body);
 	if (options.stream) {
 		return requestStreamJson(`${options.baseUrl}/chat/completions`, {
 			apiKey: options.apiKey,
@@ -47,6 +47,13 @@ export async function createChatCompletion(options, body) {
 	});
 }
 
+export function buildChatRequestBody(options, body) {
+	return applyPromptCacheControl(
+		options,
+		applyRequestParameters(options, body),
+	);
+}
+
 function applyRequestParameters(options, body) {
 	if (
 		options.maxThinkingTokens === '' ||
@@ -59,6 +66,48 @@ function applyRequestParameters(options, body) {
 		...body,
 		max_thinking_tokens: options.maxThinkingTokens,
 	};
+}
+
+function applyPromptCacheControl(options, body) {
+	if (
+		options.promptCache === 'off' ||
+		Object.hasOwn(body, 'cache_control') ||
+		!shouldUseAnthropicRootCacheControl(options, body.model)
+	) {
+		return body;
+	}
+	return {
+		...body,
+		cache_control: { type: 'ephemeral' },
+	};
+}
+
+export function shouldUseAnthropicRootCacheControl(options, model) {
+	if (!isAnthropicModel(model)) {
+		return false;
+	}
+	return !isLocalCostFreeModel(options, model);
+}
+
+export function isAnthropicModel(model) {
+	return typeof model === 'string' && model.includes('anthropic/');
+}
+
+export function isOllamaCloudModel(model) {
+	return typeof model === 'string' && model.endsWith(':cloud');
+}
+
+export function isLocalCostFreeModel(options = {}, model = '') {
+	const provider = options.provider || '';
+	if (provider === 'ollama' && isOllamaCloudModel(model)) {
+		return false;
+	}
+	return (
+		provider === 'local' ||
+		provider === 'lmstudio' ||
+		provider === 'ollama' ||
+		!provider
+	);
 }
 
 async function requestStreamJson(url, options) {
