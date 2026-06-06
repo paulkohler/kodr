@@ -86,6 +86,14 @@ Mappings:
 Human output includes cache details only when non-zero. Normal local runs do not
 gain zero-valued cache fields in summaries or loop budget artifacts.
 
+A later Sonnet linkrot run proved the request shaping worked: subagent raw
+responses included cache reads and writes. It also exposed a reporting gap in
+the subagent orchestrator. Per-agent loop budgets preserved the counters, but
+the top-level subagent summary only aggregated prompt, completion, total tokens,
+and cost. Kodr now normalizes `prompt_tokens_details` while merging subagent
+responses so `summary.json` and CLI output surface cache reads/writes for the
+whole run.
+
 ## Prompt Stability
 
 Kodr already starts fresh runs with a `system` message and appends the user

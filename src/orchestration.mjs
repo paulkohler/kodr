@@ -513,10 +513,10 @@ function mergeProposals(base, next) {
 		}
 	}
 	const patchKeys = new Set(
-		base.patches.map((patch) => `${patch.path} ${patch.search}`),
+		base.patches.map((patch) => `${patch.path}\u0000${patch.search}`),
 	);
 	for (const patch of next.patches || []) {
-		const key = `${patch.path} ${patch.search}`;
+		const key = `${patch.path}\u0000${patch.search}`;
 		if (!patchKeys.has(key)) {
 			base.patches.push(patch);
 			patchKeys.add(key);
@@ -901,18 +901,29 @@ function extractReview(text) {
 function mergeLoopBudgets(responses) {
 	const usage = responses.reduce(
 		(total, response) => {
-			const current = response.usage || {};
-			total.promptTokens += current.prompt_tokens || current.promptTokens || 0;
-			total.completionTokens +=
-				current.completion_tokens || current.completionTokens || 0;
-			total.tokens += current.total_tokens || current.tokens || 0;
+			const current = normalizeUsageForMerge(response.usage);
+			total.promptTokens += current.promptTokens;
+			total.completionTokens += current.completionTokens;
+			total.tokens += current.tokens;
+			total.cachedTokens += current.cachedTokens;
+			total.cacheReadTokens += current.cacheReadTokens;
+			total.cacheWriteTokens += current.cacheWriteTokens;
 			total.cost += current.cost || 0;
 			total.costUsd += current.costUsd || current.cost_usd || current.cost || 0;
 			return total;
 		},
-		{ completionTokens: 0, cost: 0, costUsd: 0, promptTokens: 0, tokens: 0 },
+		{
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			cachedTokens: 0,
+			completionTokens: 0,
+			cost: 0,
+			costUsd: 0,
+			promptTokens: 0,
+			tokens: 0,
+		},
 	);
-	return {
+	const budget = {
 		...usage,
 		maxCostUsd: null,
 		maxRetries: 0,
@@ -921,6 +932,54 @@ function mergeLoopBudgets(responses) {
 		retries: 0,
 		stopReason: 'subagent_stages',
 		turns: responses.length,
+	};
+	if (budget.cacheReadTokens === 0) {
+		delete budget.cacheReadTokens;
+	}
+	if (budget.cacheWriteTokens === 0) {
+		delete budget.cacheWriteTokens;
+	}
+	if (budget.cachedTokens === 0) {
+		delete budget.cachedTokens;
+	}
+	return budget;
+}
+
+function normalizeUsageForMerge(usage = {}) {
+	const promptDetails = usage.prompt_tokens_details || {};
+	const promptTokens = Number(
+		usage.prompt_tokens || usage.promptTokens || usage.input_tokens || 0,
+	);
+	const completionTokens = Number(
+		usage.completion_tokens ||
+			usage.completionTokens ||
+			usage.output_tokens ||
+			0,
+	);
+	const tokens = Number(
+		usage.total_tokens || usage.tokens || promptTokens + completionTokens,
+	);
+	const cachedTokens = Number(
+		usage.cachedTokens || promptDetails.cached_tokens || 0,
+	);
+	const cacheReadTokens = Number(
+		usage.cacheReadTokens || usage.cache_read_input_tokens || cachedTokens,
+	);
+	const cacheWriteTokens = Number(
+		usage.cacheWriteTokens ||
+			usage.cache_creation_input_tokens ||
+			promptDetails.cache_write_tokens ||
+			0,
+	);
+	return {
+		cacheReadTokens,
+		cacheWriteTokens,
+		cachedTokens,
+		completionTokens,
+		cost: Number(usage.cost || 0),
+		costUsd: Number(usage.costUsd || usage.cost_usd || usage.cost || 0),
+		promptTokens,
+		tokens,
 	};
 }
 

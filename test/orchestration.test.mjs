@@ -585,6 +585,73 @@ describe('subagent stage orchestration', () => {
 		}
 	});
 
+	it('aggregates cache usage from subagent responses', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-cache-usage-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText('1. Create src/greet.mjs', {
+					prompt_tokens: 10,
+					completion_tokens: 2,
+					total_tokens: 12,
+					prompt_tokens_details: {
+						cache_write_tokens: 8,
+						cached_tokens: 0,
+					},
+				}),
+				chatText(
+					JSON.stringify({
+						files: [
+							{
+								content: 'export const greet = () => "hi";\n',
+								path: 'src/greet.mjs',
+							},
+						],
+						status: 'OK',
+					}),
+					{
+						prompt_tokens: 20,
+						completion_tokens: 5,
+						total_tokens: 25,
+						prompt_tokens_details: {
+							cache_write_tokens: 3,
+							cached_tokens: 8,
+						},
+					},
+				),
+				chatText(
+					JSON.stringify({
+						pass: true,
+						issues: [],
+						summary: 'Complete.',
+					}),
+					{
+						prompt_tokens: 30,
+						completion_tokens: 1,
+						total_tokens: 31,
+						prompt_tokens_details: {
+							cache_write_tokens: 1,
+							cached_tokens: 11,
+						},
+					},
+				),
+			],
+		});
+
+		try {
+			const result = await runSubagentStages(cwd, runDir, 'Add greet.', {
+				...options(server),
+				yes: false,
+			});
+
+			assert.equal(result.loopBudget.cachedTokens, 19);
+			assert.equal(result.loopBudget.cacheReadTokens, 19);
+			assert.equal(result.loopBudget.cacheWriteTokens, 12);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('runs deterministic verification and hands a compact result to the reviewer', async () => {
 		const cwd = await makeWorkspace();
 		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-verification-'));
@@ -843,7 +910,7 @@ function options(server) {
 	};
 }
 
-function chatText(content) {
+function chatText(content, usage = null) {
 	return {
 		body: {
 			choices: [
@@ -854,6 +921,7 @@ function chatText(content) {
 			],
 			id: 'chatcmpl_fake',
 			object: 'chat.completion',
+			...(usage ? { usage } : {}),
 		},
 		method: 'POST',
 		status: 200,
