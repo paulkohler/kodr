@@ -23,3 +23,11 @@ of the failing path, or when a repair call times out.
 This keeps the generated examples honest. Kodr still does not hand-fix the
 sample, but it now has the harness machinery to feed real verification failures
 back into the model in a controlled way.
+
+Later linkrot testing found a path-normalization edge case in that repair
+context. Node stack traces include absolute paths, and the relative-path scanner
+could also match the `src/project/...` suffix inside `/Users/.../src/project/...`.
+That produced empty phantom context files before the real failing test file. The
+repair context now normalizes candidates against the workspace, prefers existing
+files, and drops non-existent suffix guesses when the actual failing path is
+available.

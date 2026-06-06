@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { writeJson, writeText } from './artifacts.mjs';
 import { buildWorkspaceContext } from './context-packer.mjs';
@@ -292,20 +292,62 @@ function normalizeRepairProposal(proposal) {
 
 async function failurePathsFromTest(cwd, testResult) {
 	const text = `${testResult.stdout || ''}\n${testResult.stderr || ''}`;
-	const paths = new Set();
+	const candidates = new Set();
 	const escapedCwd = escapeRegExp(cwd.replaceAll('\\', '/'));
 	const absolutePattern = new RegExp(`${escapedCwd}/([^\\s:)]+)`, 'gu');
 	for (const match of text.replaceAll('\\', '/').matchAll(absolutePattern)) {
-		paths.add(match[1]);
+		candidates.add(match[1]);
 	}
 
 	const relativePattern =
 		/\b((?:src|test|tests|lib|bin|migrations)\/[A-Za-z0-9._/-]+\.[cm]?[jt]s)\b/gu;
 	for (const match of text.matchAll(relativePattern)) {
-		paths.add(match[1]);
+		candidates.add(match[1]);
 	}
 
-	return [...paths].sort();
+	return normalizeFailurePaths(cwd, candidates);
+}
+
+async function normalizeFailurePaths(cwd, candidates) {
+	const paths = [
+		...new Set(
+			[...candidates]
+				.map((path) => path.replaceAll('\\', '/').replace(/^\.\//u, ''))
+				.filter(
+					(path) => path && !path.startsWith('../') && !path.startsWith('/'),
+				),
+		),
+	];
+	const existing = new Set();
+	for (const path of paths) {
+		if (await fileExists(join(cwd, path))) {
+			existing.add(path);
+		}
+	}
+
+	const normalized = paths.filter((path) => {
+		if (existing.has(path)) {
+			return true;
+		}
+		return ![...existing].some((existingPath) =>
+			path.endsWith(`/${existingPath}`),
+		);
+	});
+
+	return normalized.sort((left, right) => {
+		const existingDelta =
+			Number(existing.has(right)) - Number(existing.has(left));
+		return existingDelta || left.localeCompare(right);
+	});
+}
+
+async function fileExists(path) {
+	try {
+		await access(path);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 function siblingSourcePath(path) {

@@ -127,6 +127,30 @@ describe('one-shot healing', () => {
 		assert.match(JSON.stringify(context.tests), /describe is not defined/u);
 	});
 
+	it('drops absolute-path suffix guesses when the real failing path exists', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-project-'));
+		await mkdir(join(cwd, 'test'), { recursive: true });
+		await writeFile(
+			join(cwd, 'test', 'extract.test.mjs'),
+			"import { test } from 'node:test';\n",
+		);
+
+		const context = await buildRepairContext(cwd, {
+			ok: false,
+			stderr: [
+				`not ok 1 - ${cwd}/test/extract.test.mjs`,
+				`    at TestContext.<anonymous> (${cwd}/test/extract.test.mjs:12:10)`,
+			].join('\n'),
+			stdout: '',
+		});
+
+		assert.deepEqual(context.failurePaths, ['test/extract.test.mjs']);
+		assert.deepEqual(
+			context.files.map((file) => file.path),
+			['test/extract.test.mjs', 'test/extract.mjs'],
+		);
+	});
+
 	it('stops after repeated no-progress repair turns', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-no-progress-'));
 		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
