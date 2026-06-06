@@ -233,6 +233,27 @@ workspace synchronization, command execution, and sandbox lifecycle. Kodr never
 silently falls back to Docker or host execution when `--openshell-sandbox` is
 requested.
 
+### Run Kodr In OpenShell
+
+Use `--openshell-worker` when the harness itself should run inside OpenShell.
+This is stronger than `--openshell-sandbox`: the host Kodr process creates the
+sandbox, uploads the workspace and Kodr runtime, runs a nested Kodr command
+inside `/sandbox`, then downloads only the nested `.kodr/worker-run` artifacts.
+
+```sh
+./kodr run \
+  --prompt-file prompt.md \
+  --openshell-worker \
+  --yes \
+  --install \
+  --test "npm test"
+```
+
+Worker mode is mutually exclusive with `--docker-sandbox` and
+`--openshell-sandbox`. It does not write arbitrary sandbox filesystem changes
+back over the host checkout. Future phases can add reviewed diff/writeback and a
+host-owned model relay for remote provider keys.
+
 Ask Kodr to run a bounded repair loop after failed verification:
 
 ```sh

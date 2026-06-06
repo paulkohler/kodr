@@ -182,6 +182,7 @@ describe('parseArgs', () => {
 	it('parses openshell sandbox flags and rejects unsafe combinations', () => {
 		const basic = parseArgs(['run', '--openshell-sandbox', '-p', 'task'], {});
 		assert.equal(basic.openshellSandbox, true);
+		assert.equal(basic.openshellWorker, false);
 		assert.equal(basic.openshellFrom, '');
 		assert.equal(basic.openshellKeep, false);
 		assert.equal(basic.openshellPolicy, '');
@@ -210,7 +211,7 @@ describe('parseArgs', () => {
 					['run', '--openshell-sandbox', '--docker-sandbox', '-p', 'task'],
 					{},
 				),
-			/ cannot be used together/u,
+			/cannot be used with OpenShell/u,
 		);
 		assert.throws(
 			() =>
@@ -219,6 +220,41 @@ describe('parseArgs', () => {
 					{},
 				),
 			/--openshell-policy/u,
+		);
+	});
+
+	it('parses openshell worker flags and rejects conflicting sandboxes', () => {
+		const worker = parseArgs(
+			[
+				'run',
+				'--openshell-worker',
+				'--install',
+				'--openshell-keep',
+				'-p',
+				'task',
+			],
+			{},
+		);
+		assert.equal(worker.openshellWorker, true);
+		assert.equal(worker.openshellSandbox, false);
+		assert.equal(worker.installDependencies, true);
+		assert.equal(worker.openshellKeep, true);
+
+		assert.throws(
+			() =>
+				parseArgs(
+					['run', '--openshell-worker', '--openshell-sandbox', '-p', 'task'],
+					{},
+				),
+			/--openshell-sandbox and --openshell-worker/u,
+		);
+		assert.throws(
+			() =>
+				parseArgs(
+					['run', '--openshell-worker', '--docker-sandbox', '-p', 'task'],
+					{},
+				),
+			/cannot be used with OpenShell/u,
 		);
 	});
 
@@ -640,6 +676,100 @@ describe('run', () => {
 			),
 			true,
 		);
+	});
+
+	it('runs a nested Kodr worker inside OpenShell and downloads worker artifacts', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-openshell-worker-'));
+		await writeFile(join(cwd, 'prompt.md'), 'Make no changes.\n', 'utf8');
+		const out = 'worker-output';
+		const options = parseArgs([
+			'run',
+			'--openshell-worker',
+			'--prompt-file',
+			'prompt.md',
+			'--yes',
+			'--install',
+			'--test',
+			'npm test',
+			'--out',
+			out,
+		]);
+		const calls = [];
+		options.openshellRunner = async (args) => {
+			calls.push(args);
+			if (args[0] === 'status') {
+				return commandResult(0, 'Server: https://127.0.0.1:8080\n');
+			}
+			if (args[0] === 'sandbox' && args[1] === 'download') {
+				const dest = args.at(-1);
+				await mkdir(dest, { recursive: true });
+				await writeFile(
+					join(dest, 'summary.json'),
+					JSON.stringify({
+						applied: true,
+						installResult: { command: 'npm install', ok: true },
+						loopBudget: { stopReason: 'finish_stop' },
+						model: 'qwen/qwen3.6-35b-a3b',
+						ok: true,
+						proposalStatus: 'OK',
+						testResult: { command: 'npm test', ok: true },
+						usage: null,
+						writeCount: 0,
+					}),
+					'utf8',
+				);
+				await writeFile(
+					join(dest, 'response.md'),
+					JSON.stringify({
+						files: [],
+						messages: [{ content: 'done', level: 'info' }],
+						status: 'OK',
+					}),
+					'utf8',
+				);
+				await writeFile(
+					join(dest, 'writes.json'),
+					JSON.stringify({ applied: true, writes: [] }),
+					'utf8',
+				);
+				await writeFile(
+					join(dest, 'tests.json'),
+					JSON.stringify({ command: 'npm test', ok: true }),
+					'utf8',
+				);
+				await writeFile(
+					join(dest, 'install.json'),
+					JSON.stringify({ command: 'npm install', ok: true }),
+					'utf8',
+				);
+				return commandResult(0, 'downloaded');
+			}
+			return commandResult(0, 'ok');
+		};
+
+		const result = await handleChannelRequest(
+			{ kind: 'run-turn', options },
+			{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+		);
+
+		assert.equal(result.ok, true);
+		assert.equal(result.openshellWorker.mode, 'openshell-worker');
+		assert.equal(
+			calls.some((args) => args[0] === 'sandbox' && args[1] === 'download'),
+			true,
+		);
+		const workerExec = calls.find(
+			(args) =>
+				args[0] === 'sandbox' &&
+				args[1] === 'exec' &&
+				args.includes('/kodr/bin/kodr.mjs'),
+		);
+		assert.ok(workerExec);
+		assert.ok(workerExec.includes('--openshell-worker') === false);
+		const workerArtifact = JSON.parse(
+			await readFile(join(cwd, out, 'openshell-worker.json'), 'utf8'),
+		);
+		assert.equal(workerArtifact.exitCode, 0);
 	});
 
 	it('runs a prompt and writes inspectable artifacts', async () => {

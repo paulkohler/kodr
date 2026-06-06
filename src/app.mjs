@@ -54,6 +54,7 @@ import {
 	openshellDefaults,
 	validateOpenShellOptions,
 } from './openshell-executor.mjs';
+import { runOpenShellWorker } from './openshell-worker.mjs';
 import {
 	createActiveExecutor,
 	executorCommandRunner,
@@ -121,6 +122,7 @@ export function parseArgs(argv, env = {}) {
 		openshellKeep: false,
 		openshellPolicy: '',
 		openshellSandbox: false,
+		openshellWorker: false,
 		dryRun: true,
 		extraHeaders: {},
 		help: false,
@@ -291,6 +293,11 @@ export function parseArgs(argv, env = {}) {
 			continue;
 		}
 
+		if (arg === '--openshell-worker') {
+			options.openshellWorker = true;
+			continue;
+		}
+
 		if (arg === '--openshell-keep') {
 			options.openshellKeep = true;
 			continue;
@@ -442,7 +449,7 @@ export function parseArgs(argv, env = {}) {
 	if (options.dockerSandbox) {
 		Object.assign(options, dockerDefaults(options));
 	}
-	if (options.openshellSandbox) {
+	if (options.openshellSandbox || options.openshellWorker) {
 		Object.assign(options, openshellDefaults(options));
 	}
 	if (options.subagentStages) {
@@ -547,6 +554,7 @@ Usage:
   kodr run -p "task" --yes [--install] [--test "npm test"] [--test-cwd path] [--heal]
   kodr run -p "task" --yes --docker-sandbox [--docker-keep] [--test "npm test"]
   kodr run -p "task" --yes --openshell-sandbox [--openshell-keep] [--test "npm test"]
+  kodr run --prompt-file prompt.md --openshell-worker --yes [--install] [--test "npm test"]
   kodr run -p "task" --tools --hooks [--hooks-config .kodr/hooks.json]
   kodr run -p "task" --yes --protect-existing
   kodr run -p "task" --tools --yes --staged
@@ -631,6 +639,7 @@ Docker sandbox:
 
 OpenShell sandbox:
   --openshell-sandbox  Run install/test/tool commands inside OpenShell.
+  --openshell-worker   Run a nested Kodr worker inside OpenShell and download artifacts only.
   --openshell-from SRC Optional OpenShell sandbox source accepted by --from.
   --openshell-policy P Explicit policy YAML. Required with --install.
   --openshell-keep     Keep the sandbox after the run for inspection.
@@ -1379,6 +1388,25 @@ async function runPrompt(options, io) {
 		: rawPrompt;
 	const promptId = resolvePromptId(options, rawPrompt);
 	const runDir = await createRunArtifacts(io.cwd, options.out);
+	if (options.openshellWorker) {
+		try {
+			const result = await runOpenShellWorker(
+				io.cwd,
+				runDir,
+				prompt,
+				options,
+				io,
+			);
+			await writeLastRun(io.cwd, runDir);
+			return {
+				...result,
+				promptChars: prompt.length,
+				promptId,
+			};
+		} catch (error) {
+			throw new CliError(`${error.message} Artifacts: ${runDir}`);
+		}
+	}
 	const activeExecutor = createActiveExecutor(io.cwd, runDir, options);
 	try {
 		await initializeExecutor(activeExecutor, options.timeoutMs);

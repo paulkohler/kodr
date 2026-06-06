@@ -53,15 +53,23 @@ export function openshellDefaults(options = {}) {
 }
 
 export function validateOpenShellOptions(options = {}) {
-	if (!options.openshellSandbox) {
+	if (!options.openshellSandbox && !options.openshellWorker) {
 		return;
 	}
 	if (options.dockerSandbox) {
 		throw new OpenShellSandboxError(
-			'--docker-sandbox and --openshell-sandbox cannot be used together',
+			'--docker-sandbox cannot be used with OpenShell sandbox modes',
+		);
+	}
+	if (options.openshellSandbox && options.openshellWorker) {
+		throw new OpenShellSandboxError(
+			'--openshell-sandbox and --openshell-worker cannot be used together',
 		);
 	}
 	if (options.installDependencies && !options.openshellPolicy) {
+		if (options.openshellWorker) {
+			return;
+		}
 		throw new OpenShellSandboxError(
 			'--install with --openshell-sandbox requires --openshell-policy so dependency network access is explicit',
 		);

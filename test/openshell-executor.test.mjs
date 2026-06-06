@@ -93,6 +93,14 @@ describe('openshell executor', () => {
 		assert.throws(
 			() =>
 				validateOpenShellOptions({
+					openshellSandbox: true,
+					openshellWorker: true,
+				}),
+			/--openshell-sandbox and --openshell-worker/u,
+		);
+		assert.throws(
+			() =>
+				validateOpenShellOptions({
 					installDependencies: true,
 					openshellSandbox: true,
 				}),
@@ -102,6 +110,10 @@ describe('openshell executor', () => {
 			installDependencies: true,
 			openshellPolicy: 'policy.yaml',
 			openshellSandbox: true,
+		});
+		validateOpenShellOptions({
+			installDependencies: true,
+			openshellWorker: true,
 		});
 	});
 

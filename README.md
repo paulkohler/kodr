@@ -129,6 +129,10 @@ uploads, requires an explicit policy for dependency installs, and never silently
 falls back to host execution. See [usage.md](./usage.md#run-commands-in-openshell)
 for the full workflow.
 
+Use `--openshell-worker` when Kodr itself should run inside OpenShell and return
+only nested run artifacts to the host. This is the stronger containment path for
+future code-executing skills. See [usage.md](./usage.md#run-kodr-in-openshell).
+
 ## License
 
 [MIT](./LICENSE).
