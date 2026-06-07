@@ -68,16 +68,16 @@ The full Kodr preamble is not included.
 
 ## Acceptance Criteria
 
-- [ ] Subagent `request.json` system messages include the Kodr core preamble.
-- [ ] Subagent `request.json` system messages include explicit available tool
+- [x] Subagent `request.json` system messages include the Kodr core preamble.
+- [x] Subagent `request.json` system messages include explicit available tool
       names for that stage.
-- [ ] Standard run system prompts remain unchanged except for any deliberate
+- [x] Standard run system prompts remain unchanged except for any deliberate
       shared-helper refactor.
-- [ ] Tests cover planner, implementer, and reviewer prompt assembly.
-- [ ] Tests assert the subagent tool list matches the prompt guidance.
-- [ ] The implementation avoids duplicating bulky workspace context in both
+- [x] Tests cover planner, implementer, and reviewer prompt assembly.
+- [x] Tests assert the subagent tool list matches the prompt guidance.
+- [x] The implementation avoids duplicating bulky workspace context in both
       system and user messages.
-- [ ] Blog post records why this mattered: tools were configured, but prompt
+- [x] Blog post records why this mattered: tools were configured, but prompt
       inheritance was incomplete.
 
 ## Non-Goals

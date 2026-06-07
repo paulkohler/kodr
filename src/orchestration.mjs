@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { writeJson, writeText } from './artifacts.mjs';
 import {
 	buildWorkspaceContext,
+	renderKodrCorePrompt,
 	renderContextMarkdown,
 } from './context-packer.mjs';
 import { extractJson, extractProposal } from './json-extractor.mjs';
@@ -141,6 +142,7 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 				planner.plan,
 				{
 					verification,
+					workspaceContext,
 					writeResult,
 				},
 				reviewerOptions,
@@ -251,12 +253,16 @@ export async function runPlannerAgent(
 	agentOptions,
 ) {
 	const activeOptions = optionsForAgent(agentOptions, 'planner');
-	const systemPrompt = await buildAgentSystemPrompt('planner');
+	const registry = createReadOnlyRegistry(cwd);
+	const systemPrompt = await buildAgentSystemPrompt(
+		'planner',
+		workspaceContext,
+		registry,
+	);
 	const userPrompt = renderAgentUserPrompt('planner', prompt, [
 		'## Workspace context',
 		renderContextMarkdown(workspaceContext),
 	]);
-	const registry = createReadOnlyRegistry(cwd);
 	const completion = await runAgentCompletion({
 		agentName: 'planner',
 		agentOptions: {
@@ -300,11 +306,15 @@ export async function runImplementerAgent(
 	agentOptions,
 ) {
 	const activeOptions = optionsForAgent(agentOptions, 'implementer');
-	const systemPrompt = await buildAgentSystemPrompt('implementer');
 	const registry = createBuiltinRegistry(cwd, {
 		commandRunner: activeOptions.commandRunner || null,
 		hooks: activeOptions.hooks || null,
 	});
+	const systemPrompt = await buildAgentSystemPrompt(
+		'implementer',
+		workspaceContext,
+		registry,
+	);
 
 	const manifest = extractPlanManifest(plan);
 	const maxPasses =
@@ -556,7 +566,12 @@ export async function runReviewerAgent(
 	agentOptions,
 ) {
 	const activeOptions = optionsForAgent(agentOptions, 'reviewer');
-	const systemPrompt = await buildAgentSystemPrompt('reviewer');
+	const registry = createReadOnlyRegistry(cwd);
+	const systemPrompt = await buildAgentSystemPrompt(
+		'reviewer',
+		reviewContext?.workspaceContext || agentOptions.workspaceContext || null,
+		registry,
+	);
 	const userPrompt = renderAgentUserPrompt('reviewer', prompt, [
 		'## Plan',
 		plan,
@@ -565,7 +580,6 @@ export async function runReviewerAgent(
 		'## Verification',
 		renderVerificationHandoff(reviewContext?.verification),
 	]);
-	const registry = createReadOnlyRegistry(cwd);
 	const completion = await runAgentCompletion({
 		agentName: 'reviewer',
 		agentOptions: {
@@ -710,12 +724,21 @@ function optionsForAgent(options, agentName) {
 	};
 }
 
-async function buildAgentSystemPrompt(agentName, sections = []) {
+async function buildAgentSystemPrompt(agentName, workspaceContext, registry) {
 	const prompt = await readFile(
 		new URL(`../prompts/orchestration-${agentName}.md`, import.meta.url),
 		'utf8',
 	);
-	return [renderAgentRoster(agentName), prompt.trim(), ...sections]
+	const core = renderKodrCorePrompt(workspaceContext || {}, {
+		includeMemoryContent: false,
+		includeWorkspaceInstructionContent: false,
+	});
+	return [
+		core,
+		renderAgentRoster(agentName),
+		renderAgentToolGuidance(agentName, registry),
+		prompt.trim(),
+	]
 		.filter(Boolean)
 		.join('\n\n');
 }
@@ -734,6 +757,20 @@ This run uses three subagent stages:
 
 You are the **${agentName}** agent. Instructions targeted at you start with
 \`${agentName}:\` in the user prompt.`;
+}
+
+function renderAgentToolGuidance(agentName, registry) {
+	const names = registry
+		.toApiTools()
+		.map((tool) => tool.function.name)
+		.sort((left, right) => left.localeCompare(right));
+	const toolList =
+		names.length > 0 ? names.map((name) => `\`${name}\``).join(', ') : 'none';
+	return [
+		'## Available Tools',
+		`The ${agentName} agent can call these native tools: ${toolList}.`,
+		'Use the exact tool names shown here; do not invent tool names such as `read` or `write_file`.',
+	].join('\n\n');
 }
 
 function renderAgentUserPrompt(agentName, prompt, sections = []) {
