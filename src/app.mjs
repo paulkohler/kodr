@@ -45,6 +45,7 @@ import {
 	resolveAgentModels,
 	resolveModelOptions,
 } from './model-specs.mjs';
+import { applyModelProfileDefaults } from './model-profiles.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './code-inspector.mjs';
@@ -179,6 +180,9 @@ export function parseArgs(argv, env = {}) {
 		yes: false,
 		_apiKeySet: false,
 		_baseUrlSet: false,
+		_modelSet: false,
+		_sessionContextSet: false,
+		_timeoutSet: false,
 	};
 
 	const positionals = [];
@@ -436,7 +440,24 @@ export function parseArgs(argv, env = {}) {
 					options._baseUrlSet || options.provider === 'openrouter',
 			}),
 		);
-		options.agentModels = resolveAgentModels(options, env);
+		Object.assign(options, applyModelProfileDefaults(options, env));
+		options.agentModels = Object.fromEntries(
+			Object.entries(resolveAgentModels(options, env)).map(
+				([agent, modelOptions]) => [
+					agent,
+					applyModelProfileDefaults(
+						{
+							...modelOptions,
+							_sessionContextSet: true,
+							_timeoutSet: options._timeoutSet,
+							sessionContextChars: options.sessionContextChars,
+							timeoutMs: options.timeoutMs,
+						},
+						env,
+					),
+				],
+			),
+		);
 	} catch (error) {
 		if (error instanceof ModelSpecError) {
 			throw new CliError(error.message);
@@ -445,6 +466,9 @@ export function parseArgs(argv, env = {}) {
 	}
 	delete options._apiKeySet;
 	delete options._baseUrlSet;
+	delete options._modelSet;
+	delete options._sessionContextSet;
+	delete options._timeoutSet;
 
 	if (options.dockerSandbox) {
 		Object.assign(options, dockerDefaults(options));
@@ -586,6 +610,7 @@ Local-model defaults:
   --model ID           Default: MODEL_ID or ${DEFAULT_MODEL_ID}
                        Supports provider/model specs such as lmstudio/qwen/qwen3.6-35b-a3b
                        or openrouter/openai/gpt-4o-mini.
+                       Model profile overrides: .kodr/model-profiles.json or KODR_MODEL_PROFILES.
   --agent-model A=S    Override subagent model for --subagent-stages.
                        Repeatable for planner, implementer, reviewer.
   --api-key KEY        Default: OPENAI_API_KEY
@@ -710,6 +735,7 @@ export async function main(argv, io) {
 			const context = await buildWorkspaceContext(io.cwd, {
 				inspection: await createInspectionContext(io.cwd, options, prompt),
 				memory,
+				...workspaceContextOptions(options),
 			});
 			io.stdout.write(renderContextMarkdown(context));
 			return { ok: true, command: 'run', context };
@@ -852,7 +878,10 @@ export async function main(argv, io) {
 
 		const runDir = await createRunArtifacts(io.cwd, options.out);
 		const memory = await loadMemory(io.cwd);
-		const context = await buildWorkspaceContext(io.cwd, { memory });
+		const context = await buildWorkspaceContext(io.cwd, {
+			memory,
+			...workspaceContextOptions(options),
+		});
 
 		const caseResults = [];
 		for (const evalCase of suite.cases) {
@@ -931,7 +960,11 @@ export async function main(argv, io) {
 		const prompt = await loadPrompt(options, io.cwd);
 		const memory = await loadMemory(io.cwd);
 		const skills = await loadSkills(io.cwd, options.skills);
-		const context = await buildWorkspaceContext(io.cwd, { memory, skills });
+		const context = await buildWorkspaceContext(io.cwd, {
+			memory,
+			skills,
+			...workspaceContextOptions(options),
+		});
 		const { compDir, comparison } = await runComparison(
 			options,
 			io.env,
@@ -1232,6 +1265,7 @@ function assignValue(options, flag, value) {
 		options._baseUrlSet = true;
 	} else if (flag === '--model') {
 		options.model = value;
+		options._modelSet = true;
 	} else if (flag === '--agent-model') {
 		let override;
 		try {
@@ -1260,6 +1294,7 @@ function assignValue(options, flag, value) {
 		options.sessionId = value;
 	} else if (flag === '--session-context-chars') {
 		options.sessionContextChars = Number(value);
+		options._sessionContextSet = true;
 	} else if (flag === '--skill') {
 		options.skills.push(value);
 	} else if (flag === '--suite') {
@@ -1270,6 +1305,7 @@ function assignValue(options, flag, value) {
 		options.testCwd = value;
 	} else if (flag === '--timeout-ms') {
 		options.timeoutMs = Number(value);
+		options._timeoutSet = true;
 	} else if (flag === '--review-timeout-ms') {
 		options.reviewTimeoutMs = Number(value);
 	} else if (flag === '--transcript-file') {
@@ -1358,6 +1394,7 @@ async function probe(options, io) {
 	const result = {
 		baseUrl: options.baseUrl,
 		model,
+		modelProfile: options.modelProfile || null,
 		ok: true,
 		reply,
 		runDir,
@@ -1465,6 +1502,7 @@ async function runPrompt(options, io) {
 				memory,
 				skills,
 				toolsMode: options.tools,
+				...workspaceContextOptions(options),
 			});
 		} else {
 			skills = await loadSkills(io.cwd, options.skills);
@@ -1473,6 +1511,7 @@ async function runPrompt(options, io) {
 				memory,
 				skills,
 				toolsMode: options.tools,
+				...workspaceContextOptions(options),
 			});
 			initialMessages = [
 				{ role: 'system', content: context.systemPrompt },
@@ -1601,6 +1640,7 @@ async function runPrompt(options, io) {
 					finishReasons: orchestrationResult.finishReasons,
 					loopBudget: orchestrationResult.loopBudget,
 					model,
+					modelProfile: options.modelProfile || null,
 					ok: runOk,
 					parentRunDir: null,
 					promptChars: prompt.length,
@@ -1742,6 +1782,7 @@ async function runPrompt(options, io) {
 				error,
 				initialMessages,
 				model: model || options.model || '',
+				modelProfile: options.modelProfile || null,
 				prompt,
 				promptId,
 				rawRequest,
@@ -1785,6 +1826,7 @@ async function runPrompt(options, io) {
 			finishReasons: completion.finishReasons,
 			loopBudget: completion.loopBudget,
 			model,
+			modelProfile: options.modelProfile || null,
 			ok: true,
 			parentRunDir: parent ? parent.runDir : null,
 			promptChars: prompt.length,
@@ -2080,6 +2122,7 @@ async function runStagedPrompt({
 			memory,
 			skills,
 			toolsMode: options.tools,
+			...workspaceContextOptions(options),
 		});
 		const stagePrompt = [
 			prompt,
@@ -2324,6 +2367,7 @@ async function runStagedPrompt({
 		healStopReason: healingResult?.stopReason || '',
 		loopBudget,
 		model,
+		modelProfile: options.modelProfile || null,
 		dependencyInstallRequired,
 		ok: writeError || runError ? false : testResult ? testResult.ok : done,
 		parentRunDir: null,
@@ -2442,6 +2486,12 @@ function resolveReviewTimeoutMs(options) {
 		return options.reviewTimeoutMs;
 	}
 	return Math.min(options.timeoutMs, DEFAULT_REVIEW_TIMEOUT_MS);
+}
+
+function workspaceContextOptions(options) {
+	return options.contextBudgetChars
+		? { totalBytes: options.contextBudgetChars }
+		: {};
 }
 
 async function runHealingIfNeeded({
@@ -2603,6 +2653,7 @@ async function writeRunFailure(runDir, details) {
 		baseUrl: details.baseUrl,
 		error,
 		model: details.model,
+		modelProfile: details.modelProfile || null,
 		ok: false,
 		parentRunDir: null,
 		promptChars: details.prompt.length,

@@ -89,6 +89,7 @@ export async function runOpenShellWorker(
 				workerRun: downloaded.relativePath,
 			},
 			model: summary?.model || options.model,
+			modelProfile: summary?.modelProfile || options.modelProfile || null,
 			ok,
 			openshellWorker: {
 				downloadedArtifacts: downloaded.relativePath,
@@ -140,6 +141,7 @@ export async function runOpenShellWorker(
 			},
 			error: workerArtifact.error,
 			model: options.model,
+			modelProfile: options.modelProfile || null,
 			ok: false,
 			openshellWorker: {
 				mode: 'openshell-worker',

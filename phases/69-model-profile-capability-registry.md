@@ -36,12 +36,25 @@ explicit override.
 
 ## Done Criteria
 
-- [ ] Add model profile loading with local defaults and config overrides.
-- [ ] Use profiles for context budget and timeout defaults.
-- [ ] Use profiles for the default session compaction budget without overriding
+- [x] Add model profile loading with local defaults and config overrides.
+- [x] Use profiles for context budget and timeout defaults.
+- [x] Use profiles for the default session compaction budget without overriding
       an explicit CLI value.
-- [ ] Expose active profile in run/session metadata.
-- [ ] Add tests for default, override, and unknown-model fallback.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Expose active profile in run/session metadata.
+- [x] Add tests for default, override, and unknown-model fallback.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
+
+## Result
+
+Phase 69 adds `src/model-profiles.mjs` with built-in local-first profiles for
+the default Qwen model, Nemotron, Ollama wildcard models, and OpenRouter
+wildcard models. Projects can override or add profiles with
+`.kodr/model-profiles.json`; users can point `KODR_MODEL_PROFILES` at another
+JSON file.
+
+Profiles now drive default timeout, context window metadata, conservative
+context packing caps, session compaction budget, native tool-call capability
+metadata, and response-envelope metadata. Explicit `--timeout-ms` and
+`--session-context-chars` still win.

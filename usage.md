@@ -46,6 +46,12 @@ so provider-native model ids can keep their own slashes:
 ./kodr run -p "Say hello" --model openrouter/openai/gpt-4o-mini
 ```
 
+Kodr resolves the active model through a local profile registry. Profiles set
+defaults for context window, completion reserve, timeout, tool-call support, and
+response-envelope behavior. Override or add profiles with
+`.kodr/model-profiles.json`, or point `KODR_MODEL_PROFILES` at a JSON file.
+Explicit flags such as `--timeout-ms` and `--session-context-chars` still win.
+
 For subagent orchestration, override individual agent models with repeatable
 `--agent-model` flags:
 

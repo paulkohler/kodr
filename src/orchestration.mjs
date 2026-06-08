@@ -167,6 +167,7 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 			planner: {
 				artifactDir: relativeArtifact(runDir, planner.artifactDir),
 				model: planner.model,
+				modelProfile: planner.modelProfile || null,
 				planChars: planner.plan.length,
 				provider: planner.provider,
 			},
@@ -175,6 +176,7 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 				manifestCount: implementer.manifest?.length || 0,
 				missingFiles: implementer.remaining || [],
 				model: implementer.model,
+				modelProfile: implementer.modelProfile || null,
 				proposalFound: implementer.proposal !== null,
 				provider: implementer.provider,
 			},
@@ -183,6 +185,7 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 				pass: reviewer.review.pass,
 				issueCount: reviewer.review.issues.length,
 				model: reviewer.model,
+				modelProfile: reviewer.modelProfile || null,
 				provider: reviewer.provider,
 				unavailable: reviewer.review.unavailable === true,
 			},
@@ -281,6 +284,7 @@ export async function runPlannerAgent(
 		artifactDir: subDir,
 		completion,
 		model: activeOptions.model,
+		modelProfile: activeOptions.modelProfile || null,
 		plan,
 		provider: activeOptions.provider,
 	};
@@ -399,6 +403,7 @@ export async function runImplementerAgent(
 		completion: combineImplementerCompletions(completions),
 		manifest,
 		model: activeOptions.model,
+		modelProfile: activeOptions.modelProfile || null,
 		proposal: merged,
 		provider: activeOptions.provider,
 		remaining,
@@ -597,6 +602,7 @@ export async function runReviewerAgent(
 		artifactDir: subDir,
 		completion,
 		model: activeOptions.model,
+		modelProfile: activeOptions.modelProfile || null,
 		provider: activeOptions.provider,
 		review,
 	};
@@ -625,6 +631,7 @@ async function makeUnavailableReviewer(subDir, activeOptions, error) {
 			text: '',
 		},
 		model: activeOptions.model,
+		modelProfile: activeOptions.modelProfile || null,
 		provider: activeOptions.provider,
 		review,
 	};

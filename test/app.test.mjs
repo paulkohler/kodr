@@ -20,6 +20,10 @@ describe('parseArgs', () => {
 		assert.equal(options.baseUrl, 'http://localhost:1234/v1');
 		assert.equal(options.model, 'qwen/qwen3.6-35b-a3b');
 		assert.equal(options.timeoutMs, 600000);
+		assert.equal(options.contextWindow, 32768);
+		assert.equal(options.completionReserve, 4096);
+		assert.equal(options.sessionContextChars, 114688);
+		assert.equal(options.modelProfile.id, 'qwen/qwen3.6-35b-a3b');
 		assert.equal(options.maxTurns, 8);
 		assert.equal(options.maxRetries, 7);
 	});
@@ -62,6 +66,7 @@ describe('parseArgs', () => {
 		assert.equal(options.testCwd, 'examples/todo-cli');
 		assert.equal(options.apiKey, 'test-key');
 		assert.equal(options.timeoutMs, 1000);
+		assert.equal(options.sessionContextChars, 245760);
 		assert.equal(options.maxTurns, 3);
 		assert.equal(options.maxRetries, 2);
 		assert.equal(options.maxThinkingTokens, 1024);
@@ -69,6 +74,34 @@ describe('parseArgs', () => {
 		assert.equal(options.maxTokens, 100);
 		assert.equal(options.maxCostUsd, '0.01');
 		assert.equal(options.json, true);
+	});
+
+	it('loads configured model profile overrides for defaults', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-app-profiles-'));
+		const profilePath = join(cwd, 'profiles.json');
+		await writeFile(
+			profilePath,
+			JSON.stringify({
+				profiles: {
+					'local/custom-small': {
+						completionReserve: 500,
+						contextWindow: 2000,
+						timeoutMs: 2222,
+					},
+				},
+			}),
+			'utf8',
+		);
+
+		const options = parseArgs(
+			['run', '--model', 'custom-small', '-p', 'task'],
+			{ KODR_MODEL_PROFILES: profilePath },
+		);
+
+		assert.equal(options.timeoutMs, 2222);
+		assert.equal(options.sessionContextChars, 6000);
+		assert.equal(options.contextBudgetChars, 6000);
+		assert.equal(options.modelProfile.matched, true);
 	});
 
 	it('validates prompt cache policy', () => {
@@ -116,10 +149,18 @@ describe('parseArgs', () => {
 		);
 		assert.equal(options.agentModels.planner.provider, 'openrouter');
 		assert.equal(options.agentModels.planner.model, 'anthropic/claude-opus');
+		assert.equal(
+			options.agentModels.planner.modelProfile.provider,
+			'openrouter',
+		);
 		assert.equal(options.agentModels.reviewer.provider, 'lmstudio');
 		assert.equal(
 			options.agentModels.reviewer.model,
 			'nvidia/nemotron-3-nano-omni',
+		);
+		assert.equal(
+			options.agentModels.reviewer.modelProfile.contextWindow,
+			65536,
 		);
 	});
 
@@ -841,6 +882,8 @@ describe('run', () => {
 				await readFile(join(cwd, 'run-output', 'summary.json'), 'utf8'),
 			);
 			assert.equal(summary.model, 'qwen/qwen3.6-35b-a3b');
+			assert.equal(summary.modelProfile.id, 'qwen/qwen3.6-35b-a3b');
+			assert.equal(summary.modelProfile.contextWindow, 32768);
 			assert.equal(summary.responseCount, 1);
 			assert.equal(summary.promptChars, 'Summarize the repo.'.length);
 			assert.deepEqual(summary.artifacts, {

@@ -72,7 +72,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [ ] 66 Skill Resource References
 - [ ] 67 Interactive TUI Permission Prompts
 - [ ] 68 Skill Code Execution
-- [ ] 69 Model Profile And Capability Registry
+- [x] 69 Model Profile And Capability Registry
 - [x] 70 Session Compaction And Summaries
 - [ ] 71 Self-Dev: Plan-Then-Execute Run
 - [x] 72 Multi-Turn Self-Healing Loop
