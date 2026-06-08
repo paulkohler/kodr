@@ -751,6 +751,23 @@ Commands:
 - `/accept` applies the pending review.
 - `/reject` discards the pending review.
 
+### Permission Prompts
+
+When a policy-gated action needs a decision, the TUI shows a pending permission
+request:
+
+```text
+assistant> permission required:
+  action=run_command
+  reason=Command is denied by policy: npm install
+  input={"command":"npm install"}
+  commands: /allow /deny
+```
+
+Use `/allow` to approve the request once, or `/deny` to reject it. Permission
+requests and decisions use the shared channel contract, so future UI surfaces
+can present the same approval flow.
+
 ### Session Commands
 
 ```text

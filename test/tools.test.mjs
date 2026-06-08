@@ -250,6 +250,58 @@ describe('bounded tools', () => {
 		);
 	});
 
+	it('can approve or deny policy-gated actions through an approver', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tools-approval-'));
+		await writeFile(join(cwd, 'a.mjs'), 'export {};\n', 'utf8');
+		const approvals = [];
+		const approved = new ToolRunner(cwd, {
+			commandRunner: async () => ({
+				exitCode: 0,
+				stderr: '',
+				stdout: 'approved command',
+				timedOut: false,
+			}),
+			permissionApprover: async (request) => {
+				approvals.push(request);
+				return { decision: 'allow', reason: 'allow once' };
+			},
+			policy: {
+				allowedCommands: ['node --test'],
+			},
+		});
+
+		const result = await approved.call('run_command', {
+			command: 'node --check a.mjs',
+		});
+
+		assert.equal(result.stdout, 'approved command');
+		assert.equal(approvals[0].action, 'run_command');
+		assert.equal(
+			approvals[0].reason,
+			'Command is denied by policy: node --check a.mjs',
+		);
+
+		const denied = new ToolRunner(cwd, {
+			permissionApprover: async () => ({
+				decision: 'deny',
+				reason: 'not now',
+			}),
+			policy: {
+				allowApply: false,
+			},
+		});
+
+		await assert.rejects(
+			() =>
+				denied.call('write_file', {
+					apply: true,
+					content: 'x',
+					path: 'notes/a.txt',
+				}),
+			/Permission denied.*not now/u,
+		);
+	});
+
 	it('keeps built-in tools working while exposing MCP-style providers', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tools-mcp-'));
 		await writeFile(join(cwd, 'a.txt'), 'alpha', 'utf8');

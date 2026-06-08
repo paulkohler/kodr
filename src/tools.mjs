@@ -4,7 +4,10 @@ import { isIP } from 'node:net';
 import { listContextFiles } from './context-packer.mjs';
 import { createHooks, HookBlockedError } from './hooks.mjs';
 import { createMcpClient } from './mcp-client.mjs';
-import { createPermissionPolicy } from './permission-policy.mjs';
+import {
+	createPermissionPolicy,
+	PermissionPolicyError,
+} from './permission-policy.mjs';
 import { jailedPath, prepareWrites } from './safe-writes.mjs';
 import { createTaskPlan, updateTask } from './task-plan.mjs';
 import { runVerification } from './verification-runner.mjs';
@@ -29,6 +32,7 @@ export class ToolRunner {
 		this.policy = createPermissionPolicy(options.policy);
 		this.mcp = createMcpClient(options.mcpProviders || options.mcp || []);
 		this.commandRunner = options.commandRunner || null;
+		this.permissionApprover = options.permissionApprover || null;
 	}
 
 	async call(name, input = {}) {
@@ -87,13 +91,20 @@ export class ToolRunner {
 		}
 
 		if (name === 'read_file') {
-			this.policy.checkRead(input.path);
+			await this.checkPermission('read_file', { path: input.path }, () =>
+				this.policy.checkRead(input.path),
+			);
 			const jailed = await jailedPath(this.cwd, input.path);
 			return readFile(jailed.absolute, 'utf8');
 		}
 
 		if (name === 'write_file') {
-			this.policy.checkWrite(input.path, { apply: input.apply === true });
+			await this.checkPermission(
+				'write_file',
+				{ apply: input.apply === true, path: input.path },
+				() =>
+					this.policy.checkWrite(input.path, { apply: input.apply === true }),
+			);
 			return prepareWrites(
 				this.cwd,
 				[
@@ -107,7 +118,11 @@ export class ToolRunner {
 		}
 
 		if (name === 'run_command') {
-			this.policy.checkCommand(input.command);
+			await this.checkPermission(
+				'run_command',
+				{ command: input.command },
+				() => this.policy.checkCommand(input.command),
+			);
 			return runVerification(this.cwd, input.command, {
 				runner: this.commandRunner,
 				timeoutMs: input.timeoutMs,
@@ -115,7 +130,9 @@ export class ToolRunner {
 		}
 
 		if (name === 'fetch_url') {
-			this.policy.checkNetwork(input.url);
+			await this.checkPermission('fetch_url', { url: input.url }, () =>
+				this.policy.checkNetwork(input.url),
+			);
 			return fetchUrl(input.url, {
 				maxBytes: input.maxBytes,
 				timeoutMs: input.timeoutMs,
@@ -138,6 +155,37 @@ export class ToolRunner {
 
 		throw new ToolError(`Unknown tool: ${name}`);
 	}
+
+	async checkPermission(action, input, check) {
+		try {
+			check();
+			return;
+		} catch (error) {
+			if (!(error instanceof PermissionPolicyError)) {
+				throw error;
+			}
+			if (!this.permissionApprover) {
+				throw error;
+			}
+			const request = createPermissionRequest(action, input, error.message);
+			const decision = await this.permissionApprover(request);
+			if (decision?.decision === 'allow') {
+				return;
+			}
+			throw new ToolError(
+				`Permission denied for ${action}: ${decision?.reason || error.message}`,
+			);
+		}
+	}
+}
+
+export function createPermissionRequest(action, input, reason) {
+	return {
+		action,
+		input,
+		reason,
+		status: 'pending',
+	};
 }
 
 export async function fetchUrl(url, options = {}) {

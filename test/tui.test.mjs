@@ -339,6 +339,78 @@ describe('terminal turn ui', () => {
 		assert.match(stdout.text, /src\/index.mjs/u);
 	});
 
+	it('stores and resolves pending permission prompts through slash commands', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+		const calls = [];
+
+		await handleTuiLine(state, 'install deps', { stdout }, async (request) => {
+			calls.push(request);
+			return {
+				ok: false,
+				permissionRequest: {
+					action: 'run_command',
+					input: { command: 'npm install' },
+					reason: 'Command is denied by policy: npm install',
+					status: 'pending',
+				},
+				response: 'permission required',
+				runDir: '/tmp/run-permission',
+				sessionId: 'permission-session',
+				writeResult: { writes: [] },
+			};
+		});
+		await handleTuiLine(state, '/allow', { stdout }, async (request) => {
+			calls.push(request);
+			return {
+				decision: request.decision,
+				request: request.request,
+				status: 'approved',
+			};
+		});
+
+		assert.equal(state.pendingPermission, null);
+		assert.equal(calls[0].kind, 'run-turn');
+		assert.equal(calls[1].kind, 'permission-decision');
+		assert.equal(calls[1].decision, 'allow');
+		assert.match(stdout.text, /permission required/u);
+		assert.match(stdout.text, /permission approved/u);
+	});
+
+	it('denies pending permission prompts without running a model turn', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		state.pendingPermission = {
+			action: 'write_file',
+			input: { path: 'README.md' },
+			reason: 'Applying writes is denied by policy',
+			status: 'pending',
+		};
+		const stdout = captureStream();
+		const calls = [];
+
+		await handleTuiLine(
+			state,
+			'/deny not safe',
+			{ stdout },
+			async (request) => {
+				calls.push(request);
+				return {
+					decision: request.decision,
+					reason: request.reason,
+					request: request.request,
+					status: 'denied',
+				};
+			},
+		);
+
+		assert.equal(state.pendingPermission, null);
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].kind, 'permission-decision');
+		assert.equal(calls[0].decision, 'deny');
+		assert.equal(calls[0].reason, 'not safe');
+		assert.match(stdout.text, /permission denied/u);
+	});
+
 	it('accepts a pending review through a second run-turn request', async () => {
 		const state = createTuiState({ model: 'test-model' });
 		const stdout = captureStream();

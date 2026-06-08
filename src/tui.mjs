@@ -20,6 +20,7 @@ export function createTuiState(options = {}) {
 		continueNext: options.continueSession === true,
 		lastRunDir: '',
 		model: options.model || '',
+		pendingPermission: null,
 		pendingReview: null,
 		provider: options.provider || 'local',
 		sessionId: options.sessionId || '',
@@ -153,6 +154,10 @@ export async function handleTuiLine(state, line, io, channel) {
 	if (state.pendingReview) {
 		io.stdout.write(renderPendingReview(state.pendingReview, view));
 	}
+	if (result.permissionRequest) {
+		state.pendingPermission = result.permissionRequest;
+		io.stdout.write(renderPendingPermission(state.pendingPermission, view));
+	}
 	return { ok: result.ok, result, type: 'turn' };
 }
 
@@ -193,6 +198,30 @@ async function handleSlashCommand(state, text, io, channel) {
 		state.pendingReview = null;
 		io.stdout.write(view.warning('review rejected'));
 		return { ok: true, type: 'command' };
+	}
+
+	if (command === '/allow' || command === '/deny') {
+		if (!state.pendingPermission) {
+			io.stdout.write(view.warning('no pending permission'));
+			return { ok: false, type: 'command' };
+		}
+		const decision = command === '/allow' ? 'allow' : 'deny';
+		const result = await channel(
+			{
+				decision,
+				kind: 'permission-decision',
+				reason: value,
+				request: state.pendingPermission,
+			},
+			io,
+		);
+		state.pendingPermission = null;
+		io.stdout.write(
+			(decision === 'allow' ? view.success : view.warning)(
+				`permission ${result.status}`,
+			),
+		);
+		return { ok: result.decision === 'allow', result, type: 'command' };
 	}
 
 	if (command === '/accept') {
@@ -436,6 +465,8 @@ function renderHelp(view = createTuiView()) {
 		'  /review',
 		'  /accept',
 		'  /reject',
+		'  /allow',
+		'  /deny',
 		'  /test',
 		'  /sessions',
 		'  /show <session-id>',
@@ -461,6 +492,7 @@ function renderStatus(state, view = createTuiView()) {
 		`apply=${state.apply ? 'on' : 'dry-run'}`,
 		`tools=${state.tools ? 'on' : 'off'}`,
 		`lastRun=${state.lastRunDir || '-'}`,
+		`pendingPermission=${state.pendingPermission ? 'yes' : 'no'}`,
 		`pendingReview=${state.pendingReview ? 'yes' : 'no'}`,
 		`budgets=maxTurns:${state.baseOptions.maxTurns} maxRetries:${state.baseOptions.maxRetries} maxTokens:${state.baseOptions.maxTokens || '-'} maxCostUsd:${state.baseOptions.maxCostUsd || '-'}`,
 		'',
@@ -548,6 +580,18 @@ function renderPendingReview(review, view = createTuiView()) {
 	}
 	lines.push(`  ${view.subtleText('commands: /review /accept /reject /test')}`);
 	lines.push('');
+	return lines.join('\n');
+}
+
+function renderPendingPermission(permission, view = createTuiView()) {
+	const lines = [
+		view.warningHeaderText('permission required:'),
+		`  action=${permission.action}`,
+		`  reason=${permission.reason || '-'}`,
+		`  input=${JSON.stringify(permission.input || {})}`,
+		`  ${view.subtleText('commands: /allow /deny')}`,
+		'',
+	];
 	return lines.join('\n');
 }
 

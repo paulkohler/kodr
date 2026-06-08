@@ -30,10 +30,25 @@ Keep the first pass dependency-free and line-oriented.
 
 ## Done Criteria
 
-- [ ] Permission prompts flow through the shared channel layer.
-- [ ] TUI can approve or deny a gated action.
-- [ ] CLI behavior remains compatible.
-- [ ] Add tests for approved and denied actions.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Permission prompts flow through the shared channel layer.
+- [x] TUI can approve or deny a gated action.
+- [x] CLI behavior remains compatible.
+- [x] Add tests for approved and denied actions.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
+
+## Result
+
+Kodr now has a first-pass interactive permission contract:
+
+- `ToolRunner` can call an injected permission approver when policy denies a
+  read, write/apply, command, or network action.
+- The shared channel accepts `permission-request` and `permission-decision`
+  messages.
+- `kodr tui` stores a pending permission request and resolves it with `/allow`
+  or `/deny`.
+
+The initial implementation does not add a persistent trust store or automatic
+run resumption. It establishes the shared approval shape that later install,
+git, web UI, and skill execution phases can reuse.

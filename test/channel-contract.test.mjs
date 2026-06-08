@@ -117,6 +117,40 @@ describe('channel contract', () => {
 		);
 	});
 
+	it('routes permission request and decision messages through the channel', async () => {
+		const request = {
+			action: 'run_command',
+			input: { command: 'npm install' },
+			reason: 'Command is denied by policy: npm install',
+			status: 'pending',
+		};
+
+		const defaultDecision = await handleChannelRequest(
+			{ kind: 'permission-request', request },
+			{ cwd: process.cwd() },
+		);
+		const allowDecision = await handleChannelRequest(
+			{ decision: 'allow', kind: 'permission-decision', request },
+			{ cwd: process.cwd() },
+		);
+		const denyDecision = await handleChannelRequest(
+			{
+				decision: 'deny',
+				kind: 'permission-decision',
+				reason: 'not this time',
+				request,
+			},
+			{ cwd: process.cwd() },
+		);
+
+		assert.equal(defaultDecision.status, 'denied');
+		assert.equal(defaultDecision.decision, 'deny');
+		assert.equal(allowDecision.status, 'approved');
+		assert.equal(allowDecision.decision, 'allow');
+		assert.equal(denyDecision.status, 'denied');
+		assert.equal(denyDecision.reason, 'not this time');
+	});
+
 	it('TUI slash commands do not reach the run-turn channel', async () => {
 		const state = createTuiState({ model: 'test-model' });
 		let calls = 0;

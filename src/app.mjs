@@ -1149,6 +1149,25 @@ export async function handleChannelRequest(request, io) {
 		return runPrompt(request.options, io);
 	}
 
+	if (request.kind === 'permission-request') {
+		return {
+			decision: 'deny',
+			reason: 'No interactive permission approver is available',
+			request: request.request,
+			status: 'denied',
+		};
+	}
+
+	if (request.kind === 'permission-decision') {
+		const decision = request.decision === 'allow' ? 'allow' : 'deny';
+		return {
+			decision,
+			reason: request.reason || '',
+			request: request.request,
+			status: decision === 'allow' ? 'approved' : 'denied',
+		};
+	}
+
 	if (request.kind === 'session-list') {
 		return listSessions(io.cwd);
 	}

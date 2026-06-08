@@ -53,6 +53,8 @@ The TUI is line-oriented and dependency-free. Use `/help` inside it for slash co
 
 When a dry-run TUI turn proposes writes, Kodr keeps a pending review. Use `/review` to reprint it, `/accept` to apply it through the same run channel, `/reject` to discard it, and `/test` to run the configured test command.
 
+When a policy-gated action needs an interactive decision, the TUI can hold a pending permission request. Use `/allow` or `/deny` to resolve it once through the shared channel.
+
 For slow local calls, the TUI prints request metadata and elapsed status. Pass `--stream` to show streamed assistant text as chunks arrive.
 
 Export a session conversation to Markdown for review or sharing:
