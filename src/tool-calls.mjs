@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { inspectWorkspace, findReferences } from './code-inspector.mjs';
 import {
 	createChatCompletion,
 	firstAssistantMessage,
@@ -11,6 +12,10 @@ import { normalizeModelUsage } from './usage-normalizer.mjs';
 import { runVerification } from './verification-runner.mjs';
 import { renderHookStopFeedback } from './command-hooks.mjs';
 import { applyResponseFormat } from './structured-output.mjs';
+
+const MAX_INSPECT_SYMBOLS = 200;
+const MAX_INSPECT_REFERENCES = 100;
+const MAX_INSPECT_RESULT_BYTES = 8192;
 
 export class ToolCallError extends Error {
 	constructor(message) {
@@ -263,6 +268,79 @@ export function createBuiltinRegistry(cwd, options = {}) {
 		},
 	});
 
+	registry.register('inspect_symbols', {
+		description:
+			'Inspect workspace structure. Returns compact symbols with path, name, kind, and line range. Pass path to inspect one file.',
+		parameters: {
+			type: 'object',
+			properties: {
+				path: {
+					type: 'string',
+					description: 'Optional path relative to the workspace root.',
+				},
+			},
+			additionalProperties: false,
+		},
+		handler: async ({ path } = {}) => {
+			if (path !== undefined) {
+				await jailedPath(cwd, path);
+			}
+			const index = await inspectWorkspace(cwd);
+			const matchingSymbols = index.symbols.filter(
+				(symbol) => path === undefined || symbol.path === path,
+			);
+			const symbols = matchingSymbols
+				.slice(0, MAX_INSPECT_SYMBOLS)
+				.map((symbol) => ({
+					kind: symbol.kind,
+					lineEnd: symbol.lineEnd,
+					lineStart: symbol.lineStart,
+					name: symbol.name,
+					path: symbol.path,
+				}));
+			return boundedInspectionResult({
+				limit: MAX_INSPECT_SYMBOLS,
+				symbols,
+				total: matchingSymbols.length,
+				truncated: matchingSymbols.length > symbols.length,
+			});
+		},
+	});
+
+	registry.register('find_references', {
+		description:
+			'Find compact references to a named symbol across the workspace structure.',
+		parameters: {
+			type: 'object',
+			properties: {
+				symbol: {
+					type: 'string',
+					description: 'Symbol name to search for.',
+				},
+			},
+			required: ['symbol'],
+			additionalProperties: false,
+		},
+		handler: async ({ symbol }) => {
+			const index = await inspectWorkspace(cwd);
+			const allReferences = findReferences(index, symbol);
+			const references = allReferences
+				.slice(0, MAX_INSPECT_REFERENCES)
+				.map((reference) => ({
+					line: reference.line,
+					path: reference.path,
+					text: reference.text,
+				}));
+			return boundedInspectionResult({
+				limit: MAX_INSPECT_REFERENCES,
+				references,
+				symbol,
+				total: allReferences.length,
+				truncated: allReferences.length > references.length,
+			});
+		},
+	});
+
 	registry.register('run_command', {
 		description:
 			'Run an allowlisted verification command in the workspace. Supported commands include npm test, npm run test, node --test, and node --check <file>.',
@@ -289,6 +367,19 @@ export function createBuiltinRegistry(cwd, options = {}) {
 	});
 
 	return registry;
+}
+
+function boundedInspectionResult(result) {
+	let text = JSON.stringify(result, null, 2);
+	if (Buffer.byteLength(text) <= MAX_INSPECT_RESULT_BYTES) {
+		return result;
+	}
+	const marker = '\n"...truncated"';
+	const maxPayloadBytes = MAX_INSPECT_RESULT_BYTES - Buffer.byteLength(marker);
+	const truncatedText = Buffer.from(text, 'utf8')
+		.subarray(0, Math.max(0, maxPayloadBytes))
+		.toString('utf8');
+	return `${truncatedText}${marker}`;
 }
 
 // Catches LoopBudgetError from completeWithToolCalls and re-throws as a plain

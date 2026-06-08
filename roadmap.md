@@ -65,7 +65,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 60 OpenShell Sandbox Backend
 - [x] 88 OpenShell Worker Mode
 - [x] 61 Token-Budget-Aware Context Assembly
-- [ ] 62 Inspector Tool Calls
+- [x] 62 Inspector Tool Calls
 - [ ] 63 CLI/TUI Inspection Workflow
 - [ ] 64 Patch Planning From Inspection
 - [x] 65 Dependency Install Workflow

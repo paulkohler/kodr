@@ -42,12 +42,20 @@ They do not add any new external inspector behavior in this phase.
 
 ## Done Criteria
 
-- [ ] Add `inspect_symbols` and `find_references` to the built-in tool registry.
-- [ ] Return compact, bounded JSON results (caps above, with truncation marker).
-- [ ] Enforce workspace jails and the documented output limits.
-- [ ] Add tests for each tool, including a truncation/over-limit case.
-- [ ] Add system-prompt guidance naming the inspector tools, with a test
+- [x] Add `inspect_symbols` and `find_references` to the built-in tool registry.
+- [x] Return compact, bounded JSON results (caps above, with truncation marker).
+- [x] Enforce workspace jails and the documented output limits.
+- [x] Add tests for each tool, including a truncation/over-limit case.
+- [x] Add system-prompt guidance naming the inspector tools, with a test
       asserting the guidance is present.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
+
+## Result
+
+The built-in tool registry now includes `inspect_symbols` and `find_references`
+alongside `list_files`, `read_file`, and `run_command`. The new tools are
+read-only, workspace-jailed, count-capped, and byte-capped. Tool-mode prompts now
+name the structural tools explicitly so models can choose `inspect_symbols` for
+structure and `read_file` for raw text.

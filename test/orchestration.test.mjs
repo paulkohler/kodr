@@ -126,11 +126,15 @@ describe('subagent stage orchestration', () => {
 			assert.match(request.messages[0].content, /You are Kodr/u);
 			assert.match(request.messages[0].content, /`list_files`/u);
 			assert.match(request.messages[0].content, /`read_file`/u);
+			assert.match(request.messages[0].content, /`inspect_symbols`/u);
+			assert.match(request.messages[0].content, /`find_references`/u);
 			assert.match(request.messages[0].content, /`run_command`/u);
 			assert.doesNotMatch(request.messages[0].content, /Workspace files \(/u);
 			assert.match(request.messages[1].content, /Create src\/greet\.mjs/u);
 			assert.match(request.messages[1].content, /Workspace files \(/u);
 			assert.deepEqual(request.tools.map((tool) => tool.function.name).sort(), [
+				'find_references',
+				'inspect_symbols',
 				'list_files',
 				'read_file',
 				'run_command',

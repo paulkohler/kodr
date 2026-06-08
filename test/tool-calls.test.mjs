@@ -180,12 +180,25 @@ describe('ToolRegistry', () => {
 });
 
 describe('createBuiltinRegistry', () => {
-	it('provides list_files, read_file, and run_command tools', async () => {
+	it('provides file, inspection, reference, and command tools', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-'));
 		await writeFile(join(cwd, 'hello.txt'), 'world', 'utf8');
 		const registry = createBuiltinRegistry(cwd);
 
-		assert.equal(registry.size, 3);
+		assert.equal(registry.size, 5);
+		assert.deepEqual(
+			registry
+				.toApiTools()
+				.map((tool) => tool.function.name)
+				.sort(),
+			[
+				'find_references',
+				'inspect_symbols',
+				'list_files',
+				'read_file',
+				'run_command',
+			],
+		);
 
 		const files = await registry.dispatch('list_files', '{}');
 		assert.ok(Array.isArray(files));
@@ -196,6 +209,126 @@ describe('createBuiltinRegistry', () => {
 			'{"path":"hello.txt"}',
 		);
 		assert.equal(content, 'world');
+	});
+
+	it('inspect_symbols returns compact workspace symbols', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-symbols-'));
+		await writeFile(
+			join(cwd, 'src.mjs'),
+			[
+				'export function alpha() {',
+				'  return beta();',
+				'}',
+				'export const beta = () => 1;',
+			].join('\n'),
+			'utf8',
+		);
+		const registry = createBuiltinRegistry(cwd);
+
+		const result = await registry.dispatch('inspect_symbols', '{}');
+
+		assert.equal(result.total, 2);
+		assert.equal(result.truncated, false);
+		assert.deepEqual(
+			result.symbols.map((symbol) => ({
+				kind: symbol.kind,
+				name: symbol.name,
+				path: symbol.path,
+			})),
+			[
+				{ kind: 'function', name: 'alpha', path: 'src.mjs' },
+				{ kind: 'function', name: 'beta', path: 'src.mjs' },
+			],
+		);
+		assert.equal(Object.hasOwn(result.symbols[0], 'content'), false);
+	});
+
+	it('inspect_symbols scopes to a jailed file path', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-symbol-path-'));
+		await writeFile(join(cwd, 'a.mjs'), 'export function alpha() {}', 'utf8');
+		await writeFile(join(cwd, 'b.mjs'), 'export function beta() {}', 'utf8');
+		const registry = createBuiltinRegistry(cwd);
+
+		const result = await registry.dispatch(
+			'inspect_symbols',
+			'{"path":"b.mjs"}',
+		);
+
+		assert.deepEqual(
+			result.symbols.map((symbol) => symbol.name),
+			['beta'],
+		);
+		await assert.rejects(() =>
+			registry.dispatch('inspect_symbols', '{"path":"../../etc/passwd"}'),
+		);
+	});
+
+	it('find_references returns compact bounded references', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-refs-'));
+		await writeFile(
+			join(cwd, 'src.mjs'),
+			[
+				'export function alpha() {',
+				'  return beta();',
+				'}',
+				'export function beta() {',
+				'  return 1;',
+				'}',
+			].join('\n'),
+			'utf8',
+		);
+		const registry = createBuiltinRegistry(cwd);
+
+		const result = await registry.dispatch(
+			'find_references',
+			'{"symbol":"beta"}',
+		);
+
+		assert.equal(result.symbol, 'beta');
+		assert.equal(result.total, 2);
+		assert.deepEqual(
+			result.references.map((reference) => reference.line),
+			[2, 4],
+		);
+	});
+
+	it('inspection tools cap large result counts', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-large-refs-count-'));
+		await writeFile(
+			join(cwd, 'refs.mjs'),
+			Array.from({ length: 120 }, () => 't();').join('\n'),
+			'utf8',
+		);
+		const registry = createBuiltinRegistry(cwd);
+
+		const result = await registry.dispatch('find_references', '{"symbol":"t"}');
+
+		assert.equal(result.references.length, 100);
+		assert.equal(result.total, 120);
+		assert.equal(result.truncated, true);
+	});
+
+	it('inspection tools cap serialized JSON output', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-large-refs-'));
+		await writeFile(
+			join(cwd, 'refs.mjs'),
+			Array.from(
+				{ length: 120 },
+				(_, index) =>
+					`const value${index} = targetSymbol("${'x'.repeat(200)}");`,
+			).join('\n'),
+			'utf8',
+		);
+		const registry = createBuiltinRegistry(cwd);
+
+		const result = await registry.dispatch(
+			'find_references',
+			'{"symbol":"targetSymbol"}',
+		);
+
+		assert.equal(typeof result, 'string');
+		assert.ok(Buffer.byteLength(result) <= 8192);
+		assert.match(result, /"\.\.\.truncated"/u);
 	});
 
 	it('runs allowlisted commands through the injected command runner', async () => {

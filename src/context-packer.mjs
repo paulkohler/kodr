@@ -499,6 +499,7 @@ function renderKodrBaseContract() {
 			'Use status "OK" when you are proposing changes or have no changes to make. Use status "ERROR" when you cannot complete the request; include the reason in messages and do not include file changes.',
 			'Use "files" for full-file writes with {"path","content"} entries — only for new files or complete rewrites. Use "patches" for targeted edits to existing files with {"path","search","replace"} entries; prefer patches whenever you are adding or changing a small section of an existing file; patch search text must match the current file exactly once. Do not rewrite an entire existing file just to make a small change.',
 			'Use "messages" for short user-facing run notes. You may include a "scratchpad" string for planning notes, open questions, or next steps. For multi-step tasks, structure it as {"plan":["step 1","step 2"],"done":["step 1"],"next":"step 2","notes":""} so the harness can inject it as context on the next run. Do not put secrets in messages or scratchpad content.',
+			'When native tools are available, use inspect_symbols for a compact structural map, find_references for symbol references, read_file for raw file text, and run_command only for allowlisted verification commands.',
 		].join(' '),
 	].join('\n\n');
 }

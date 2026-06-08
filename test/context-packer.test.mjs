@@ -49,6 +49,8 @@ describe('context packing', () => {
 		assert.match(context.systemPrompt, /"status":"OK"/u);
 		assert.match(context.systemPrompt, /"messages"/u);
 		assert.match(context.systemPrompt, /Use status "ERROR"/u);
+		assert.match(context.systemPrompt, /inspect_symbols/u);
+		assert.match(context.systemPrompt, /find_references/u);
 		assert.match(context.systemPrompt, /<workspace-instructions/u);
 		assert.match(context.systemPrompt, /Always prefer small commits/u);
 		assert.match(context.promptSections.stable, /You are Kodr/u);
