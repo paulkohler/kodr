@@ -930,6 +930,7 @@ describe('run', () => {
 				docker: 'docker.json',
 				openshell: 'openshell.json',
 				hooks: 'hooks.json',
+				inspectionPlan: 'inspection-plan.json',
 				repairs: 'repairs/repairs.json',
 				response: 'response.md',
 				scratchpad: 'scratchpad.md',
@@ -1720,6 +1721,63 @@ describe('run', () => {
 			assert.match(stdout.text, /Inspection context/u);
 			assert.match(stdout.text, /src\/app\.mjs#runPrompt/u);
 			assert.equal(server.recordings.length, 0);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('injects an inspection-derived plan before inspect-context model runs', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{ body: proposalResponse({ files: [], messages: [], status: 'OK' }) },
+			],
+		});
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-inspection-plan-'));
+			await mkdir(join(cwd, 'src'), { recursive: true });
+			await writeFile(
+				join(cwd, 'src/app.mjs'),
+				'export function runPrompt() { return "ok"; }\n',
+				'utf8',
+			);
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'change runPrompt',
+					'--inspect-context',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'test-model',
+					'--out',
+					'run-output',
+					'--timeout-ms',
+					'1000',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.ok, true);
+			const userMessage = server.recordings[0].requestBody.messages[1].content;
+			assert.match(userMessage, /Inspection-derived plan/u);
+			assert.match(userMessage, /src\/app\.mjs:1-\d+ function runPrompt/u);
+			const plan = JSON.parse(
+				await readFile(join(cwd, 'run-output', 'inspection-plan.json'), 'utf8'),
+			);
+			assert.deepEqual(plan.inspection.targetFiles, ['src/app.mjs']);
+			const tasks = JSON.parse(
+				await readFile(join(cwd, 'run-output', 'tasks.json'), 'utf8'),
+			);
+			assert.equal(
+				tasks.tasks.some((task) => task.path === 'src/app.mjs'),
+				true,
+			);
 		} finally {
 			await server.close();
 		}

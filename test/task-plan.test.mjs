@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+	createInspectionTaskPlan,
 	createTaskPlan,
+	renderInspectionTaskPlan,
 	taskCounts,
 	TaskPlanError,
 	updateTask,
@@ -98,5 +100,41 @@ describe('task planning', () => {
 			updated.tasks.find((task) => task.id === 'verify').status,
 			'failed',
 		);
+	});
+
+	it('creates an inspection-derived task plan with symbols tests and allowlisted verification', () => {
+		const plan = createInspectionTaskPlan('change runPrompt', {
+			rankedSymbols: [],
+			symbols: [
+				{
+					kind: 'function',
+					lineEnd: 20,
+					lineStart: 10,
+					name: 'runPrompt',
+					path: 'src/app.mjs',
+				},
+				{
+					kind: 'test',
+					lineEnd: 8,
+					lineStart: 1,
+					name: 'runPrompt works',
+					path: 'test/app.test.mjs',
+				},
+			],
+		});
+
+		assert.deepEqual(plan.inspection.targetFiles, ['src/app.mjs']);
+		assert.equal(plan.inspection.targetSymbols[0].name, 'runPrompt');
+		assert.equal(plan.inspection.relatedTests[0].path, 'test/app.test.mjs');
+		assert.deepEqual(plan.inspection.suggestedVerificationCommands, [
+			'node --test test/app.test.mjs',
+			'node --check src/app.mjs',
+			'node --test',
+		]);
+		assert.equal(
+			plan.tasks.some((task) => task.path === 'src/app.mjs'),
+			true,
+		);
+		assert.match(renderInspectionTaskPlan(plan), /Inspection-derived plan/u);
 	});
 });

@@ -63,4 +63,46 @@ describe('continuous cycles', () => {
 		assert.equal(result.budget.tokens, 3);
 		assert.equal(result.cycles[1].budget.tokens, 3);
 	});
+
+	it('forwards inspection plan and scratchpad across cycle turns', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cycles-forward-'));
+		const observed = [];
+		const result = await runCycles(cwd, {
+			cycles: 2,
+			inspectionIndex: {
+				rankedSymbols: [],
+				symbols: [
+					{
+						kind: 'function',
+						lineEnd: 3,
+						lineStart: 1,
+						name: 'runPrompt',
+						path: 'src/app.mjs',
+					},
+				],
+			},
+			task: 'change runPrompt',
+			cycle({ index, inspectionPlan, priorScratchpad, workflowHandoff }) {
+				observed.push({
+					hasPlan:
+						inspectionPlan.inspection.targetFiles.includes('src/app.mjs'),
+					index,
+					priorScratchpad,
+					workflowHandoff,
+				});
+				return {
+					scratchpad: index === 1 ? 'next: patch app' : '',
+					text: `cycle ${index}`,
+				};
+			},
+		});
+
+		assert.equal(result.cycles.length, 2);
+		assert.equal(observed[0].hasPlan, true);
+		assert.equal(observed[0].priorScratchpad, '');
+		assert.match(observed[0].workflowHandoff, /Inspection-derived plan/u);
+		assert.equal(observed[1].priorScratchpad, 'next: patch app');
+		assert.match(observed[1].workflowHandoff, /Prior scratchpad/u);
+		assert.match(observed[1].workflowHandoff, /next: patch app/u);
+	});
 });

@@ -20,7 +20,9 @@ import { jailedPath, prepareChanges } from './safe-writes.mjs';
 import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
 import { createCycleReviewRequest, runSubagent } from './subagents.mjs';
 import {
+	createInspectionTaskPlan,
 	createTaskPlan,
+	renderInspectionTaskPlan,
 	taskCounts,
 	updateTasksFromRun,
 } from './task-plan.mjs';
@@ -1511,7 +1513,9 @@ async function runPrompt(options, io) {
 		let memory;
 		let context;
 		let initialMessages;
+		let modelPrompt = prompt;
 		let rawInitialMessages;
+		let inspectionPlan = null;
 		let sessionCompaction = null;
 
 		if (parent) {
@@ -1534,8 +1538,12 @@ async function runPrompt(options, io) {
 			// Build a minimal context for artifacts (context.md, workspaceFileCount).
 			memory = await loadMemory(io.cwd);
 			skills = await loadSkills(io.cwd, options.skills);
+			const inspection = await createInspectionContext(io.cwd, options, prompt);
+			if (inspection) {
+				inspectionPlan = createInspectionTaskPlan(prompt, inspection.index);
+			}
 			context = await buildWorkspaceContext(io.cwd, {
-				inspection: await createInspectionContext(io.cwd, options, prompt),
+				inspection,
 				memory,
 				skills,
 				toolsMode: options.tools,
@@ -1544,7 +1552,15 @@ async function runPrompt(options, io) {
 		} else {
 			skills = await loadSkills(io.cwd, options.skills);
 			memory = await loadMemory(io.cwd);
+			const inspection = await createInspectionContext(io.cwd, options, prompt);
+			if (inspection) {
+				inspectionPlan = createInspectionTaskPlan(prompt, inspection.index);
+			}
+			modelPrompt = inspectionPlan
+				? `${renderInspectionTaskPlan(inspectionPlan)}\n\n${prompt}`
+				: prompt;
 			context = await buildWorkspaceContext(io.cwd, {
+				inspection,
 				memory,
 				skills,
 				toolsMode: options.tools,
@@ -1552,7 +1568,7 @@ async function runPrompt(options, io) {
 			});
 			initialMessages = [
 				{ role: 'system', content: context.systemPrompt },
-				{ role: 'user', content: prompt },
+				{ role: 'user', content: modelPrompt },
 			];
 			rawInitialMessages = initialMessages;
 		}
@@ -1565,6 +1581,9 @@ async function runPrompt(options, io) {
 			: null;
 		const responsePath = join(runDir, 'response.md');
 		await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
+		if (inspectionPlan) {
+			await writeJson(join(runDir, 'inspection-plan.json'), inspectionPlan);
+		}
 		await writeJson(join(runDir, 'prompt-prefix.json'), context.promptPrefix);
 		await writeText(join(runDir, 'prompt.md'), prompt);
 
@@ -1667,6 +1686,7 @@ async function runPrompt(options, io) {
 						docker: 'docker.json',
 						openshell: 'openshell.json',
 						hooks: 'hooks.json',
+						inspectionPlan: 'inspection-plan.json',
 						install: 'install.json',
 						response: 'response.md',
 						orchestration: 'orchestration.json',
@@ -1700,6 +1720,9 @@ async function runPrompt(options, io) {
 					workspaceFileCount: context.files.length,
 					writeCount: orchestrationResult.writeCount,
 				};
+				if (inspectionPlan) {
+					summary.inspectionPlan = inspectionPlan.inspection;
+				}
 				if (orchestrationResult.writeError) {
 					summary.writeError = orchestrationResult.writeError;
 				}
@@ -1765,7 +1788,7 @@ async function runPrompt(options, io) {
 					memory,
 					model,
 					options: runOptions,
-					prompt,
+					prompt: modelPrompt,
 					promptId,
 					rawRequest,
 					registry,
@@ -1792,7 +1815,7 @@ async function runPrompt(options, io) {
 				? await completeWithToolCalls(
 						runOptions,
 						model,
-						prompt,
+						modelPrompt,
 						context.systemPrompt,
 						registry,
 						contOpts,
@@ -1800,7 +1823,7 @@ async function runPrompt(options, io) {
 				: await completeWithContinuations(
 						runOptions,
 						model,
-						prompt,
+						modelPrompt,
 						context.systemPrompt,
 						contOpts,
 					);
@@ -1853,6 +1876,7 @@ async function runPrompt(options, io) {
 				docker: 'docker.json',
 				openshell: 'openshell.json',
 				hooks: 'hooks.json',
+				inspectionPlan: 'inspection-plan.json',
 				response: 'response.md',
 				repairs: 'repairs/repairs.json',
 				scratchpad: 'scratchpad.md',
@@ -1883,6 +1907,9 @@ async function runPrompt(options, io) {
 			usage: usageFromBudget(completion.loopBudget),
 			workspaceFileCount: context.files.length,
 		};
+		if (inspectionPlan) {
+			summary.inspectionPlan = inspectionPlan.inspection;
+		}
 		let proposal = null;
 		let proposalError = null;
 		try {
@@ -1895,7 +1922,7 @@ async function runPrompt(options, io) {
 		}
 
 		if (proposalError) {
-			let taskPlan = createTaskPlan(prompt);
+			let taskPlan = inspectionPlan || createTaskPlan(prompt);
 			summary.applied = false;
 			summary.ok = false;
 			summary.proposalError = proposalError;
@@ -1948,10 +1975,9 @@ async function runPrompt(options, io) {
 
 		const scratchpad = proposal?.scratchpad || '';
 		const proposalMessages = proposal?.messages || [];
-		let taskPlan = createTaskPlan(
-			prompt,
-			proposal ? proposalPaths(proposal) : [],
-		);
+		let taskPlan =
+			inspectionPlan ||
+			createTaskPlan(prompt, proposal ? proposalPaths(proposal) : []);
 		let writeResult = {
 			applied: false,
 			writes: [],
@@ -2397,6 +2423,7 @@ async function runStagedPrompt({
 			docker: 'docker.json',
 			openshell: 'openshell.json',
 			hooks: 'hooks.json',
+			inspectionPlan: 'inspection-plan.json',
 			response: 'response.md',
 			repairs: 'repairs/repairs.json',
 			scratchpad: 'scratchpad.md',

@@ -45,12 +45,25 @@ on.
 
 ## Done Criteria
 
-- [ ] Add a deterministic inspection-derived plan artifact (extends
+- [x] Add a deterministic inspection-derived plan artifact (extends
       `task-plan.mjs`).
-- [ ] Include target symbols and related tests when available.
-- [ ] Suggested verification commands are restricted to the allowlist.
-- [ ] Auto-forward the plan + scratchpad across workflow turns (no flag needed).
-- [ ] Add tests for plan generation and for turn forwarding (fake 2-turn model).
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Include target symbols and related tests when available.
+- [x] Suggested verification commands are restricted to the allowlist.
+- [x] Auto-forward the plan + scratchpad across workflow turns (no flag needed).
+- [x] Add tests for plan generation and for turn forwarding (fake 2-turn model).
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
+
+## Result
+
+Kodr now builds an `inspection-plan.json` artifact whenever inspection-aware
+context is available. The plan is deterministic and includes target files,
+target symbols, related tests, suggested verification commands, and risk notes.
+
+The model-facing prompt receives a compact rendered version of that plan before
+the user's request, so the model starts with likely edit and test targets instead
+of rediscovering the same structure from raw file blobs. Continuous workflow
+cycles also forward the inspection plan and prior scratchpad as a compact
+handoff, so later turns keep the navigation context without a manual
+`--prior-scratchpad` flag.
