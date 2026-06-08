@@ -12,7 +12,7 @@ against the local model — never by a frontier model.
 
 ## Design
 
-Add a `64-prompt.md` describing a multi-step task. Run Kodr (local qwen model)
+Add a `71-prompt.md` describing a multi-step task. Run Kodr (local qwen model)
 so it:
 
 - writes a plan to the scratchpad on the first turn
@@ -31,8 +31,25 @@ example issues before any hand-editing, and document hand-edits in
 
 ## Done Criteria
 
-- [ ] A recorded, model-generated self-dev run artifact exists.
-- [ ] The run uses inspector tools and carries scratchpad across ≥2 turns.
-- [ ] Failures documented in `process/failures.jsonl`.
-- [ ] Blog post capturing harness gaps found.
-- [ ] Mark roadmap complete and commit.
+- [x] A recorded, model-generated self-dev run artifact exists.
+- [x] The run uses inspector tools and carries scratchpad across ≥2 turns.
+- [x] Failures documented in `process/failures.jsonl`.
+- [x] Blog post capturing harness gaps found.
+- [x] Mark roadmap complete and commit.
+
+## Result
+
+Phase 71 produced a two-run local Qwen acceptance artifact:
+
+- `.kodr-phase71-plan-qwen` used `inspect_symbols` and produced a planning
+  response.
+- `.kodr-phase71-execute-qwen-2` injected the prior model response as
+  scratchpad context, used `read_file`, and produced a two-file dry-run patch.
+
+The run also exposed two harness issues. First, sending strict
+`response_format` alongside native tools to LM Studio biased local models toward
+final JSON instead of tool calls. Kodr now omits strict response format for local
+tool-call requests while keeping it for remote providers and local no-tool
+proposal turns. Second, the planning response was useful but invalid JSON
+because the model embedded multiline markdown inside a JSON string; that remains
+documented as a local-model output failure.

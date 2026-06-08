@@ -14,6 +14,7 @@ import { prepareChanges } from './safe-writes.mjs';
 import {
 	proposalResponseFormat,
 	reviewResponseFormat,
+	responseFormatForRequest,
 } from './structured-output.mjs';
 import {
 	completeWithToolCalls,
@@ -692,9 +693,12 @@ async function runAgentCompletion({
 		],
 		model: agentOptions.model,
 		provider: agentOptions.provider,
-		response_format: agentOptions.responseFormat || null,
 		tools: registry.toApiTools(),
 	};
+	const responseFormat = responseFormatForRequest(requestBase, agentOptions);
+	if (responseFormat) {
+		requestBase.response_format = responseFormat;
+	}
 	const request = buildChatRequestBody(agentOptions, requestBase);
 	await writeJson(join(subDir, 'request.json'), request);
 	await writeJson(

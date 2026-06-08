@@ -64,13 +64,34 @@ export function reviewResponseFormat() {
 }
 
 export function applyResponseFormat(body, options) {
-	if (!options?.responseFormat || body.response_format) {
+	if (!options?.responseFormat) {
+		return body;
+	}
+	if (shouldOmitResponseFormat(body, options)) {
+		const { response_format: _responseFormat, ...rest } = body;
+		return rest;
+	}
+	if (body.response_format) {
 		return body;
 	}
 	return {
 		...body,
 		response_format: options.responseFormat,
 	};
+}
+
+export function responseFormatForRequest(body, options) {
+	return shouldOmitResponseFormat(body, options)
+		? null
+		: options?.responseFormat || null;
+}
+
+function shouldOmitResponseFormat(body, options) {
+	return (
+		options?.provider === 'local' &&
+		Array.isArray(body?.tools) &&
+		body.tools.length > 0
+	);
 }
 
 function jsonSchemaResponseFormat(name, schema) {

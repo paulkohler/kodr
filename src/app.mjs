@@ -40,7 +40,10 @@ import {
 	formatProgressEvent,
 	runStartHook,
 } from './progress.mjs';
-import { proposalResponseFormat } from './structured-output.mjs';
+import {
+	proposalResponseFormat,
+	responseFormatForRequest,
+} from './structured-output.mjs';
 import {
 	ModelSpecError,
 	parseAgentModelOverride,
@@ -1639,11 +1642,17 @@ async function runPrompt(options, io) {
 			const rawRequestBase = {
 				messages: initialMessages,
 				model,
-				response_format: runOptions.responseFormat,
 				url: `${options.baseUrl}/chat/completions`,
 			};
 			if (registry) {
 				rawRequestBase.tools = registry.toApiTools();
+			}
+			const responseFormat = responseFormatForRequest(
+				rawRequestBase,
+				runOptions,
+			);
+			if (responseFormat) {
+				rawRequestBase.response_format = responseFormat;
 			}
 			rawRequest = {
 				...buildChatRequestBody(runOptions, rawRequestBase),

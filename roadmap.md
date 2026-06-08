@@ -74,7 +74,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 68 Skill Code Execution
 - [x] 69 Model Profile And Capability Registry
 - [x] 70 Session Compaction And Summaries
-- [ ] 71 Self-Dev: Plan-Then-Execute Run
+- [x] 71 Self-Dev: Plan-Then-Execute Run
 - [x] 72 Multi-Turn Self-Healing Loop
 - [ ] 73 Undo/Redo Run Reverts
 - [ ] 74 Git-Aware Apply and Commit
