@@ -52,6 +52,19 @@ response-envelope behavior. Override or add profiles with
 `.kodr/model-profiles.json`, or point `KODR_MODEL_PROFILES` at a JSON file.
 Explicit flags such as `--timeout-ms` and `--session-context-chars` still win.
 
+Context packing uses the active profile's context window minus the completion
+reserve to decide how much workspace context to include. Override those values
+for a run when the serving layer has a different loaded context size:
+
+```sh
+./kodr run -p "Inspect the API" \
+  --context-window 65536 \
+  --completion-reserve 4096
+```
+
+The packed context summary records the active window, reserve, estimated budget,
+packed chars, and dropped inspection chunks when a budget forces omissions.
+
 For subagent orchestration, override individual agent models with repeatable
 `--agent-model` flags:
 

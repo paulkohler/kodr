@@ -6,7 +6,9 @@ import { describe, it } from 'node:test';
 import {
 	buildWorkspaceContext,
 	listContextFiles,
+	planContextBudget,
 	renderContextMarkdown,
+	selectInspectionChunks,
 } from '../src/context-packer.mjs';
 import { inspectWorkspace } from '../src/code-inspector.mjs';
 
@@ -219,6 +221,92 @@ describe('context packing', () => {
 		assert.equal(context.inspection.rankedSymbolCount, 2);
 		assert.equal(context.files[0].metadata.name, 'targetHigh');
 		assert.equal(context.files[0].metadata.kind, 'symbol');
+	});
+
+	it('plans context budgets deterministically from window and reserve', () => {
+		assert.deepEqual(
+			planContextBudget({
+				completionReserve: 100,
+				contextWindow: 1000,
+				totalBytes: 10000,
+			}),
+			{
+				budgetChars: 3600,
+				budgetTokens: 900,
+				completionReserve: 100,
+				contextWindow: 1000,
+				droppedChars: 0,
+				droppedChunks: 0,
+				estimatedCharsPerToken: 4,
+				packedChars: 0,
+				requestedChars: 10000,
+			},
+		);
+	});
+
+	it('selects inspection chunks without exceeding the byte budget', () => {
+		const result = selectInspectionChunks(
+			[
+				{ content: 'aaaa', path: 'a' },
+				{ content: 'bbbb', path: 'b' },
+				{ content: 'cccc', path: 'c' },
+			],
+			8,
+		);
+
+		assert.deepEqual(
+			result.chunks.map((chunk) => chunk.path),
+			['a', 'b'],
+		);
+		assert.equal(result.usedChars, 8);
+		assert.equal(result.droppedChunks, 1);
+		assert.equal(result.droppedChars, 4);
+	});
+
+	it('truncates the first inspection chunk rather than exceeding tiny budgets', () => {
+		const result = selectInspectionChunks(
+			[{ content: 'abcdefghij', path: 'a' }],
+			4,
+		);
+
+		assert.equal(result.chunks[0].content, 'abcd');
+		assert.equal(result.chunks[0].truncated, true);
+		assert.equal(result.usedChars, 4);
+		assert.equal(result.droppedChars, 6);
+	});
+
+	it('reports dropped inspection chunks when the context budget is small', async () => {
+		const cwd = await mkWorkspace({
+			'src/app.mjs': [
+				'export function targetOne() {',
+				'  return "one";',
+				'}',
+				'',
+				'export function targetTwo() {',
+				'  return targetOne();',
+				'}',
+				'',
+				'export function targetThree() {',
+				'  return targetTwo();',
+				'}',
+			].join('\n'),
+		});
+		const index = await inspectWorkspace(cwd);
+
+		const context = await buildWorkspaceContext(cwd, {
+			completionReserve: 10,
+			contextWindow: 20,
+			inspection: {
+				enabled: true,
+				index,
+				query: 'target',
+			},
+			totalBytes: 40,
+		});
+
+		assert.ok(context.totalBytes <= context.contextBudget.budgetChars);
+		assert.ok(context.inspection.droppedChunks > 0);
+		assert.match(renderContextMarkdown(context), /Dropped chunks: [1-9]/u);
 	});
 
 	it('falls back to file summaries when inspection finds no matching symbols', async () => {

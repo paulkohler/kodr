@@ -114,6 +114,8 @@ export function parseArgs(argv, env = {}) {
 	const options = {
 		baseUrl: env.BASE_URL || DEFAULT_BASE_URL,
 		command: 'help',
+		completionReserve: '',
+		contextWindow: '',
 		dockerImage: '',
 		dockerKeep: false,
 		dockerNetwork: '',
@@ -180,6 +182,8 @@ export function parseArgs(argv, env = {}) {
 		yes: false,
 		_apiKeySet: false,
 		_baseUrlSet: false,
+		_completionReserveSet: false,
+		_contextWindowSet: false,
 		_modelSet: false,
 		_sessionContextSet: false,
 		_timeoutSet: false,
@@ -337,6 +341,8 @@ export function parseArgs(argv, env = {}) {
 
 		if (
 			arg === '--base-url' ||
+			arg === '--completion-reserve' ||
+			arg === '--context-window' ||
 			arg === '--model' ||
 			arg === '--agent-model' ||
 			arg === '--api-key' ||
@@ -466,6 +472,8 @@ export function parseArgs(argv, env = {}) {
 	}
 	delete options._apiKeySet;
 	delete options._baseUrlSet;
+	delete options._completionReserveSet;
+	delete options._contextWindowSet;
 	delete options._modelSet;
 	delete options._sessionContextSet;
 	delete options._timeoutSet;
@@ -485,6 +493,7 @@ export function parseArgs(argv, env = {}) {
 			'--timeout-ms must be an integer greater than or equal to 100',
 		);
 	}
+	validateContextBudgetOptions(options);
 	if (
 		options.reviewTimeoutMs !== '' &&
 		(!Number.isInteger(options.reviewTimeoutMs) ||
@@ -502,6 +511,28 @@ export function parseArgs(argv, env = {}) {
 	validateOpenShellOptions(options);
 
 	return options;
+}
+
+function validateContextBudgetOptions(options) {
+	if (
+		!Number.isInteger(options.contextWindow) ||
+		options.contextWindow < 1000
+	) {
+		throw new CliError(
+			'--context-window must be an integer greater than or equal to 1000',
+		);
+	}
+	if (
+		!Number.isInteger(options.completionReserve) ||
+		options.completionReserve < 0
+	) {
+		throw new CliError('--completion-reserve must be a non-negative integer');
+	}
+	if (options.completionReserve >= options.contextWindow) {
+		throw new CliError(
+			'--completion-reserve must be smaller than --context-window',
+		);
+	}
 }
 
 function validateLoopBudgetOptions(options) {
@@ -615,6 +646,9 @@ Local-model defaults:
                        Repeatable for planner, implementer, reviewer.
   --api-key KEY        Default: OPENAI_API_KEY
   --timeout-ms N       Default: ${DEFAULT_TIMEOUT_MS}
+  --context-window N   Override active profile context window.
+  --completion-reserve N
+                       Override active profile completion reserve.
   --max-turns N        Max model turns in a run. Default: 8
   --max-retries N      Max continuation retries after length stops. Default: 7
   --max-thinking-tokens N
@@ -1263,6 +1297,12 @@ function assignValue(options, flag, value) {
 	if (flag === '--base-url') {
 		options.baseUrl = value.replace(/\/+$/u, '');
 		options._baseUrlSet = true;
+	} else if (flag === '--completion-reserve') {
+		options.completionReserve = Number(value);
+		options._completionReserveSet = true;
+	} else if (flag === '--context-window') {
+		options.contextWindow = Number(value);
+		options._contextWindowSet = true;
 	} else if (flag === '--model') {
 		options.model = value;
 		options._modelSet = true;
@@ -1637,6 +1677,7 @@ async function runPrompt(options, io) {
 						writes: 'writes.json',
 					},
 					baseUrl: options.baseUrl,
+					contextBudget: context.contextBudget || null,
 					finishReasons: orchestrationResult.finishReasons,
 					loopBudget: orchestrationResult.loopBudget,
 					model,
@@ -1822,6 +1863,7 @@ async function runPrompt(options, io) {
 				writes: 'writes.json',
 			},
 			baseUrl: options.baseUrl,
+			contextBudget: context.contextBudget || null,
 			applyRequested: options.yes,
 			finishReasons: completion.finishReasons,
 			loopBudget: completion.loopBudget,
@@ -2362,6 +2404,7 @@ async function runStagedPrompt({
 			writes: 'writes.json',
 		},
 		baseUrl: options.baseUrl,
+		contextBudget: context.contextBudget || null,
 		finishReasons,
 		healed: healingResult ? healingResult.healed : false,
 		healStopReason: healingResult?.stopReason || '',
@@ -2489,9 +2532,13 @@ function resolveReviewTimeoutMs(options) {
 }
 
 function workspaceContextOptions(options) {
-	return options.contextBudgetChars
-		? { totalBytes: options.contextBudgetChars }
-		: {};
+	return {
+		completionReserve: options.completionReserve,
+		contextWindow: options.contextWindow,
+		...(options.contextBudgetChars
+			? { totalBytes: options.contextBudgetChars }
+			: {}),
+	};
 }
 
 async function runHealingIfNeeded({
@@ -2651,6 +2698,7 @@ async function writeRunFailure(runDir, details) {
 			writes: 'writes.json',
 		},
 		baseUrl: details.baseUrl,
+		contextBudget: details.context.contextBudget || null,
 		error,
 		model: details.model,
 		modelProfile: details.modelProfile || null,

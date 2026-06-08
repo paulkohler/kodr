@@ -109,11 +109,25 @@ export function applyModelProfileDefaults(
 	cwd = process.cwd(),
 ) {
 	const profile = resolveModelProfile(options, env, cwd);
+	const contextWindow = options._contextWindowSet
+		? options.contextWindow
+		: profile.contextWindow;
+	const completionReserve = options._completionReserveSet
+		? options.completionReserve
+		: profile.completionReserve;
+	const effectiveProfile = {
+		...profile,
+		completionReserve,
+		contextWindow,
+	};
 	const next = {
 		...options,
-		completionReserve: profile.completionReserve,
-		contextBudgetChars: Math.min(sessionContextCharsForProfile(profile), 80000),
-		contextWindow: profile.contextWindow,
+		completionReserve,
+		contextBudgetChars: Math.min(
+			sessionContextCharsForProfile(effectiveProfile),
+			80000,
+		),
+		contextWindow,
 		modelProfile: serializeProfile(profile),
 		nativeToolCalls: profile.nativeToolCalls,
 		responseEnvelopeMode: profile.responseEnvelope,
@@ -122,7 +136,7 @@ export function applyModelProfileDefaults(
 		next.timeoutMs = profile.timeoutMs;
 	}
 	if (!options._sessionContextSet) {
-		next.sessionContextChars = sessionContextCharsForProfile(profile);
+		next.sessionContextChars = sessionContextCharsForProfile(effectiveProfile);
 	}
 	return next;
 }

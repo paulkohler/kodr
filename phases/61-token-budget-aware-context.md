@@ -31,15 +31,23 @@ is hit, emitting a summary of what was dropped.
 
 ## Done Criteria
 
-- [ ] Budget function returns a deterministic chunk set for a given
+- [x] Budget function returns a deterministic chunk set for a given
       (window, query, index).
-- [ ] Packing never exceeds the configured budget in tests with synthetic large
+- [x] Packing never exceeds the configured budget in tests with synthetic large
       indexes.
-- [ ] Dropped chunks are reported in a summary block.
-- [ ] Add and document an explicit context-window option.
-- [ ] Configurable reserve margin with a documented default.
-- [ ] Record active context-budget metadata in run artifacts.
-- [ ] Add tests.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Dropped chunks are reported in a summary block.
+- [x] Add and document an explicit context-window option.
+- [x] Configurable reserve margin with a documented default.
+- [x] Record active context-budget metadata in run artifacts.
+- [x] Add tests.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
+
+## Result
+
+Context assembly now derives a character budget from the active model profile's
+context window and completion reserve, with explicit `--context-window` and
+`--completion-reserve` overrides. Inspection-aware packing ranks candidate
+chunks, selects only what fits, truncates the first oversized chunk when needed,
+and records dropped chunk metadata in the rendered context and run summary.

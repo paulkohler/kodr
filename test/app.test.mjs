@@ -56,6 +56,10 @@ describe('parseArgs', () => {
 			'100',
 			'--max-cost-usd',
 			'0.01',
+			'--context-window',
+			'8000',
+			'--completion-reserve',
+			'2000',
 			'--json',
 		]);
 
@@ -66,7 +70,10 @@ describe('parseArgs', () => {
 		assert.equal(options.testCwd, 'examples/todo-cli');
 		assert.equal(options.apiKey, 'test-key');
 		assert.equal(options.timeoutMs, 1000);
-		assert.equal(options.sessionContextChars, 245760);
+		assert.equal(options.contextWindow, 8000);
+		assert.equal(options.completionReserve, 2000);
+		assert.equal(options.sessionContextChars, 24000);
+		assert.equal(options.contextBudgetChars, 24000);
 		assert.equal(options.maxTurns, 3);
 		assert.equal(options.maxRetries, 2);
 		assert.equal(options.maxThinkingTokens, 1024);
@@ -74,6 +81,22 @@ describe('parseArgs', () => {
 		assert.equal(options.maxTokens, 100);
 		assert.equal(options.maxCostUsd, '0.01');
 		assert.equal(options.json, true);
+	});
+
+	it('validates context budget flags', () => {
+		assert.throws(
+			() =>
+				parseArgs([
+					'run',
+					'--context-window',
+					'1000',
+					'--completion-reserve',
+					'1000',
+					'-p',
+					'task',
+				]),
+			/--completion-reserve/u,
+		);
 	});
 
 	it('loads configured model profile overrides for defaults', async () => {
@@ -884,6 +907,8 @@ describe('run', () => {
 			assert.equal(summary.model, 'qwen/qwen3.6-35b-a3b');
 			assert.equal(summary.modelProfile.id, 'qwen/qwen3.6-35b-a3b');
 			assert.equal(summary.modelProfile.contextWindow, 32768);
+			assert.equal(summary.contextBudget.contextWindow, 32768);
+			assert.equal(summary.contextBudget.completionReserve, 4096);
 			assert.equal(summary.responseCount, 1);
 			assert.equal(summary.promptChars, 'Summarize the repo.'.length);
 			assert.deepEqual(summary.artifacts, {

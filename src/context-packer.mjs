@@ -25,10 +25,12 @@ const FILE_MAP_MAX_FILES = 200;
 const INSPECTION_MAX_CHUNKS = 12;
 const INSPECTION_CONTEXT_LINES = 2;
 const INSPECTION_SUMMARY_MAX_FILES = 80;
+const APPROX_CHARS_PER_TOKEN = 4;
 
 export async function buildWorkspaceContext(cwd, options = {}) {
+	const contextBudget = planContextBudget(options);
 	const perFileBytes = options.perFileBytes || DEFAULT_PER_FILE_BYTES;
-	const totalBytes = options.totalBytes || DEFAULT_TOTAL_BYTES;
+	const totalBytes = contextBudget.budgetChars;
 	const toolsMode = options.toolsMode || false;
 	const files = await listContextFiles(cwd);
 	const memory = options.memory || { project: null, user: null };
@@ -49,7 +51,14 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			}
 		}
 		const fileMap = await buildFileMap(cwd, files);
-		const context = { agents, fileMap, files: [], memory, skills };
+		const context = {
+			agents,
+			contextBudget,
+			fileMap,
+			files: [],
+			memory,
+			skills,
+		};
 		return {
 			...context,
 			systemPrompt: renderSystemPrompt(context),
@@ -59,7 +68,9 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 
 	if (options.inspection?.enabled) {
 		const agents = await loadAgents(cwd, files, perFileBytes);
-		const inspection = await buildInspectionContext(cwd, options.inspection);
+		const inspection = await buildInspectionContext(cwd, options.inspection, {
+			budgetChars: Math.max(0, totalBytes - (agents?.includedBytes || 0)),
+		});
 		const packedFiles = inspection.chunks.map((chunk) => ({
 			content: chunk.content,
 			includedBytes: Buffer.byteLength(chunk.content),
@@ -73,11 +84,19 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			path: chunk.path,
 			truncated: false,
 		}));
-		const totalBytes =
+		const packedBytes =
 			packedFiles.reduce((sum, file) => sum + file.includedBytes, 0) +
 			(agents ? agents.includedBytes : 0);
 		const context = {
 			agents,
+			contextBudget: {
+				...contextBudget,
+				droppedChars: inspection.droppedChars,
+				droppedChunks: inspection.droppedChunks,
+				packedChars:
+					packedFiles.reduce((sum, file) => sum + file.includedBytes, 0) +
+					(agents?.includedBytes || 0),
+			},
 			files: packedFiles,
 			inspection,
 			memory,
@@ -86,7 +105,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		return {
 			...context,
 			systemPrompt: renderSystemPrompt(context),
-			totalBytes,
+			totalBytes: packedBytes,
 		};
 	}
 
@@ -134,11 +153,48 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		}
 	}
 
-	const context = { agents, files: packedFiles, memory, omittedFiles, skills };
+	const context = {
+		agents,
+		contextBudget: {
+			...contextBudget,
+			packedChars: usedBytes + (agents?.includedBytes || 0),
+		},
+		files: packedFiles,
+		memory,
+		omittedFiles,
+		skills,
+	};
 	return {
 		...context,
 		systemPrompt: renderSystemPrompt(context),
 		totalBytes: usedBytes,
+	};
+}
+
+export function planContextBudget(options = {}) {
+	const contextWindow = positiveInteger(options.contextWindow, 0);
+	const completionReserve = positiveInteger(options.completionReserve, 0);
+	const budgetTokens =
+		contextWindow > 0
+			? Math.max(0, contextWindow - completionReserve)
+			: Math.ceil(
+					(options.totalBytes || DEFAULT_TOTAL_BYTES) / APPROX_CHARS_PER_TOKEN,
+				);
+	const derivedChars = Math.max(0, budgetTokens * APPROX_CHARS_PER_TOKEN);
+	const requestedChars = positiveInteger(
+		options.totalBytes,
+		DEFAULT_TOTAL_BYTES,
+	);
+	return {
+		budgetChars: Math.max(0, Math.min(requestedChars, derivedChars)),
+		budgetTokens,
+		completionReserve,
+		contextWindow,
+		droppedChars: 0,
+		droppedChunks: 0,
+		estimatedCharsPerToken: APPROX_CHARS_PER_TOKEN,
+		packedChars: 0,
+		requestedChars,
 	};
 }
 
@@ -250,6 +306,10 @@ function renderFileMapText(fileMap) {
 
 function renderOmittedFiles(files) {
 	return files.map((file) => `- ${file.path}: ${file.reason}`).join('\n');
+}
+
+function positiveInteger(value, fallback) {
+	return Number.isInteger(value) && value >= 0 ? value : fallback;
 }
 
 function renderSystemPrompt(context) {
@@ -389,7 +449,7 @@ function isMapOnlyFile(path) {
 	return DEFAULT_MAP_ONLY_FILES.has(name);
 }
 
-async function buildInspectionContext(cwd, inspection) {
+async function buildInspectionContext(cwd, inspection, budget = {}) {
 	const index = inspection.index || { files: [], symbols: [] };
 	const queryTerms = queryTokens(inspection.query || '');
 	const rankedSymbols = rankedSymbolsForInspection(
@@ -397,10 +457,13 @@ async function buildInspectionContext(cwd, inspection) {
 		inspection.query || '',
 	);
 	const matches = matchingSymbols(rankedSymbols, queryTerms);
-	const chunks = await buildInspectionChunks(cwd, index, matches);
+	const candidateChunks = await buildInspectionChunks(cwd, index, matches);
+	const planned = selectInspectionChunks(candidateChunks, budget.budgetChars);
 	const summaries = buildFileSummaries(index.files);
 	return {
-		chunks,
+		chunks: planned.chunks,
+		droppedChars: planned.droppedChars,
+		droppedChunks: planned.droppedChunks,
 		fileSummaries: summaries,
 		mode: 'inspection-aware',
 		query: inspection.query || '',
@@ -409,6 +472,43 @@ async function buildInspectionContext(cwd, inspection) {
 		totalFileCount: index.files.length,
 		totalSymbolCount: index.symbols.length,
 	};
+}
+
+export function selectInspectionChunks(
+	chunks,
+	budgetChars = DEFAULT_TOTAL_BYTES,
+) {
+	const selected = [];
+	let used = 0;
+	let droppedChars = 0;
+	let droppedChunks = 0;
+	for (const chunk of chunks) {
+		const bytes = Buffer.byteLength(chunk.content || '');
+		if (used + bytes <= budgetChars) {
+			selected.push({ ...chunk, estimatedChars: bytes });
+			used += bytes;
+		} else if (selected.length === 0 && budgetChars > 0) {
+			const content = truncateUtf8(chunk.content || '', budgetChars);
+			const estimatedChars = Buffer.byteLength(content);
+			selected.push({
+				...chunk,
+				content,
+				estimatedChars,
+				truncated: true,
+			});
+			used += estimatedChars;
+			droppedChars += bytes - estimatedChars;
+			droppedChunks += 1;
+		} else {
+			droppedChars += bytes;
+			droppedChunks += 1;
+		}
+	}
+	return { chunks: selected, droppedChars, droppedChunks, usedChars: used };
+}
+
+function truncateUtf8(value, maxBytes) {
+	return Buffer.from(value, 'utf8').subarray(0, maxBytes).toString('utf8');
 }
 
 function rankedSymbolsForInspection(index, query) {
@@ -622,6 +722,9 @@ function renderInspectionContextMarkdown(inspection) {
 		`Files indexed: ${inspection.totalFileCount}`,
 		`Symbols indexed: ${inspection.totalSymbolCount}`,
 		`Selected symbols: ${inspection.selectedSymbolCount}`,
+		`Selected chunks: ${inspection.chunks.length}`,
+		`Dropped chunks: ${inspection.droppedChunks || 0}`,
+		`Dropped chars: ${inspection.droppedChars || 0}`,
 		'',
 		'### File summaries',
 	];
