@@ -43,10 +43,12 @@ export async function discoverSkills(cwd, options = {}) {
 export function parseSkillMarkdown(path, raw) {
 	const parsed = parseFrontmatter(raw);
 	const fallbackName = dirname(path).split('/').pop() || 'root';
+	const commands = normalizeCommands(parsed.frontmatter.commands);
 	const resources = normalizeResources(parsed.frontmatter.resources);
 
 	return {
 		body: parsed.body,
+		commands,
 		description: parsed.frontmatter.description || '',
 		frontmatter: parsed.frontmatter,
 		includedBytes: Buffer.byteLength(raw),
@@ -335,7 +337,52 @@ function renderSkillIndexEntry(skill) {
 					})
 					.join('\n')}`
 			: '';
-	return `- ${skill.name} (${skill.path})${description}${resources}`;
+	const commands =
+		skill.commands?.length > 0
+			? `\n  commands:\n${skill.commands
+					.map((command) => {
+						const commandDescription = command.description
+							? ` - ${command.description}`
+							: '';
+						return `  - ${command.name} -> ${command.path}${commandDescription}`;
+					})
+					.join('\n')}`
+			: '';
+	return `- ${skill.name} (${skill.path})${description}${resources}${commands}`;
+}
+
+function normalizeCommands(commands) {
+	if (!Array.isArray(commands)) {
+		return [];
+	}
+	return commands
+		.map((command) => {
+			if (!command || typeof command !== 'object') {
+				return null;
+			}
+			if (!command.name || !command.path) {
+				return null;
+			}
+			return {
+				args: splitArgs(command.args || command.fixedArgs || ''),
+				bin: command.bin || '',
+				description: command.description || '',
+				name: command.name,
+				path: command.path,
+				timeoutMs: Number(command.timeoutMs || 0) || 0,
+			};
+		})
+		.filter(Boolean);
+}
+
+function splitArgs(value) {
+	if (!value) {
+		return [];
+	}
+	if (Array.isArray(value)) {
+		return value.map(String);
+	}
+	return String(value).trim().split(/\s+/u).filter(Boolean);
 }
 
 function unquote(value) {

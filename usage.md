@@ -530,6 +530,28 @@ reads are byte-capped and jailed to the directory containing that skill's
 
 Skill code execution is still a separate later phase.
 
+Skills may also declare executable helper commands:
+
+```md
+---
+name: project-tools
+description: Project-local helpers
+commands:
+  - name: summarize
+    path: scripts/summarize.mjs
+    description: Print a project summary
+    args: --json
+---
+Use helpers only when explicitly useful.
+```
+
+In tools mode, the model can call `run_skill_command` with a skill name and
+command name. Skill commands are never run from `SKILL.md` load alone. They
+require an active sandbox executor, explicit approval from the harness, no
+network, and read-only workspace access. Kodr records stdout/stderr under
+`skill-commands/` in the run artifacts. Non-interactive CLI paths fail closed
+when no approver is available.
+
 ### Use Inspection-Aware Context
 
 Build a structural index without calling the model:

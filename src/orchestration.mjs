@@ -314,6 +314,9 @@ export async function runImplementerAgent(
 	const registry = createBuiltinRegistry(cwd, {
 		commandRunner: activeOptions.commandRunner || null,
 		hooks: activeOptions.hooks || null,
+		runDir: subDir,
+		skillExecutor: activeOptions.skillExecutor || null,
+		timeoutMs: activeOptions.timeoutMs,
 	});
 	const systemPrompt = await buildAgentSystemPrompt(
 		'implementer',

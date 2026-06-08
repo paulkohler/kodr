@@ -76,6 +76,39 @@ describe('Markdown skills', () => {
 		assert.doesNotMatch(renderSkillIndex([skill]), /Use patches/u);
 	});
 
+	it('parses skill command metadata without exposing script bodies', () => {
+		const skill = parseSkillMarkdown(
+			'skills/tools/SKILL.md',
+			[
+				'---',
+				'name: tools',
+				'commands:',
+				'  - name: summarize',
+				'    path: scripts/summarize.mjs',
+				'    description: Summarize project data',
+				'    args: --json',
+				'---',
+				'Use helpers only when asked.',
+			].join('\n'),
+		);
+
+		assert.deepEqual(skill.commands, [
+			{
+				args: ['--json'],
+				bin: '',
+				description: 'Summarize project data',
+				name: 'summarize',
+				path: 'scripts/summarize.mjs',
+				timeoutMs: 0,
+			},
+		]);
+		assert.match(
+			renderSkillIndex([skill]),
+			/summarize -> scripts\/summarize\.mjs/u,
+		);
+		assert.doesNotMatch(renderSkillIndex([skill]), /Use helpers/u);
+	});
+
 	it('loads only requested Markdown skill bodies', async () => {
 		const cwd = await mkWorkspace({
 			'a/SKILL.md': '---\nname: alpha\ndescription: Alpha skill\n---\nUse A.',

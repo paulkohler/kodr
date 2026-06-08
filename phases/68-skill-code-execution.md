@@ -40,17 +40,32 @@ skill helpers require a later selective validated writeback design.
 
 ## Done Criteria
 
-- [ ] Parse executable command metadata from `SKILL.md` frontmatter.
-- [ ] Expose command names/descriptions without exposing full script bodies.
-- [ ] Execute only declared, jailed commands after explicit approval.
-- [ ] Require an active sandbox executor; never silently execute skill code on
+- [x] Parse executable command metadata from `SKILL.md` frontmatter.
+- [x] Expose command names/descriptions without exposing full script bodies.
+- [x] Execute only declared, jailed commands after explicit approval.
+- [x] Require an active sandbox executor; never silently execute skill code on
       the host.
-- [ ] Run skill helpers with no network, inherited credentials, or writable
+- [x] Run skill helpers with no network, inherited credentials, or writable
       workspace capability.
-- [ ] Approval text shows the exact command, arguments, backend, and
+- [x] Approval text shows the exact command, arguments, backend, and
       capabilities.
-- [ ] Record stdout/stderr as artifacts.
-- [ ] Add tests for approval, denial, timeout, and path traversal.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Record stdout/stderr as artifacts.
+- [x] Add tests for approval, denial, timeout, and path traversal.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
+
+## Result
+
+Kodr now parses `commands:` from `SKILL.md` frontmatter and exposes command
+names/descriptions in skill indexes and prompts without loading script bodies.
+
+The `run_skill_command` native tool executes only declared commands, jails the
+script path to the declaring skill directory, requires an active sandbox
+executor, and requires an explicit permission approver. Without an approver or
+sandbox executor it fails closed.
+
+Docker skill commands run with `--network none` and a read-only bind mount.
+OpenShell skill commands run inside the uploaded sandbox with no host writeback.
+Each run records stdout/stderr and approval metadata under
+`skill-commands/*.json`.

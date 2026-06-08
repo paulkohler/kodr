@@ -124,6 +124,35 @@ describe('docker executor', () => {
 		assert.match(executor.metadata().shellCommand, /^docker start kodr-/u);
 	});
 
+	it('can run a read-only no-network skill command container', async () => {
+		const calls = [];
+		const executor = new DockerExecutor('/tmp/project', '/tmp/run', {
+			dockerRunner: async (args) => {
+				calls.push(args);
+				return { exitCode: 0, stderr: '', stdout: 'ok', timedOut: false };
+			},
+			dockerSandbox: true,
+		});
+
+		await executor.run(
+			'/tmp/project/skills/demo',
+			{ args: ['scripts/demo.mjs'], bin: 'node' },
+			1000,
+			{ network: 'none', readOnlyWorkspace: true },
+		);
+
+		assert.ok(calls[0].includes('--network'));
+		assert.equal(calls[0][calls[0].indexOf('--network') + 1], 'none');
+		assert.ok(
+			calls[0].some(
+				(arg) =>
+					arg.includes('type=bind,src=/tmp/project/skills/demo') &&
+					arg.includes(',readonly'),
+			),
+		);
+		assert.equal(executor.metadata().commands[0].readOnlyWorkspace, true);
+	});
+
 	it('runs hook commands inside the sandbox with stdin and docker environment', async () => {
 		const calls = [];
 		const executor = new DockerExecutor(

@@ -1596,6 +1596,9 @@ async function runPrompt(options, io) {
 			? createBuiltinRegistry(io.cwd, {
 					commandRunner,
 					hooks: configuredHooks.hooks,
+					runDir,
+					skillExecutor: activeExecutor,
+					timeoutMs: options.timeoutMs,
 				})
 			: null;
 		const responsePath = join(runDir, 'response.md');
@@ -1658,6 +1661,7 @@ async function runPrompt(options, io) {
 						commandRunner,
 						protectedPaths: protectedWritePaths(options),
 						reviewTimeoutMs: resolveReviewTimeoutMs(options),
+						skillExecutor: activeExecutor,
 						skipReview: options.skipReview,
 						workspaceContext: context,
 					},

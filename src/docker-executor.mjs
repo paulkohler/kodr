@@ -69,11 +69,11 @@ export class DockerExecutor {
 
 	async finalize() {}
 
-	async run(cwd, parsed, timeoutMs) {
+	async run(cwd, parsed, timeoutMs, options = {}) {
 		this.sequence += 1;
 		const containerName = `kodr-${this.runId}-${this.sequence}-${randomBytes(3).toString('hex')}`;
 		const command = `${parsed.bin} ${parsed.args.join(' ')}`.trim();
-		const dockerArgs = this.dockerRunArgs(cwd, parsed, containerName);
+		const dockerArgs = this.dockerRunArgs(cwd, parsed, containerName, options);
 		const startedAt = new Date().toISOString();
 		const started = performance.now();
 		const result = await this.runner(dockerArgs, timeoutMs);
@@ -88,6 +88,7 @@ export class DockerExecutor {
 			inspectCommand: `docker inspect ${containerName}`,
 			kept: this.keep,
 			network: this.network,
+			readOnlyWorkspace: options.readOnlyWorkspace === true,
 			shellCommand: this.keep
 				? `docker start ${containerName} && docker exec -it ${containerName} sh`
 				: '',
@@ -147,17 +148,17 @@ export class DockerExecutor {
 		return this.runner(args, timeoutMs, input);
 	}
 
-	dockerRunArgs(cwd, parsed, containerName) {
+	dockerRunArgs(cwd, parsed, containerName, options = {}) {
 		const args = [
 			'run',
 			'--name',
 			containerName,
 			'--network',
-			this.network,
+			options.network || this.network,
 			'--workdir',
 			this.workdir,
 			'--mount',
-			`type=bind,src=${cwd},dst=${this.workdir}`,
+			`type=bind,src=${cwd},dst=${this.workdir}${options.readOnlyWorkspace ? ',readonly' : ''}`,
 			'--env',
 			'npm_config_cache=/tmp/.npm',
 		];

@@ -127,6 +127,7 @@ describe('subagent stage orchestration', () => {
 			assert.match(request.messages[0].content, /`list_files`/u);
 			assert.match(request.messages[0].content, /`read_file`/u);
 			assert.match(request.messages[0].content, /`read_skill_resource`/u);
+			assert.match(request.messages[0].content, /`run_skill_command`/u);
 			assert.match(request.messages[0].content, /`inspect_symbols`/u);
 			assert.match(request.messages[0].content, /`find_references`/u);
 			assert.match(request.messages[0].content, /`run_command`/u);
@@ -140,6 +141,7 @@ describe('subagent stage orchestration', () => {
 				'read_file',
 				'read_skill_resource',
 				'run_command',
+				'run_skill_command',
 			]);
 		} finally {
 			await server.close();

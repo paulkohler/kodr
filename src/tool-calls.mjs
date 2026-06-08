@@ -13,6 +13,7 @@ import { runVerification } from './verification-runner.mjs';
 import { renderHookStopFeedback } from './command-hooks.mjs';
 import { applyResponseFormat } from './structured-output.mjs';
 import { loadSkillResource } from './skills.mjs';
+import { runSkillCommand } from './skill-execution.mjs';
 
 const MAX_INSPECT_SYMBOLS = 200;
 const MAX_INSPECT_REFERENCES = 100;
@@ -364,6 +365,37 @@ export function createBuiltinRegistry(cwd, options = {}) {
 			loadSkillResource(cwd, skill, resource, {
 				maxBytes: options.skillResourceBytes,
 			}),
+	});
+
+	registry.register('run_skill_command', {
+		description:
+			'Run a declared executable helper command from a Markdown skill. Requires explicit approval and an active sandbox executor.',
+		parameters: {
+			type: 'object',
+			properties: {
+				command: {
+					type: 'string',
+					description: 'Declared skill command name.',
+				},
+				skill: {
+					type: 'string',
+					description: 'Skill name or SKILL.md path.',
+				},
+			},
+			required: ['skill', 'command'],
+			additionalProperties: false,
+		},
+		handler: async ({ command, skill }) =>
+			runSkillCommand(
+				cwd,
+				{ command, skill },
+				{
+					executor: options.skillExecutor || null,
+					permissionApprover: options.permissionApprover || null,
+					runDir: options.runDir || '',
+					timeoutMs: options.timeoutMs,
+				},
+			),
 	});
 
 	registry.register('run_command', {

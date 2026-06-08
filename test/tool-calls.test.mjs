@@ -185,7 +185,7 @@ describe('createBuiltinRegistry', () => {
 		await writeFile(join(cwd, 'hello.txt'), 'world', 'utf8');
 		const registry = createBuiltinRegistry(cwd);
 
-		assert.equal(registry.size, 6);
+		assert.equal(registry.size, 7);
 		assert.deepEqual(
 			registry
 				.toApiTools()
@@ -198,6 +198,7 @@ describe('createBuiltinRegistry', () => {
 				'read_file',
 				'read_skill_resource',
 				'run_command',
+				'run_skill_command',
 			],
 		);
 
@@ -249,6 +250,58 @@ describe('createBuiltinRegistry', () => {
 				'{"skill":"editor","resource":"../secret.md"}',
 			),
 		);
+	});
+
+	it('run_skill_command requires approval and sandbox execution', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-skill-command-'));
+		await mkdir(join(cwd, 'skills', 'tools', 'scripts'), { recursive: true });
+		await writeFile(
+			join(cwd, 'skills', 'tools', 'SKILL.md'),
+			[
+				'---',
+				'name: tools',
+				'commands:',
+				'  - name: summarize',
+				'    path: scripts/summarize.mjs',
+				'---',
+				'Use helpers.',
+			].join('\n'),
+			'utf8',
+		);
+		await writeFile(
+			join(cwd, 'skills', 'tools', 'scripts', 'summarize.mjs'),
+			'console.log("summary");',
+			'utf8',
+		);
+		const calls = [];
+		const registry = createBuiltinRegistry(cwd, {
+			permissionApprover: async () => ({ decision: 'allow' }),
+			skillExecutor: {
+				backend: 'docker',
+				run: async (runCwd, parsed, timeoutMs, options) => {
+					calls.push({ options, parsed, runCwd, timeoutMs });
+					return {
+						exitCode: 0,
+						execution: { environment: 'docker' },
+						stderr: '',
+						stdout: 'summary\n',
+						timedOut: false,
+					};
+				},
+			},
+			timeoutMs: 1000,
+		});
+
+		const result = await registry.dispatch(
+			'run_skill_command',
+			'{"skill":"tools","command":"summarize"}',
+		);
+
+		assert.equal(result.ok, true);
+		assert.equal(result.stdout, 'summary\n');
+		assert.equal(calls[0].parsed.bin, 'node');
+		assert.equal(calls[0].options.readOnlyWorkspace, true);
+		assert.equal(calls[0].options.network, 'none');
 	});
 
 	it('inspect_symbols returns compact workspace symbols', async () => {
