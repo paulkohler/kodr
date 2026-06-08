@@ -110,14 +110,24 @@ Add deterministic tests:
 
 ## Done Criteria
 
-- [ ] Context rendering exposes stable/project/semi-stable/volatile sections.
-- [ ] Raw model requests keep stable sections before volatile sections.
-- [ ] A compatibility fallback preserves single-system-message behavior when
+- [x] Context rendering exposes stable/project/semi-stable/volatile sections.
+- [x] Raw model requests keep stable sections before volatile sections.
+- [x] A compatibility fallback preserves single-system-message behavior when
       needed.
-- [ ] Prompt-prefix hashes are artifacted.
-- [ ] Tests prove stable hashes survive ordinary user-prompt changes.
-- [ ] Tests prove volatile source changes do not rewrite the stable prefix.
-- [ ] Update `usage.md`.
-- [ ] Record decisions and failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Prompt-prefix hashes are artifacted.
+- [x] Tests prove stable hashes survive ordinary user-prompt changes.
+- [x] Tests prove volatile source changes do not rewrite the stable prefix.
+- [x] Update `usage.md`.
+- [x] Record decisions and failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
+
+## Result
+
+Context construction now renders named prompt sections and records short hashes
+for stable, project, semi-stable, and volatile sections. Kodr still sends a
+single system message for compatibility with local OpenAI-compatible servers,
+but the text order is deterministic: stable harness contract first, then
+AGENTS.md project instructions, semi-stable memory and skills, and finally
+volatile workspace context. Runs and subagent artifacts include
+`prompt-prefix.json` so cache behavior can be inspected after the fact.

@@ -91,6 +91,18 @@ In `auto` mode, Anthropic model ids receive root
 `cache_control: { "type": "ephemeral" }`. OpenAI, DeepSeek, Gemini, Qwen, and
 other remote models are report-only in this phase: Kodr does not send explicit
 cache controls, but records cache usage fields when the provider returns them.
+
+Each run writes `prompt-prefix.json` beside `summary.json`. It records stable,
+project, semi-stable, and volatile prompt section hashes so cache misses can be
+diagnosed:
+
+```sh
+cat .kodr/runs/<run-id>/prompt-prefix.json
+```
+
+The default wire format remains a single system message for compatibility with
+local OpenAI-compatible servers, but Kodr builds that message in stable prefix
+order before appending volatile workspace context.
 Local LM Studio and non-cloud Ollama models do not receive prompt cache fields.
 Ollama model ids ending in `:cloud` are treated as remote for usage/cost
 assumptions, but still do not receive provider-specific cache controls unless a

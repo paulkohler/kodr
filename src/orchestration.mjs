@@ -5,6 +5,7 @@ import {
 	buildWorkspaceContext,
 	renderKodrCorePrompt,
 	renderContextMarkdown,
+	summarizePromptSections,
 } from './context-packer.mjs';
 import { extractJson, extractProposal } from './json-extractor.mjs';
 import { runDependencyInstall } from './dependency-installer.mjs';
@@ -693,6 +694,15 @@ async function runAgentCompletion({
 	};
 	const request = buildChatRequestBody(agentOptions, requestBase);
 	await writeJson(join(subDir, 'request.json'), request);
+	await writeJson(
+		join(subDir, 'prompt-prefix.json'),
+		summarizePromptSections({
+			project: '',
+			semiStable: '',
+			stable: systemPrompt,
+			volatile: userPrompt,
+		}),
+	);
 	const completion = await completeWithToolCalls(
 		agentOptions,
 		agentOptions.model,

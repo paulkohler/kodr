@@ -65,6 +65,12 @@ describe('subagent stage orchestration', () => {
 			assert.doesNotMatch(request.messages[0].content, /Workspace files \(/u);
 			assert.match(request.messages[1].content, /focus on util/u);
 			assert.match(request.messages[1].content, /Workspace files \(/u);
+			const promptPrefix = JSON.parse(
+				await readFile(join(runDir, 'planner', 'prompt-prefix.json'), 'utf8'),
+			);
+			assert.equal(promptPrefix.wireFormat, 'single-system-message');
+			assert.equal(promptPrefix.stableChars > 0, true);
+			assert.equal(promptPrefix.volatileChars > 0, true);
 			assert.deepEqual(request.tools.map((tool) => tool.function.name).sort(), [
 				'list_files',
 				'read_file',

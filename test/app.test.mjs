@@ -917,6 +917,7 @@ describe('run', () => {
 				conversationRaw: 'conversation-raw.json',
 				messages: 'messages.json',
 				prompt: 'prompt.md',
+				promptPrefix: 'prompt-prefix.json',
 				rawRequest: 'raw-request.json',
 				rawResponse: 'raw-response.json',
 				docker: 'docker.json',
@@ -932,6 +933,12 @@ describe('run', () => {
 				tests: 'tests.json',
 				writes: 'writes.json',
 			});
+			assert.equal(summary.promptPrefix.stableChars > 0, true);
+			assert.equal(summary.promptPrefix.wireFormat, 'single-system-message');
+			const promptPrefix = JSON.parse(
+				await readFile(join(cwd, 'run-output', 'prompt-prefix.json'), 'utf8'),
+			);
+			assert.equal(promptPrefix.stableHash, summary.promptPrefix.stableHash);
 			assert.equal(Object.hasOwn(summary, 'runDir'), false);
 
 			const raw = JSON.parse(
@@ -941,7 +948,7 @@ describe('run', () => {
 
 			const chatRequest = server.recordings[0].requestBody;
 			assert.equal(chatRequest.messages[0].role, 'system');
-			assert.match(chatRequest.messages[0].content, /You are Kodr/u);
+			assert.match(chatRequest.messages[0].content, /^You are Kodr/u);
 			assert.equal(chatRequest.messages[1].content, 'Summarize the repo.');
 			assert.equal(chatRequest.model, 'qwen/qwen3.6-35b-a3b');
 			assert.equal(chatRequest.response_format.type, 'json_schema');

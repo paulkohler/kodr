@@ -8,6 +8,7 @@ import {
 	listContextFiles,
 	planContextBudget,
 	renderContextMarkdown,
+	renderPromptSections,
 	selectInspectionChunks,
 } from '../src/context-packer.mjs';
 import { inspectWorkspace } from '../src/code-inspector.mjs';
@@ -50,11 +51,79 @@ describe('context packing', () => {
 		assert.match(context.systemPrompt, /Use status "ERROR"/u);
 		assert.match(context.systemPrompt, /<workspace-instructions/u);
 		assert.match(context.systemPrompt, /Always prefer small commits/u);
+		assert.match(context.promptSections.stable, /You are Kodr/u);
+		assert.match(
+			context.promptSections.project,
+			/Always prefer small commits/u,
+		);
+		assert.doesNotMatch(context.promptSections.stable, /Always prefer/u);
 		assert.deepEqual(
 			context.files.map((file) => file.path),
 			['index.js'],
 		);
 		assert.doesNotMatch(renderContextMarkdown(context), /binary/u);
+	});
+
+	it('keeps stable and project prompt hashes stable across source changes', async () => {
+		const cwd = await mkWorkspace({
+			'AGENTS.md': 'Always prefer small commits.',
+			'src/app.mjs': 'export const value = 1;',
+		});
+		const before = await buildWorkspaceContext(cwd);
+		await writeFile(join(cwd, 'src/app.mjs'), 'export const value = 2;');
+		const after = await buildWorkspaceContext(cwd);
+
+		assert.equal(before.promptPrefix.stableHash, after.promptPrefix.stableHash);
+		assert.equal(
+			before.promptPrefix.projectHash,
+			after.promptPrefix.projectHash,
+		);
+		assert.notEqual(
+			before.promptPrefix.volatileHash,
+			after.promptPrefix.volatileHash,
+		);
+	});
+
+	it('moves AGENTS.md changes into the project prompt hash', async () => {
+		const cwd = await mkWorkspace({
+			'AGENTS.md': 'Always prefer small commits.',
+			'src/app.mjs': 'export const value = 1;',
+		});
+		const before = await buildWorkspaceContext(cwd);
+		await writeFile(cwd + '/AGENTS.md', 'Always run tests.');
+		const after = await buildWorkspaceContext(cwd);
+
+		assert.equal(before.promptPrefix.stableHash, after.promptPrefix.stableHash);
+		assert.notEqual(
+			before.promptPrefix.projectHash,
+			after.promptPrefix.projectHash,
+		);
+	});
+
+	it('moves loaded skill changes into the semi-stable prompt hash', () => {
+		const base = renderPromptSections({
+			files: [],
+			memory: { project: null, user: null },
+			skills: {
+				index: [],
+				loaded: [
+					{ body: 'Use the first rule.', name: 'demo', path: 'skills/demo' },
+				],
+			},
+		});
+		const changed = renderPromptSections({
+			files: [],
+			memory: { project: null, user: null },
+			skills: {
+				index: [],
+				loaded: [
+					{ body: 'Use the second rule.', name: 'demo', path: 'skills/demo' },
+				],
+			},
+		});
+
+		assert.equal(base.stable, changed.stable);
+		assert.notEqual(base.semiStable, changed.semiStable);
 	});
 
 	it('lists package locks without packing their contents by default', async () => {

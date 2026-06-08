@@ -1568,6 +1568,7 @@ async function runPrompt(options, io) {
 			: null;
 		const responsePath = join(runDir, 'response.md');
 		await writeText(join(runDir, 'context.md'), renderContextMarkdown(context));
+		await writeJson(join(runDir, 'prompt-prefix.json'), context.promptPrefix);
 		await writeText(join(runDir, 'prompt.md'), prompt);
 
 		let model;
@@ -1663,6 +1664,7 @@ async function runPrompt(options, io) {
 						conversation: 'conversation.json',
 						messages: 'messages.json',
 						prompt: 'prompt.md',
+						promptPrefix: 'prompt-prefix.json',
 						rawRequest: 'raw-request.json',
 						rawResponse: 'raw-response.json',
 						docker: 'docker.json',
@@ -1678,6 +1680,7 @@ async function runPrompt(options, io) {
 					},
 					baseUrl: options.baseUrl,
 					contextBudget: context.contextBudget || null,
+					promptPrefix: context.promptPrefix || null,
 					finishReasons: orchestrationResult.finishReasons,
 					loopBudget: orchestrationResult.loopBudget,
 					model,
@@ -1847,6 +1850,7 @@ async function runPrompt(options, io) {
 				conversationRaw: 'conversation-raw.json',
 				messages: 'messages.json',
 				prompt: 'prompt.md',
+				promptPrefix: 'prompt-prefix.json',
 				rawRequest: 'raw-request.json',
 				rawResponse: 'raw-response.json',
 				docker: 'docker.json',
@@ -1864,6 +1868,7 @@ async function runPrompt(options, io) {
 			},
 			baseUrl: options.baseUrl,
 			contextBudget: context.contextBudget || null,
+			promptPrefix: context.promptPrefix || null,
 			applyRequested: options.yes,
 			finishReasons: completion.finishReasons,
 			loopBudget: completion.loopBudget,
@@ -2389,6 +2394,7 @@ async function runStagedPrompt({
 			conversation: 'conversation.json',
 			messages: 'messages.json',
 			prompt: 'prompt.md',
+			promptPrefix: 'prompt-prefix.json',
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			docker: 'docker.json',
@@ -2405,6 +2411,7 @@ async function runStagedPrompt({
 		},
 		baseUrl: options.baseUrl,
 		contextBudget: context.contextBudget || null,
+		promptPrefix: context.promptPrefix || null,
 		finishReasons,
 		healed: healingResult ? healingResult.healed : false,
 		healStopReason: healingResult?.stopReason || '',
@@ -2684,6 +2691,7 @@ async function writeRunFailure(runDir, details) {
 			error: 'error.json',
 			messages: 'messages.json',
 			prompt: 'prompt.md',
+			promptPrefix: 'prompt-prefix.json',
 			rawRequest: 'raw-request.json',
 			rawResponse: 'raw-response.json',
 			docker: 'docker.json',
@@ -2699,6 +2707,7 @@ async function writeRunFailure(runDir, details) {
 		},
 		baseUrl: details.baseUrl,
 		contextBudget: details.context.contextBudget || null,
+		promptPrefix: details.context.promptPrefix || null,
 		error,
 		model: details.model,
 		modelProfile: details.modelProfile || null,
