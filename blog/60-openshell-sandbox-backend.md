@@ -78,9 +78,19 @@ A direct sandbox using Kodr's generated default-deny policy returned HTTP `403`
 for an attempted `https://example.com` request, confirming that the rebuilt
 gateway enforced the closed network policy.
 
-The phase remains open until a compatible end-to-end Kodr run covers nested
-working directories, dependency persistence, network denial, verification, and
-cleanup.
+On 2026-06-08, the real `OpenShellExecutor` path completed the remaining
+integration check with `openshell 0.0.56` and a local gateway reporting server
+version `0.0.57` at `https://127.0.0.1:17670`. The probe created a persistent
+sandbox, uploaded a filtered workspace snapshot, mapped a nested host directory
+to `/sandbox/nested`, preserved sandbox-only dependency state between commands,
+denied an outbound `https://example.com` request under the generated
+default-deny policy, and deleted the sandbox on finalize.
+
+That run also found a practical compatibility constraint: OpenShell rejects
+command arguments containing literal newline or carriage return characters.
+Kodr's controlled command paths already favor parsed fixed arguments, but future
+skill execution should pass complex payloads through stdin or files instead of
+newline-heavy command arguments.
 
 ## Verification
 
@@ -93,6 +103,6 @@ cleanup.
 - direct base sandbox Node.js, npm, and file-write smoke test
 - isolated Kodr run reached OpenShell verification and cleanup
 - default-deny network request returned HTTP `403`
-- pending: compatible end-to-end OpenShell run covering nested working
-  directories, dependency persistence, network denial, verification, and
+- real executor integration run covering nested working directories, dependency
+  persistence, network denial, verification-shaped command execution, and
   cleanup

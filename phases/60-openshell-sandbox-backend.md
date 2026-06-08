@@ -253,6 +253,26 @@ they run through this backend.
       artifacts, and no silent fallback.
 - [x] Record decisions and failures.
 - [x] Blog post.
-- [ ] A compatible real OpenShell integration run exercises nested directories,
+- [x] A compatible real OpenShell integration run exercises nested directories,
       dependency state persistence, network denial, verification, and cleanup.
-- [ ] Mark roadmap complete and commit.
+- [x] Mark roadmap complete and commit.
+
+## Real Integration Result
+
+Verified on 2026-06-08 with `openshell 0.0.56` and a local gateway reporting
+server version `0.0.57` at `https://127.0.0.1:17670`.
+
+The real `OpenShellExecutor` path successfully:
+
+- created a persistent sandbox with the generated default-deny policy
+- uploaded a filtered workspace snapshot
+- mapped a nested host working directory to `/sandbox/nested`
+- preserved sandbox-only dependency state between commands
+- denied outbound network access to `https://example.com`
+- deleted the sandbox during finalization
+
+The integration probe also found that OpenShell rejects command arguments that
+contain literal newline or carriage return characters. Kodr's controlled command
+paths already prefer parsed commands and fixed argument lists, but future skill
+execution should keep helper invocations newline-free and pass complex input via
+stdin or files.
