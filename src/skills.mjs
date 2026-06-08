@@ -1,6 +1,7 @@
 import { open } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { listContextFiles } from './context-packer.mjs';
+import { jailedPath, SafeWriteError } from './safe-writes.mjs';
 
 export const DEFAULT_SKILL_BYTES = 12000;
 export const DEFAULT_TOTAL_SKILL_BYTES = 40000;
@@ -42,6 +43,7 @@ export async function discoverSkills(cwd, options = {}) {
 export function parseSkillMarkdown(path, raw) {
 	const parsed = parseFrontmatter(raw);
 	const fallbackName = dirname(path).split('/').pop() || 'root';
+	const resources = normalizeResources(parsed.frontmatter.resources);
 
 	return {
 		body: parsed.body,
@@ -50,6 +52,7 @@ export function parseSkillMarkdown(path, raw) {
 		includedBytes: Buffer.byteLength(raw),
 		name: parsed.frontmatter.name || fallbackName,
 		path,
+		resources,
 		truncated: false,
 	};
 }
@@ -85,12 +88,7 @@ export function renderSkillIndex(skills) {
 		return 'No Markdown skills discovered.\n';
 	}
 
-	return `${skills
-		.map((skill) => {
-			const description = skill.description ? ` - ${skill.description}` : '';
-			return `- ${skill.name} (${skill.path})${description}`;
-		})
-		.join('\n')}\n`;
+	return `${skills.map(renderSkillIndexEntry).join('\n')}\n`;
 }
 
 export function renderLoadedSkills(skills) {
@@ -104,6 +102,67 @@ export function renderLoadedSkills(skills) {
 			return `<skill name="${escapeAttribute(skill.name)}" path="${escapeAttribute(skill.path)}"${truncated}>\n${skill.body}\n</skill>`;
 		})
 		.join('\n\n');
+}
+
+export async function loadSkillResource(
+	cwd,
+	skillRequest,
+	resourcePath,
+	options = {},
+) {
+	const maxBytes = options.maxBytes || DEFAULT_SKILL_BYTES;
+	const skills = await discoverSkills(cwd, options);
+	const matches = skills.filter((skill) => {
+		return skill.name === skillRequest || skill.path === skillRequest;
+	});
+
+	if (matches.length === 0) {
+		throw new SkillError(`No SKILL.md matched: ${skillRequest}`);
+	}
+
+	if (matches.length > 1) {
+		throw new SkillError(`Multiple SKILL.md files matched: ${skillRequest}`);
+	}
+
+	const skill = matches[0];
+	const resource = skill.resources.find((item) => item.path === resourcePath);
+	if (!resource) {
+		throw new SkillError(
+			`Skill resource not declared: ${skill.name}/${resourcePath}`,
+		);
+	}
+
+	const skillDir = `${cwd}/${dirname(skill.path)}`;
+	let jailed;
+	try {
+		jailed = await jailedPath(skillDir, resource.path);
+	} catch (error) {
+		if (error instanceof SafeWriteError) {
+			throw new SkillError(
+				`Skill resource path escapes skill directory: ${resource.path}`,
+			);
+		}
+		throw error;
+	}
+	let loaded;
+	try {
+		loaded = await readSkillPrefix(jailed.absolute, maxBytes);
+	} catch (error) {
+		if (error?.code === 'ENOENT') {
+			throw new SkillError(`Skill resource not found: ${resource.path}`);
+		}
+		throw error;
+	}
+	return {
+		content: loaded.raw,
+		description: resource.description,
+		includedBytes: loaded.includedBytes,
+		load: resource.load,
+		path: resource.path,
+		skill: skill.name,
+		skillPath: skill.path,
+		truncated: loaded.truncated,
+	};
 }
 
 async function readSkillPrefix(path, maxBytes) {
@@ -151,10 +210,16 @@ function parseFrontmatter(raw) {
 
 function parseYamlSubset(text) {
 	const data = {};
+	const lines = text.split('\n');
 
-	for (const line of text.split('\n')) {
+	for (let index = 0; index < lines.length; index += 1) {
+		const line = lines[index];
 		const trimmed = line.trim();
 		if (!trimmed || trimmed.startsWith('#')) {
+			continue;
+		}
+
+		if (/^\s/u.test(line)) {
 			continue;
 		}
 
@@ -165,10 +230,112 @@ function parseYamlSubset(text) {
 
 		const key = trimmed.slice(0, separator).trim();
 		const value = trimmed.slice(separator + 1).trim();
+		if (value === '' && isIndentedListStart(lines[index + 1])) {
+			const parsed = parseYamlList(lines, index + 1);
+			data[key] = parsed.items;
+			index = parsed.nextIndex - 1;
+			continue;
+		}
 		data[key] = unquote(value);
 	}
 
 	return data;
+}
+
+function parseYamlList(lines, startIndex) {
+	const items = [];
+	let current = null;
+	let index = startIndex;
+
+	for (; index < lines.length; index += 1) {
+		const line = lines[index];
+		const trimmed = line.trim();
+		if (!trimmed || trimmed.startsWith('#')) {
+			continue;
+		}
+		if (!/^\s/u.test(line)) {
+			break;
+		}
+
+		const itemMatch = line.match(/^\s*-\s*(.*)$/u);
+		if (itemMatch) {
+			const value = itemMatch[1].trim();
+			current = parseYamlListItem(value);
+			items.push(current);
+			continue;
+		}
+
+		const propertyMatch = line.match(/^\s+([A-Za-z0-9_-]+):\s*(.*)$/u);
+		if (current && typeof current === 'object' && propertyMatch) {
+			current[propertyMatch[1]] = unquote(propertyMatch[2].trim());
+		}
+	}
+
+	return { items, nextIndex: index };
+}
+
+function parseYamlListItem(value) {
+	if (!value) {
+		return {};
+	}
+	const separator = value.indexOf(':');
+	if (separator > 0) {
+		return {
+			[value.slice(0, separator).trim()]: unquote(
+				value.slice(separator + 1).trim(),
+			),
+		};
+	}
+	return unquote(value);
+}
+
+function isIndentedListStart(line = '') {
+	return /^\s*-\s*/u.test(line);
+}
+
+function normalizeResources(resources) {
+	if (!Array.isArray(resources)) {
+		return [];
+	}
+	return resources
+		.map((resource) => {
+			if (typeof resource === 'string') {
+				return {
+					description: '',
+					load: 'manual',
+					path: resource,
+				};
+			}
+			if (!resource || typeof resource !== 'object') {
+				return null;
+			}
+			const path = resource.path || resource.file || '';
+			if (!path) {
+				return null;
+			}
+			return {
+				description: resource.description || '',
+				load: resource.load || 'manual',
+				path,
+			};
+		})
+		.filter(Boolean);
+}
+
+function renderSkillIndexEntry(skill) {
+	const description = skill.description ? ` - ${skill.description}` : '';
+	const resources =
+		skill.resources?.length > 0
+			? `\n  resources:\n${skill.resources
+					.map((resource) => {
+						const resourceDescription = resource.description
+							? ` - ${resource.description}`
+							: '';
+						return `  - ${resource.path} (${resource.load})${resourceDescription}`;
+					})
+					.join('\n')}`
+			: '';
+	return `- ${skill.name} (${skill.path})${description}${resources}`;
 }
 
 function unquote(value) {

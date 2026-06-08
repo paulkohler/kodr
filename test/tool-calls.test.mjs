@@ -185,7 +185,7 @@ describe('createBuiltinRegistry', () => {
 		await writeFile(join(cwd, 'hello.txt'), 'world', 'utf8');
 		const registry = createBuiltinRegistry(cwd);
 
-		assert.equal(registry.size, 5);
+		assert.equal(registry.size, 6);
 		assert.deepEqual(
 			registry
 				.toApiTools()
@@ -196,6 +196,7 @@ describe('createBuiltinRegistry', () => {
 				'inspect_symbols',
 				'list_files',
 				'read_file',
+				'read_skill_resource',
 				'run_command',
 			],
 		);
@@ -209,6 +210,45 @@ describe('createBuiltinRegistry', () => {
 			'{"path":"hello.txt"}',
 		);
 		assert.equal(content, 'world');
+	});
+
+	it('read_skill_resource loads only declared skill resources', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-skill-resource-'));
+		await mkdir(join(cwd, 'skills', 'edit', 'docs'), { recursive: true });
+		await writeFile(
+			join(cwd, 'skills', 'edit', 'SKILL.md'),
+			[
+				'---',
+				'name: editor',
+				'resources:',
+				'  - path: docs/patches.md',
+				'    description: Patch examples',
+				'---',
+				'Use patches.',
+			].join('\n'),
+			'utf8',
+		);
+		await writeFile(
+			join(cwd, 'skills', 'edit', 'docs', 'patches.md'),
+			'patch reference body',
+			'utf8',
+		);
+		const registry = createBuiltinRegistry(cwd);
+
+		const result = await registry.dispatch(
+			'read_skill_resource',
+			'{"skill":"editor","resource":"docs/patches.md"}',
+		);
+
+		assert.equal(result.skill, 'editor');
+		assert.equal(result.description, 'Patch examples');
+		assert.equal(result.content, 'patch reference body');
+		await assert.rejects(() =>
+			registry.dispatch(
+				'read_skill_resource',
+				'{"skill":"editor","resource":"../secret.md"}',
+			),
+		);
 	});
 
 	it('inspect_symbols returns compact workspace symbols', async () => {

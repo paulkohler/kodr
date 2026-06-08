@@ -508,8 +508,27 @@ Load a specific skill into a run:
 ./kodr run -p "Use the project skill to review this task" --skill my-skill
 ```
 
-Current skill support is Markdown-only from `SKILL.md`. Resource references and
-skill code execution are planned as separate later phases.
+Skills may declare supporting local resource files in `SKILL.md` frontmatter:
+
+```md
+---
+name: project-review
+description: Project review workflow
+resources:
+  - path: docs/checklist.md
+    description: Review checklist
+  - templates/report.md
+---
+Use the checklist before writing the report.
+```
+
+Kodr lists declared resources in `--show-skills` and in the model prompt, but
+does not load resource bodies automatically. In tools mode, the model can call
+`read_skill_resource` with the skill name and declared resource path. Resource
+reads are byte-capped and jailed to the directory containing that skill's
+`SKILL.md`.
+
+Skill code execution is still a separate later phase.
 
 ### Use Inspection-Aware Context
 

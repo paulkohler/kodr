@@ -12,6 +12,7 @@ import { normalizeModelUsage } from './usage-normalizer.mjs';
 import { runVerification } from './verification-runner.mjs';
 import { renderHookStopFeedback } from './command-hooks.mjs';
 import { applyResponseFormat } from './structured-output.mjs';
+import { loadSkillResource } from './skills.mjs';
 
 const MAX_INSPECT_SYMBOLS = 200;
 const MAX_INSPECT_REFERENCES = 100;
@@ -339,6 +340,30 @@ export function createBuiltinRegistry(cwd, options = {}) {
 				truncated: allReferences.length > references.length,
 			});
 		},
+	});
+
+	registry.register('read_skill_resource', {
+		description:
+			'Read a declared resource file from a Markdown skill. The resource must be listed under that skill in the system prompt.',
+		parameters: {
+			type: 'object',
+			properties: {
+				resource: {
+					type: 'string',
+					description: 'Resource path exactly as declared by the skill.',
+				},
+				skill: {
+					type: 'string',
+					description: 'Skill name or SKILL.md path.',
+				},
+			},
+			required: ['skill', 'resource'],
+			additionalProperties: false,
+		},
+		handler: async ({ resource, skill }) =>
+			loadSkillResource(cwd, skill, resource, {
+				maxBytes: options.skillResourceBytes,
+			}),
 	});
 
 	registry.register('run_command', {

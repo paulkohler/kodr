@@ -30,10 +30,22 @@ it. All paths must stay jailed to the skill directory.
 
 ## Done Criteria
 
-- [ ] Parse resource metadata from `SKILL.md` frontmatter.
-- [ ] Include resource indexes in skill listings without loading resource bodies.
-- [ ] Add bounded, jailed resource loading.
-- [ ] Add tests for valid resources, missing resources, and path traversal.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Parse resource metadata from `SKILL.md` frontmatter.
+- [x] Include resource indexes in skill listings without loading resource bodies.
+- [x] Add bounded, jailed resource loading.
+- [x] Add tests for valid resources, missing resources, and path traversal.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
+
+## Result
+
+Kodr now supports `resources:` in `SKILL.md` frontmatter. The parser accepts
+simple list entries such as `- path: docs/checklist.md` and scalar shorthand
+entries such as `- templates/report.md`.
+
+Skill listings and system prompts include a compact resource index but do not
+load resource bodies automatically. In tools mode, models can call
+`read_skill_resource` with a skill name/path and a declared resource path. The
+loader rejects undeclared resources, missing resources, and resource paths that
+escape the skill directory.

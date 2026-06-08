@@ -69,7 +69,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 63 CLI/TUI Inspection Workflow
 - [x] 64 Patch Planning From Inspection
 - [x] 65 Dependency Install Workflow
-- [ ] 66 Skill Resource References
+- [x] 66 Skill Resource References
 - [ ] 67 Interactive TUI Permission Prompts
 - [ ] 68 Skill Code Execution
 - [x] 69 Model Profile And Capability Registry

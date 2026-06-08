@@ -1818,7 +1818,16 @@ describe('run', () => {
 			await mkdir(join(cwd, 'skills', 'edit'), { recursive: true });
 			await writeFile(
 				join(cwd, 'skills', 'edit', 'SKILL.md'),
-				'---\nname: editor\ndescription: Edit files\n---\nUse patches.',
+				[
+					'---',
+					'name: editor',
+					'description: Edit files',
+					'resources:',
+					'  - path: docs/patches.md',
+					'    description: Patch examples',
+					'---',
+					'Use patches.',
+				].join('\n'),
 				'utf8',
 			);
 			const stdout = captureStream();
@@ -1836,6 +1845,8 @@ describe('run', () => {
 			assert.equal(result.ok, true);
 			assert.match(stdout.text, /editor/u);
 			assert.match(stdout.text, /skills\/edit\/SKILL\.md/u);
+			assert.match(stdout.text, /docs\/patches\.md/u);
+			assert.doesNotMatch(stdout.text, /Use patches/u);
 			assert.equal(server.recordings.length, 0);
 		} finally {
 			await server.close();
@@ -1850,7 +1861,16 @@ describe('run', () => {
 			await mkdir(join(cwd, 'skills', 'review'), { recursive: true });
 			await writeFile(
 				join(cwd, 'skills', 'review', 'SKILL.md'),
-				'---\nname: reviewer\ndescription: Review code\n---\nAlways inspect tests.',
+				[
+					'---',
+					'name: reviewer',
+					'description: Review code',
+					'resources:',
+					'  - path: docs/checklist.md',
+					'    description: Review checklist',
+					'---',
+					'Always inspect tests.',
+				].join('\n'),
 				'utf8',
 			);
 
@@ -1879,6 +1899,7 @@ describe('run', () => {
 				chatRequest.messages[0].content,
 				/Available Markdown skills/u,
 			);
+			assert.match(chatRequest.messages[0].content, /docs\/checklist\.md/u);
 			assert.match(chatRequest.messages[0].content, /Loaded Markdown skills/u);
 			assert.match(chatRequest.messages[0].content, /Always inspect tests/u);
 		} finally {

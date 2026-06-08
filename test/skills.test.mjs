@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	discoverSkills,
+	loadSkillResource,
 	loadSkills,
 	parseSkillMarkdown,
 	renderLoadedSkills,
@@ -47,6 +48,34 @@ describe('Markdown skills', () => {
 		assert.equal(skill.body, '# Body');
 	});
 
+	it('parses skill resource metadata without loading resource bodies', () => {
+		const skill = parseSkillMarkdown(
+			'skills/editor/SKILL.md',
+			[
+				'---',
+				'name: editor',
+				'description: Edit files',
+				'resources:',
+				'  - path: docs/patches.md',
+				'    description: Patch examples',
+				'  - templates/review.md',
+				'---',
+				'Use patches.',
+			].join('\n'),
+		);
+
+		assert.deepEqual(skill.resources, [
+			{
+				description: 'Patch examples',
+				load: 'manual',
+				path: 'docs/patches.md',
+			},
+			{ description: '', load: 'manual', path: 'templates/review.md' },
+		]);
+		assert.match(renderSkillIndex([skill]), /docs\/patches\.md \(manual\)/u);
+		assert.doesNotMatch(renderSkillIndex([skill]), /Use patches/u);
+	});
+
 	it('loads only requested Markdown skill bodies', async () => {
 		const cwd = await mkWorkspace({
 			'a/SKILL.md': '---\nname: alpha\ndescription: Alpha skill\n---\nUse A.',
@@ -66,6 +95,56 @@ describe('Markdown skills', () => {
 		assert.equal(result.loaded[0].body, 'Use B.');
 		assert.match(renderSkillIndex(result.index), /alpha/u);
 		assert.match(renderSkillIndex(result.index), /beta/u);
+	});
+
+	it('loads declared skill resources with a skill-directory jail', async () => {
+		const cwd = await mkWorkspace({
+			'skills/edit/SKILL.md': [
+				'---',
+				'name: editor',
+				'resources:',
+				'  - path: docs/patches.md',
+				'    description: Patch examples',
+				'---',
+				'Use patches.',
+			].join('\n'),
+			'skills/edit/docs/patches.md': 'patch reference body',
+		});
+
+		const resource = await loadSkillResource(cwd, 'editor', 'docs/patches.md');
+
+		assert.equal(resource.skill, 'editor');
+		assert.equal(resource.description, 'Patch examples');
+		assert.equal(resource.path, 'docs/patches.md');
+		assert.equal(resource.content, 'patch reference body');
+	});
+
+	it('rejects missing undeclared and escaping skill resources', async () => {
+		const cwd = await mkWorkspace({
+			'outside.md': 'secret',
+			'skills/edit/SKILL.md': [
+				'---',
+				'name: editor',
+				'resources:',
+				'  - path: docs/missing.md',
+				'  - path: ../outside.md',
+				'---',
+				'Use patches.',
+			].join('\n'),
+		});
+
+		await assert.rejects(
+			() => loadSkillResource(cwd, 'editor', 'templates/undeclared.md'),
+			/Skill resource not declared/u,
+		);
+		await assert.rejects(
+			() => loadSkillResource(cwd, 'editor', 'docs/missing.md'),
+			/Skill resource not found/u,
+		);
+		await assert.rejects(
+			() => loadSkillResource(cwd, 'editor', '../outside.md'),
+			/escapes skill directory/u,
+		);
 	});
 
 	it('caps skill bodies and marks loaded skills as untrusted blocks', async () => {
