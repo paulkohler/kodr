@@ -235,6 +235,96 @@ describe('terminal turn ui', () => {
 		assert.match(stdout.text, /assistant: hello/u);
 	});
 
+	it('runs TUI inspection slash commands without model turns', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+		const calls = [];
+		const inspectResult = {
+			files: [
+				{
+					language: 'javascript',
+					path: 'src/app.mjs',
+					symbols: [
+						{
+							kind: 'function',
+							lineEnd: 3,
+							lineStart: 1,
+							name: 'runPrompt',
+						},
+					],
+				},
+			],
+			languages: { javascript: 1 },
+			references: [
+				{ line: 1, path: 'src/app.mjs', text: 'function runPrompt() {}' },
+			],
+			symbols: [
+				{
+					kind: 'function',
+					lineEnd: 3,
+					lineStart: 1,
+					name: 'runPrompt',
+					path: 'src/app.mjs',
+				},
+			],
+		};
+
+		await handleTuiLine(
+			state,
+			'/inspect runPrompt',
+			{ stdout },
+			async (request) => {
+				calls.push(request);
+				return inspectResult;
+			},
+		);
+		await handleTuiLine(
+			state,
+			'/refs runPrompt',
+			{ stdout },
+			async (request) => {
+				calls.push(request);
+				return inspectResult;
+			},
+		);
+
+		assert.deepEqual(
+			calls.map((call) => call.kind),
+			['inspect', 'inspect'],
+		);
+		assert.equal(calls[0].symbol, 'runPrompt');
+		assert.equal(calls[1].symbol, 'runPrompt');
+		assert.match(stdout.text, /Code inspection: 1 files, 1 symbols/u);
+		assert.match(stdout.text, /References for runPrompt: 1/u);
+	});
+
+	it('runs TUI file inspection without model turns', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+		const calls = [];
+
+		await handleTuiLine(
+			state,
+			'/inspect src/app.mjs',
+			{ stdout },
+			async (request) => {
+				calls.push(request);
+				return {
+					files: [{ language: 'javascript', path: 'src/app.mjs', symbols: [] }],
+					languages: { javascript: 1 },
+					references: [],
+					symbols: [],
+				};
+			},
+		);
+
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].kind, 'inspect');
+		assert.equal(calls[0].filePath, 'src/app.mjs');
+		assert.equal(calls[0].symbol, '');
+		assert.match(stdout.text, /File: src\/app\.mjs/u);
+	});
+
 	it('stores pending reviews for dry-run write proposals', async () => {
 		const state = createTuiState({ model: 'test-model' });
 		const stdout = captureStream();

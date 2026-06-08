@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline/promises';
 import { createAnsi } from './ansi.mjs';
+import { renderInspection, renderReferences } from './inspection-output.mjs';
 import { VERSION } from './version.mjs';
 
 export function createTuiState(options = {}) {
@@ -261,6 +262,48 @@ async function handleSlashCommand(state, text, io, channel) {
 		return { conversation, ok: true, type: 'command' };
 	}
 
+	if (command === '/inspect') {
+		if (!value) {
+			io.stdout.write(view.warning('usage: /inspect <symbol-or-file>'));
+			return { ok: false, type: 'command' };
+		}
+		const filePath = looksLikePath(value) ? value : '';
+		const symbol = filePath ? '' : value;
+		const index = await channel(
+			{
+				filePath,
+				kind: 'inspect',
+				options: state.baseOptions,
+				symbol,
+			},
+			io,
+		);
+		io.stdout.write(
+			view.infoText('inspection') +
+				'\n' +
+				renderInspection(index, { filePath, symbolName: symbol }),
+		);
+		return { index, ok: true, type: 'command' };
+	}
+
+	if (command === '/refs') {
+		if (!value) {
+			io.stdout.write(view.warning('usage: /refs <symbol>'));
+			return { ok: false, type: 'command' };
+		}
+		const index = await channel(
+			{
+				kind: 'inspect',
+				options: state.baseOptions,
+				symbol: value,
+			},
+			io,
+		);
+		io.stdout.write(view.infoText('references') + '\n');
+		io.stdout.write(renderReferences(index, value));
+		return { index, ok: true, type: 'command' };
+	}
+
 	if (command === '/use') {
 		if (!value) {
 			io.stdout.write(view.warning('usage: /use <session-id>'));
@@ -314,6 +357,10 @@ async function handleSlashCommand(state, text, io, channel) {
 
 	io.stdout.write(view.error(`unknown command: ${command}`));
 	return { ok: false, type: 'command' };
+}
+
+function looksLikePath(value) {
+	return /[\\/]/u.test(value) || /\.[A-Za-z0-9]+$/u.test(value);
 }
 
 function turnOptions(state, prompt, io = {}) {
@@ -392,6 +439,8 @@ function renderHelp(view = createTuiView()) {
 		'  /test',
 		'  /sessions',
 		'  /show <session-id>',
+		'  /inspect <symbol-or-file>',
+		'  /refs <symbol>',
 		'  /use <session-id>',
 		'  /new',
 		'  /apply on|off',

@@ -519,7 +519,17 @@ Build a structural index without calling the model:
 ./kodr inspect
 ./kodr inspect --symbol runPrompt
 ./kodr inspect --symbol runPrompt --json
+./kodr inspect --file src/app.mjs
 ./kodr inspect --languages js,ts
+```
+
+In the terminal UI, use slash commands for local inspection without sending a
+model turn:
+
+```text
+/inspect runPrompt
+/inspect src/app.mjs
+/refs runPrompt
 ```
 
 Inspect optional external inspector availability:

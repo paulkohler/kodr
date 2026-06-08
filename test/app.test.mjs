@@ -404,10 +404,17 @@ describe('parseArgs', () => {
 	});
 
 	it('parses inspect symbol flags', () => {
-		const options = parseArgs(['inspect', '--symbol', 'runPrompt']);
+		const options = parseArgs([
+			'inspect',
+			'--symbol',
+			'runPrompt',
+			'--file',
+			'src/app.mjs',
+		]);
 
 		assert.equal(options.command, 'inspect');
 		assert.equal(options.inspectSymbol, 'runPrompt');
+		assert.equal(options.inspectFile, 'src/app.mjs');
 	});
 
 	it('parses inspection-aware context flags', () => {

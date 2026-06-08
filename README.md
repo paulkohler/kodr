@@ -74,6 +74,7 @@ Inspect source structure without calling a model:
 ```sh
 ./kodr inspect
 ./kodr inspect --symbol runPrompt --json
+./kodr inspect --file src/app.mjs
 ```
 
 The first inspector is a zero-dependency structural index for JavaScript, TypeScript, Python, Rust, and Go. It reports files, imports, symbols, chunks, and simple lexical references.

@@ -32,10 +32,18 @@ surfaces stay consistent.
 
 ## Done Criteria
 
-- [ ] Add file-focused CLI inspection (`--file`).
-- [ ] Add TUI `/inspect` and `/refs` slash commands.
-- [ ] Keep slash commands out of model channels.
-- [ ] Add tests for CLI and TUI inspection workflows.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Add file-focused CLI inspection (`--file`).
+- [x] Add TUI `/inspect` and `/refs` slash commands.
+- [x] Keep slash commands out of model channels.
+- [x] Add tests for CLI and TUI inspection workflows.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
+
+## Result
+
+`kodr inspect --file <path>` now filters structural output to a single jailed
+workspace file. The terminal UI has `/inspect <symbol-or-file>` and
+`/refs <symbol>` slash commands backed by a shared inspection channel request,
+so they do not create model turns. CLI and TUI rendering share the same
+line-oriented inspection output helpers.

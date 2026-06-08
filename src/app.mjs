@@ -49,6 +49,10 @@ import { applyModelProfileDefaults } from './model-profiles.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './code-inspector.mjs';
+import {
+	filterInspectionIndex,
+	renderInspection,
+} from './inspection-output.mjs';
 import { runDependencyInstall } from './dependency-installer.mjs';
 import { dockerDefaults, validateDockerOptions } from './docker-executor.mjs';
 import {
@@ -134,6 +138,7 @@ export function parseArgs(argv, env = {}) {
 		agentModels: {},
 		agentModelSpecs: {},
 		hooksConfigPath: '',
+		inspectFile: '',
 		inspectSymbol: '',
 		inspectLanguages: [],
 		inspectContext: false,
@@ -375,6 +380,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '--session-context-chars' ||
 			arg === '--host' ||
 			arg === '--port' ||
+			arg === '--file' ||
 			arg === '--symbol' ||
 			arg === '--languages' ||
 			arg === '--prior-scratchpad'
@@ -622,7 +628,7 @@ Usage:
   kodr tui [--session <run-id>]
   kodr tui --continue
   kodr serve [--host 127.0.0.1] [--port 8787]
-  kodr inspect [--symbol name] [--json]
+  kodr inspect [--symbol name] [--file path] [--json]
   kodr registry [--json]
   kodr run --show-files
   kodr run --show-context
@@ -813,6 +819,9 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'inspect') {
+		if (options.inspectFile) {
+			await jailedPath(io.cwd, options.inspectFile);
+		}
 		const index = await inspectWorkspace(io.cwd, {
 			languages:
 				options.inspectLanguages.length > 0
@@ -820,12 +829,20 @@ export async function main(argv, io) {
 					: undefined,
 			symbol: options.inspectSymbol,
 		});
+		const filteredIndex = filterInspectionIndex(index, {
+			filePath: options.inspectFile,
+		});
 		if (options.json) {
-			io.stdout.write(`${JSON.stringify(index, null, 2)}\n`);
+			io.stdout.write(`${JSON.stringify(filteredIndex, null, 2)}\n`);
 		} else {
-			io.stdout.write(renderInspection(index, options.inspectSymbol));
+			io.stdout.write(
+				renderInspection(filteredIndex, {
+					filePath: options.inspectFile,
+					symbolName: options.inspectSymbol,
+				}),
+			);
 		}
-		return { ok: true, command: 'inspect', index };
+		return { ok: true, command: 'inspect', index: filteredIndex };
 	}
 
 	if (options.command === 'registry') {
@@ -1142,6 +1159,17 @@ export async function handleChannelRequest(request, io) {
 		return conv;
 	}
 
+	if (request.kind === 'inspect') {
+		const filePath = request.filePath || '';
+		if (filePath) {
+			await jailedPath(io.cwd, filePath);
+		}
+		const index = await inspectWorkspace(io.cwd, {
+			symbol: request.symbol || '',
+		});
+		return filterInspectionIndex(index, { filePath });
+	}
+
 	if (request.kind === 'verify-command') {
 		if (!request.options.testCommand) {
 			throw new CliError('No test command configured');
@@ -1255,39 +1283,6 @@ export function renderSessionMarkdown(conversation) {
 	return `${lines.join('\n')}`;
 }
 
-export function renderInspection(index, symbolName = '') {
-	const lines = [
-		`Code inspection: ${index.files.length} files, ${index.symbols.length} symbols`,
-	];
-	const languages = Object.entries(index.languages)
-		.sort(([left], [right]) => left.localeCompare(right))
-		.map(([language, count]) => `${language}=${count}`)
-		.join(', ');
-	if (languages) {
-		lines.push(`Languages: ${languages}`);
-	}
-
-	for (const file of index.files) {
-		lines.push('');
-		lines.push(`${file.path} (${file.language})`);
-		for (const symbol of file.symbols) {
-			lines.push(
-				`  ${symbol.kind} ${symbol.name} lines ${symbol.lineStart}-${symbol.lineEnd}`,
-			);
-		}
-	}
-
-	if (symbolName) {
-		lines.push('');
-		lines.push(`References for ${symbolName}: ${index.references.length}`);
-		for (const reference of index.references) {
-			lines.push(`  ${reference.path}:${reference.line} ${reference.text}`);
-		}
-	}
-
-	return `${lines.join('\n')}\n`;
-}
-
 function fencedMarkdown(text) {
 	const fence = text.includes('```') ? '````' : '```';
 	return `${fence}\n${text}\n${fence}`;
@@ -1378,6 +1373,8 @@ function assignValue(options, flag, value) {
 		options.serveHost = value;
 	} else if (flag === '--port') {
 		options.servePort = Number(value);
+	} else if (flag === '--file') {
+		options.inspectFile = value;
 	} else if (flag === '--symbol') {
 		options.inspectSymbol = value;
 	} else if (flag === '--languages') {

@@ -59,6 +59,45 @@ describe('inspect command', () => {
 		assert.equal(body.references.length, 2);
 		assert.equal(stderr.output, '');
 	});
+
+	it('filters inspection to one file with --file', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-inspect-file-'));
+		await writeFixture(cwd, 'src/app.mjs', 'export function app() {}\n');
+		await writeFixture(cwd, 'src/other.mjs', 'export function other() {}\n');
+		const stdout = capture();
+
+		const result = await main(['inspect', '--file', 'src/app.mjs', '--json'], {
+			cwd,
+			env: {},
+			stderr: capture(),
+			stdout,
+		});
+		const body = JSON.parse(stdout.output);
+
+		assert.equal(result.ok, true);
+		assert.deepEqual(
+			body.files.map((file) => file.path),
+			['src/app.mjs'],
+		);
+		assert.deepEqual(
+			body.symbols.map((symbol) => symbol.name),
+			['app'],
+		);
+	});
+
+	it('rejects inspect --file path traversal', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-inspect-file-jail-'));
+		await assert.rejects(
+			() =>
+				main(['inspect', '--file', '../../etc/passwd'], {
+					cwd,
+					env: {},
+					stderr: capture(),
+					stdout: capture(),
+				}),
+			/Parent path segments/u,
+		);
+	});
 });
 
 function capture() {
