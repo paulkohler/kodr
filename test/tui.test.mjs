@@ -411,7 +411,7 @@ describe('terminal turn ui', () => {
 		assert.match(stdout.text, /permission denied/u);
 	});
 
-	it('accepts a pending review through a second run-turn request', async () => {
+	it('accepts a pending review by applying the proposal directly without re-running the model', async () => {
 		const state = createTuiState({ model: 'test-model' });
 		const stdout = captureStream();
 		const calls = [];
@@ -422,20 +422,65 @@ describe('terminal turn ui', () => {
 		});
 		await handleTuiLine(state, '/accept', { stdout }, async (request) => {
 			calls.push(request);
-			return proposalResult({
+			return {
 				applied: true,
+				ok: true,
+				proposal: request.proposal,
 				runDir: '/tmp/run-applied',
 				sessionId: 'applied-session',
-			});
+				writeResult: {
+					writes: [{ path: 'src/index.mjs', status: 'modify' }],
+				},
+			};
 		});
 
 		assert.equal(calls.length, 2);
-		assert.equal(calls[1].kind, 'run-turn');
-		assert.equal(calls[1].options.yes, true);
-		assert.equal(calls[1].options.dryRun, false);
+		assert.equal(calls[1].kind, 'apply-proposal');
+		assert.ok(calls[1].proposal, 'proposal should be forwarded');
 		assert.equal(state.pendingReview, null);
-		assert.equal(state.sessionId, 'applied-session');
-		assert.match(stdout.text, /applying pending review/u);
+		assert.match(stdout.text, /applying pending writes/u);
+		assert.match(stdout.text, /writes=1 mode=applied/u);
+	});
+
+	it('shows NOT-applied error line in pending review display', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+
+		await handleTuiLine(state, 'change a file', { stdout }, async () => {
+			return proposalResult({ applied: false });
+		});
+
+		assert.match(stdout.text, /NOT applied/u);
+		assert.match(stdout.text, /\/accept \(apply\)/u);
+	});
+
+	it('/accept warns when pending review has no proposal', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		state.pendingReview = {
+			options: {},
+			prompt: 'do something',
+			result: {
+				proposal: null,
+				runDir: '/tmp/r',
+				sessionId: 's',
+				writeResult: { writes: [] },
+			},
+		};
+		const stdout = captureStream();
+		const calls = [];
+
+		const result = await handleTuiLine(
+			state,
+			'/accept',
+			{ stdout },
+			async (req) => {
+				calls.push(req);
+			},
+		);
+
+		assert.equal(calls.length, 0);
+		assert.equal(result.ok, false);
+		assert.match(stdout.text, /nothing to apply/u);
 	});
 
 	it('rejects and reprints pending reviews without model calls', async () => {

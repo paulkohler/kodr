@@ -1152,6 +1152,22 @@ export async function handleChannelRequest(request, io) {
 		return runPrompt(request.options, io);
 	}
 
+	if (request.kind === 'apply-proposal') {
+		const writeResult = await prepareChanges(io.cwd, request.proposal, {
+			apply: true,
+			protectExisting: request.options?.protectExisting,
+			protectedPaths: request.options?.protectedPaths,
+		});
+		return {
+			applied: writeResult.applied,
+			ok: writeResult.applied,
+			proposal: request.proposal,
+			runDir: request.runDir || '',
+			sessionId: request.sessionId || '',
+			writeResult,
+		};
+	}
+
 	if (request.kind === 'permission-request') {
 		return {
 			decision: 'deny',

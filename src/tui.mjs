@@ -229,17 +229,27 @@ async function handleSlashCommand(state, text, io, channel) {
 			io.stdout.write(view.warning('no pending review'));
 			return { ok: false, type: 'command' };
 		}
-		io.stdout.write(view.info('applying pending review...'));
-		const options = {
-			...state.pendingReview.options,
-			dryRun: false,
-			yes: true,
-		};
-		const result = await channel({ kind: 'run-turn', options }, io);
+		const { result: pendingResult, options } = state.pendingReview;
+		if (!pendingResult.proposal) {
+			io.stdout.write(
+				view.error('no proposal in pending review — nothing to apply'),
+			);
+			return { ok: false, type: 'command' };
+		}
+		io.stdout.write(view.info('applying pending writes...'));
+		const result = await channel(
+			{
+				kind: 'apply-proposal',
+				options,
+				proposal: pendingResult.proposal,
+				runDir: pendingResult.runDir,
+				sessionId: pendingResult.sessionId,
+			},
+			io,
+		);
 		state.pendingReview = null;
 		state.continueNext = false;
-		state.lastRunDir = result.runDir || '';
-		state.sessionId = result.sessionId || state.sessionId;
+		state.lastRunDir = result.runDir || state.lastRunDir;
 		io.stdout.write(renderTurnResult(result, { view }));
 		return { ok: result.ok, result, type: 'command' };
 	}
@@ -578,7 +588,10 @@ function renderPendingReview(review, view = createTuiView()) {
 			`  ${view.message(message.level, `[${message.level}] ${message.content}`)}`,
 		);
 	}
-	lines.push(`  ${view.subtleText('commands: /review /accept /reject /test')}`);
+	lines.push(`  ${view.errorText('writes NOT applied — dry-run mode')}`);
+	lines.push(
+		`  ${view.subtleText('commands: /accept (apply) /review /reject /test')}`,
+	);
 	lines.push('');
 	return lines.join('\n');
 }
