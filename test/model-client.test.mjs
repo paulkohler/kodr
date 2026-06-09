@@ -66,6 +66,29 @@ describe('firstAssistantMessage', () => {
 
 		assert.equal(firstAssistantMessage(body), '');
 	});
+
+	it('strips model control token preamble before content', () => {
+		const body = {
+			choices: [
+				{
+					message: {
+						content:
+							'<|channel|>final <|constrain|>json<|message|>```json\n{"status":"OK"}\n```',
+					},
+				},
+			],
+		};
+
+		assert.equal(firstAssistantMessage(body), '```json\n{"status":"OK"}\n```');
+	});
+
+	it('leaves content unchanged when no control tokens present', () => {
+		const body = {
+			choices: [[{ message: { content: '{"status":"OK"}' } }][0]],
+		};
+
+		assert.equal(firstAssistantMessage(body), '{"status":"OK"}');
+	});
 });
 
 describe('prompt cache request shaping', () => {

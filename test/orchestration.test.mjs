@@ -13,6 +13,7 @@ import {
 	runReviewerAgent,
 	runSubagentStages,
 	splitAgentDirectives,
+	synthOrchestrationSessionMessages,
 } from '../src/orchestration.mjs';
 import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
 
@@ -980,6 +981,38 @@ Here is the plan:
 			parsePlanManifest('```json\n{"summary":"x","files":[]}\n```'),
 			null,
 		);
+	});
+
+	it('parsePlanManifest extracts manifest even with model control token preamble', () => {
+		const text =
+			'<|channel|>final <|constrain|>json<|message|>```json\n{"summary":"Add greet.","files":[{"path":"src/greet.mjs","responsibility":"Export greet.","exports":[],"imports":[]}]}\n```';
+		const manifest = parsePlanManifest(text);
+		assert.ok(manifest, 'should extract manifest despite control token prefix');
+		assert.equal(manifest.files[0].path, 'src/greet.mjs');
+	});
+
+	it('synthOrchestrationSessionMessages returns a clean user+assistant pair', () => {
+		const plannerMessages = [
+			{ role: 'system', content: 'You are the planner agent.' },
+			{ role: 'user', content: 'Add greet.\n\n## Workspace context' },
+			{
+				role: 'assistant',
+				content: '```json\n{"summary":"Add greet.","files":[]}\n```',
+			},
+		];
+		const writes = [
+			{ path: 'src/greet.mjs', status: 'create' },
+			{ path: 'test/greet.test.mjs', status: 'create' },
+		];
+		const messages = synthOrchestrationSessionMessages(plannerMessages, writes);
+		assert.equal(messages.length, 2);
+		assert.equal(messages[0].role, 'user');
+		assert.equal(messages[0].content, plannerMessages[1].content);
+		assert.equal(messages[1].role, 'assistant');
+		const parsed = JSON.parse(messages[1].content);
+		assert.equal(parsed.status, 'OK');
+		assert.match(parsed.messages[0].content, /src\/greet\.mjs/u);
+		assert.match(parsed.messages[0].content, /test\/greet\.test\.mjs/u);
 	});
 
 	it('runPlannerAgent populates manifest when response contains JSON manifest', async () => {

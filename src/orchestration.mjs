@@ -33,6 +33,32 @@ import {
 
 const AGENTS = ['planner', 'implementer', 'file-author', 'reviewer'];
 
+// Replace the concatenated planner/implementer/reviewer message arrays with a
+// clean user+assistant pair. Continuation turns that load this session then see
+// a normal single-agent exchange instead of the subagent-role system messages,
+// which prevents the model from mimicking the planner manifest format.
+export function synthOrchestrationSessionMessages(plannerMessages, writes) {
+	const userMsg = plannerMessages.find((m) => m.role === 'user') ?? {
+		content: '',
+		role: 'user',
+	};
+	const changed = writes
+		.filter((w) => w.status !== 'skip' && typeof w.path === 'string')
+		.map((w) => w.path);
+	const summary =
+		changed.length > 0
+			? `Implemented: ${changed.join(', ')}`
+			: 'No file changes were made.';
+	const assistantContent = JSON.stringify({
+		files: [],
+		messages: [{ content: summary, level: 'info' }],
+		patches: [],
+		scratchpad: '',
+		status: 'OK',
+	});
+	return [userMsg, { content: assistantContent, role: 'assistant' }];
+}
+
 export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 	const workspaceContext =
 		options.workspaceContext ||
@@ -226,11 +252,10 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 
 	return {
 		applied: writeResult.applied,
-		messages: [
-			...planner.completion.messages,
-			...implementer.completion.messages,
-			...reviewer.completion.messages,
-		],
+		messages: synthOrchestrationSessionMessages(
+			planner.completion.messages,
+			writeResult.writes,
+		),
 		finishReasons: [
 			...planner.completion.finishReasons,
 			...implementer.completion.finishReasons,

@@ -166,13 +166,24 @@ export function firstAssistantMessage(body) {
 	const message = body?.choices?.[0]?.message;
 	const content = message?.content;
 	if (typeof content === 'string' && content.length > 0) {
-		return content;
+		return stripModelControlTokens(content);
 	}
 	const reasoningContent = message?.reasoning_content;
 	if (typeof reasoningContent === 'string' && looksLikeJson(reasoningContent)) {
 		return reasoningContent;
 	}
 	return typeof content === 'string' ? content : '';
+}
+
+// Some models (e.g. openai/gpt-oss-20b) emit internal structured-output control
+// tokens as literal text before the response body, e.g.:
+//   <|channel|>final <|constrain|>json<|message|>```json{...}```
+// Strip any leading <|token|>interstitial_text blocks so JSON extraction works.
+function stripModelControlTokens(text) {
+	if (!text.startsWith('<|')) {
+		return text;
+	}
+	return text.replace(/^(<\|[^|>]+\|>[^<`[{]*)+/u, '').trimStart();
 }
 
 export function firstFinishReason(body) {
