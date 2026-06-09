@@ -88,6 +88,10 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 82 Per-Agent Model Specs
 - [x] 83 Compact Subagent Handoffs And Verification
 - [x] 89 Subagent Core Prompt Inheritance
+- [x] 90 Builtin Skills Bundle
+- [x] 91 Structured Plan Manifest
+- [x] 92 Isolated File-Author Subagents
+- [x] 93 Persona From Skill
 - [ ] 84 Linkrot Example (Deps + Sonnet Planner)
 - [ ] 85 Async HTTP Run Control And Observability
 - [x] 86 Prompt Caching

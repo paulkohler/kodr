@@ -7,7 +7,9 @@ import { buildWorkspaceContext } from '../src/context-packer.mjs';
 import {
 	runImplementerAgent,
 	runPlannerAgent,
+	runFileAuthorAgent,
 	extractPlanManifest,
+	parsePlanManifest,
 	runReviewerAgent,
 	runSubagentStages,
 	splitAgentDirectives,
@@ -608,7 +610,10 @@ describe('subagent stage orchestration', () => {
 				server.recordings.map((recording) => recording.requestBody.model),
 				['planner-model', 'implementer-model', 'reviewer-model'],
 			);
-			assert.equal(server.recordings[0].requestBody.response_format, undefined);
+			assert.equal(
+				server.recordings[0].requestBody.response_format.json_schema.name,
+				'kodr_plan_manifest',
+			);
 			assert.equal(
 				server.recordings[1].requestBody.response_format.json_schema.name,
 				'kodr_proposal',
@@ -925,6 +930,269 @@ describe('subagent stage orchestration', () => {
 			);
 			assert.equal(result.review.pass, false);
 			assert.match(result.review.issues[0], /valid review JSON/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('parsePlanManifest extracts a structured manifest from JSON in plan text', () => {
+		const manifest = parsePlanManifest(`
+Here is the plan:
+
+\`\`\`json
+{
+  "summary": "Add a greeting utility.",
+  "files": [
+    {
+      "path": "src/greet.mjs",
+      "responsibility": "Export greet function.",
+      "exports": ["export function greet(name: string): string"],
+      "imports": [{ "from": "./util.mjs", "names": ["format"] }]
+    }
+  ],
+  "verification": "npm test"
+}
+\`\`\`
+		`);
+
+		assert.ok(manifest);
+		assert.equal(manifest.summary, 'Add a greeting utility.');
+		assert.equal(manifest.files.length, 1);
+		assert.equal(manifest.files[0].path, 'src/greet.mjs');
+		assert.deepEqual(manifest.files[0].exports, [
+			'export function greet(name: string): string',
+		]);
+		assert.deepEqual(manifest.files[0].imports, [
+			{ from: './util.mjs', names: ['format'] },
+		]);
+		assert.equal(manifest.verification, 'npm test');
+	});
+
+	it('parsePlanManifest returns null for free-form plan text', () => {
+		assert.equal(
+			parsePlanManifest('1. Create src/greet.mjs\n2. Add tests'),
+			null,
+		);
+	});
+
+	it('parsePlanManifest returns null when files array is empty', () => {
+		assert.equal(
+			parsePlanManifest('```json\n{"summary":"x","files":[]}\n```'),
+			null,
+		);
+	});
+
+	it('runPlannerAgent populates manifest when response contains JSON manifest', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-planner-manifest-'));
+		const planJson = JSON.stringify({
+			summary: 'Add greet.',
+			files: [
+				{
+					path: 'src/greet.mjs',
+					responsibility: 'Export greet.',
+					exports: ['export function greet(): string'],
+					imports: [],
+				},
+			],
+		});
+		const server = await startFakeModelServer({
+			responses: [chatText(planJson)],
+		});
+
+		try {
+			const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+			const result = await runPlannerAgent(
+				cwd,
+				join(runDir, 'planner'),
+				'Add greet.',
+				context,
+				options(server),
+			);
+
+			assert.ok(result.manifest, 'manifest should be populated');
+			assert.equal(result.manifest.files.length, 1);
+			assert.equal(result.manifest.files[0].path, 'src/greet.mjs');
+			assert.equal(result.manifest.summary, 'Add greet.');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runPlannerAgent sets manifest to null when response is free-form text', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(
+			join(tmpdir(), 'kodr-orch-planner-no-manifest-'),
+		);
+		const server = await startFakeModelServer({
+			responses: [chatText('1. Edit src/util.mjs\n2. Add tests')],
+		});
+
+		try {
+			const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+			const result = await runPlannerAgent(
+				cwd,
+				join(runDir, 'planner'),
+				'Update util.',
+				context,
+				options(server),
+			);
+
+			assert.equal(result.manifest, null);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runFileAuthorAgent context includes sibling signatures but not sibling file bodies', async () => {
+		const cwd = await makeWorkspace();
+		// Write file B to disk — its content must NOT appear in author-of-A's request.
+		await writeFile(
+			join(cwd, 'src', 'helper.mjs'),
+			'export const SECRET_BODY = "should not appear";\n',
+		);
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-file-author-'));
+		const server = await startFakeModelServer({
+			responses: [
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [
+							{
+								path: 'src/greet.mjs',
+								content: 'export const greet = () => "hi";\n',
+							},
+						],
+						messages: [],
+					}),
+				),
+			],
+		});
+
+		try {
+			const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+			const manifest = {
+				summary: 'Add greet and helper.',
+				files: [
+					{
+						path: 'src/greet.mjs',
+						responsibility: 'Export greet.',
+						exports: ['export function greet(): string'],
+						imports: [{ from: './helper.mjs', names: ['format'] }],
+					},
+					{
+						path: 'src/helper.mjs',
+						responsibility: 'Export format helper.',
+						exports: ['export function format(s: string): string'],
+						imports: [],
+					},
+				],
+				verification: null,
+			};
+			const entry = manifest.files[0];
+
+			const result = await runFileAuthorAgent(
+				cwd,
+				join(runDir, 'author'),
+				'Add greet.',
+				entry,
+				manifest,
+				context,
+				options(server),
+			);
+
+			assert.ok(result.proposal);
+			assert.equal(result.proposal.files[0].path, 'src/greet.mjs');
+
+			const request = JSON.parse(
+				await readFile(join(runDir, 'author', 'request.json'), 'utf8'),
+			);
+			const userMsg = request.messages[1].content;
+
+			// Sibling export signature is present.
+			assert.match(userMsg, /src\/helper\.mjs/u);
+			assert.match(userMsg, /export function format/u);
+			// Sibling file body is absent — the model should not have received it.
+			assert.doesNotMatch(userMsg, /SECRET_BODY/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('runSubagentStages uses isolated file-authors when planner emits a structured manifest', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-isolated-'));
+		const planManifest = {
+			summary: 'Add a and b.',
+			files: [
+				{
+					path: 'src/a.mjs',
+					responsibility: 'Export a.',
+					exports: ['export const a: number'],
+					imports: [],
+				},
+				{
+					path: 'src/b.mjs',
+					responsibility: 'Export b.',
+					exports: ['export const b: number'],
+					imports: [],
+				},
+			],
+			verification: null,
+		};
+		const events = [];
+		const server = await startFakeModelServer({
+			responses: [
+				// Planner returns structured manifest JSON
+				chatText(JSON.stringify(planManifest)),
+				// file-author for src/a.mjs
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [{ path: 'src/a.mjs', content: 'export const a = 1;\n' }],
+						messages: [],
+					}),
+				),
+				// file-author for src/b.mjs
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [{ path: 'src/b.mjs', content: 'export const b = 2;\n' }],
+						messages: [],
+					}),
+				),
+				// reviewer
+				chatText(JSON.stringify({ pass: true, issues: [], summary: 'ok' })),
+			],
+		});
+
+		try {
+			const result = await runSubagentStages(cwd, runDir, 'Add a and b.', {
+				...options(server),
+				onProgress: (event) => events.push(event),
+				yes: true,
+			});
+
+			// Both files written
+			const paths = result.writeResult.writes.map((w) => w.path).sort();
+			assert.deepEqual(paths, ['src/a.mjs', 'src/b.mjs']);
+
+			// Progress events include two file-author stages
+			const fileAuthorEvents = events
+				.filter((e) => e.agent === 'file-author')
+				.map((e) => e.event);
+			assert.deepEqual(fileAuthorEvents, [
+				'subagent_start',
+				'subagent_finish',
+				'subagent_start',
+				'subagent_finish',
+			]);
+
+			// Planner artifact records manifest file count
+			const orch = JSON.parse(
+				await readFile(join(runDir, 'orchestration.json'), 'utf8'),
+			);
+			assert.equal(orch.agents.planner.manifestFiles, 2);
 		} finally {
 			await server.close();
 		}

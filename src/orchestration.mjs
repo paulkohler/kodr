@@ -1,6 +1,7 @@
 import { access, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { writeJson, writeText } from './artifacts.mjs';
+import { getBuiltinSkill } from './builtin-skills.mjs';
 import {
 	buildWorkspaceContext,
 	renderKodrCorePrompt,
@@ -12,6 +13,7 @@ import { runDependencyInstall } from './dependency-installer.mjs';
 import { emitProgress, runStartHook } from './progress.mjs';
 import { prepareChanges } from './safe-writes.mjs';
 import {
+	plannerResponseFormat,
 	proposalResponseFormat,
 	reviewResponseFormat,
 	responseFormatForRequest,
@@ -29,7 +31,7 @@ import {
 	runVerification,
 } from './verification-runner.mjs';
 
-const AGENTS = ['planner', 'implementer', 'reviewer'];
+const AGENTS = ['planner', 'implementer', 'file-author', 'reviewer'];
 
 export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 	const workspaceContext =
@@ -51,7 +53,10 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 		prompt,
 		planner.plan,
 		workspaceContext,
-		options,
+		{
+			...options,
+			planManifest: planner.manifest,
+		},
 	);
 
 	let writeResult = {
@@ -168,6 +173,7 @@ export async function runSubagentStages(cwd, runDir, prompt, options, io = {}) {
 		agents: {
 			planner: {
 				artifactDir: relativeArtifact(runDir, planner.artifactDir),
+				manifestFiles: planner.manifest?.files?.length ?? null,
 				model: planner.model,
 				modelProfile: planner.modelProfile || null,
 				planChars: planner.plan.length,
@@ -272,7 +278,7 @@ export async function runPlannerAgent(
 		agentName: 'planner',
 		agentOptions: {
 			...activeOptions,
-			responseFormat: null,
+			responseFormat: plannerResponseFormat(),
 		},
 		registry,
 		subDir,
@@ -280,11 +286,16 @@ export async function runPlannerAgent(
 		userPrompt,
 	});
 	const plan = completion.text.trim();
-	const result = { plan };
+	const manifest = parsePlanManifest(plan);
+	const result = { manifest, plan };
 	await writeJson(join(subDir, 'result.json'), result);
+	if (manifest) {
+		await writeJson(join(subDir, 'manifest.json'), manifest);
+	}
 	return {
 		artifactDir: subDir,
 		completion,
+		manifest,
 		model: activeOptions.model,
 		modelProfile: activeOptions.modelProfile || null,
 		plan,
@@ -311,6 +322,19 @@ export async function runImplementerAgent(
 	workspaceContext,
 	agentOptions,
 ) {
+	const structuredManifest =
+		agentOptions.planManifest || parsePlanManifest(plan);
+	if (structuredManifest && structuredManifest.files.length > 0) {
+		return runIsolatedFileAuthors(
+			cwd,
+			subDir,
+			prompt,
+			structuredManifest,
+			workspaceContext,
+			agentOptions,
+		);
+	}
+
 	const activeOptions = optionsForAgent(agentOptions, 'implementer');
 	const registry = createBuiltinRegistry(cwd, {
 		commandRunner: activeOptions.commandRunner || null,
@@ -446,6 +470,49 @@ const MANIFEST_ROOT_FILES = new Set([
 	'docker-compose.yml',
 ]);
 
+export function parsePlanManifest(text) {
+	if (!text || typeof text !== 'string') {
+		return null;
+	}
+	try {
+		const value = extractJson(text);
+		if (!value || !Array.isArray(value.files)) {
+			return null;
+		}
+		const files = value.files
+			.filter((f) => f && typeof f.path === 'string' && f.path)
+			.map((f) => ({
+				exports: Array.isArray(f.exports)
+					? f.exports.filter((e) => typeof e === 'string')
+					: [],
+				imports: Array.isArray(f.imports)
+					? f.imports
+							.filter((i) => i && typeof i.from === 'string')
+							.map((i) => ({
+								from: i.from,
+								names: Array.isArray(i.names)
+									? i.names.filter((n) => typeof n === 'string')
+									: [],
+							}))
+					: [],
+				path: f.path,
+				responsibility:
+					typeof f.responsibility === 'string' ? f.responsibility : '',
+			}));
+		if (files.length === 0) {
+			return null;
+		}
+		return {
+			files,
+			summary: typeof value.summary === 'string' ? value.summary : '',
+			verification:
+				typeof value.verification === 'string' ? value.verification : null,
+		};
+	} catch {
+		return null;
+	}
+}
+
 export function extractPlanManifest(plan) {
 	if (!plan || typeof plan !== 'string') {
 		return [];
@@ -567,6 +634,197 @@ function combineImplementerCompletions(completions) {
 	};
 }
 
+async function runIsolatedFileAuthors(
+	cwd,
+	subDir,
+	prompt,
+	structuredManifest,
+	workspaceContext,
+	agentOptions,
+) {
+	const completions = [];
+	let merged = null;
+
+	for (let i = 0; i < structuredManifest.files.length; i += 1) {
+		const entry = structuredManifest.files[i];
+		const authorSubDir = join(subDir, `author-${i}`);
+		const result = await runFileAuthorAgent(
+			cwd,
+			authorSubDir,
+			prompt,
+			entry,
+			structuredManifest,
+			workspaceContext,
+			agentOptions,
+		);
+		completions.push(result.completion);
+		if (result.proposal) {
+			merged = mergeProposals(merged, result.proposal);
+		}
+	}
+
+	const manifest = structuredManifest.files.map((f) => f.path);
+	const have = proposalPaths(merged || {});
+	const remaining = manifest.filter(
+		(path) => !have.has(normalizeManifestPath(path)),
+	);
+
+	await writeJson(join(subDir, 'proposal.json'), merged);
+	await writeJson(join(subDir, 'manifest.json'), {
+		manifest,
+		mode: 'isolated',
+		passes: structuredManifest.files.length,
+		remaining,
+	});
+
+	const activeOptions = optionsForAgent(agentOptions, 'implementer');
+	return {
+		artifactDir: subDir,
+		completion: combineImplementerCompletions(completions),
+		manifest,
+		model: activeOptions.model,
+		modelProfile: activeOptions.modelProfile || null,
+		proposal: merged,
+		provider: activeOptions.provider,
+		remaining,
+	};
+}
+
+export async function runFileAuthorAgent(
+	cwd,
+	subDir,
+	prompt,
+	entry,
+	manifest,
+	workspaceContext,
+	agentOptions,
+) {
+	const activeOptions = optionsForAgent(agentOptions, 'file-author');
+	const registry = createBuiltinRegistry(cwd, {
+		commandRunner: activeOptions.commandRunner || null,
+		hooks: activeOptions.hooks || null,
+		runDir: subDir,
+		skillExecutor: activeOptions.skillExecutor || null,
+		timeoutMs: activeOptions.timeoutMs,
+	});
+	const systemPrompt = await buildAgentSystemPrompt(
+		'file-author',
+		workspaceContext,
+		registry,
+	);
+
+	let existingContent = null;
+	try {
+		const jailed = await jailedPath(cwd, entry.path);
+		existingContent = await readFile(jailed.absolute, 'utf8');
+	} catch {
+		// new file — no existing content
+	}
+
+	const userPrompt = renderFileAuthorUserPrompt(
+		prompt,
+		entry,
+		manifest,
+		workspaceContext,
+		existingContent,
+	);
+
+	const completion = await runAgentCompletion({
+		agentName: 'file-author',
+		agentOptions: {
+			...activeOptions,
+			responseFormat: proposalResponseFormat(),
+		},
+		registry,
+		subDir,
+		systemPrompt,
+		userPrompt,
+	});
+
+	const proposal = extractProposal(completion.text);
+	await writeJson(join(subDir, 'proposal.json'), proposal);
+
+	return {
+		artifactDir: subDir,
+		completion,
+		model: activeOptions.model,
+		modelProfile: activeOptions.modelProfile || null,
+		proposal,
+		provider: activeOptions.provider,
+	};
+}
+
+function renderFileAuthorUserPrompt(
+	prompt,
+	entry,
+	manifest,
+	workspaceContext,
+	existingContent,
+) {
+	const parsed = splitAgentDirectives(prompt);
+	const directives = parsed.directives['file-author'] || [];
+
+	const siblings = manifest.files.filter((f) => f.path !== entry.path);
+
+	const exportsText =
+		entry.exports.length > 0
+			? entry.exports.map((e) => `- ${e}`).join('\n')
+			: '(none declared)';
+
+	const importsText =
+		entry.imports.length > 0
+			? entry.imports
+					.map((imp) => `- from \`${imp.from}\`: ${imp.names.join(', ')}`)
+					.join('\n')
+			: '(none)';
+
+	const siblingSignatures =
+		siblings.length > 0
+			? siblings
+					.map((f) => {
+						const sExports =
+							f.exports.length > 0
+								? f.exports.map((e) => `  - ${e}`).join('\n')
+								: '  (none declared)';
+						return `### ${f.path}\n${sExports}`;
+					})
+					.join('\n\n')
+			: '(no sibling files in plan)';
+
+	const sections = [
+		parsed.basePrompt,
+		directives.length > 0
+			? `## Instructions targeted at file-author\n${directives.join('\n')}`
+			: '',
+		'## Workspace context',
+		renderContextMarkdown(workspaceContext),
+		'## Plan summary',
+		manifest.summary || '(see workspace context)',
+		'## Your file contract',
+		[
+			`**Path:** ${entry.path}`,
+			`**Responsibility:** ${entry.responsibility}`,
+			'',
+			'**Exports to provide:**',
+			exportsText,
+			'',
+			'**Imports from siblings:**',
+			importsText,
+		].join('\n'),
+		'## Sibling export signatures',
+		siblingSignatures,
+	];
+
+	if (existingContent !== null) {
+		sections.push(
+			'## Existing file content',
+			`\`\`\`\n${existingContent}\n\`\`\``,
+		);
+	}
+
+	return sections.filter(Boolean).join('\n\n');
+}
+
 export async function runReviewerAgent(
 	cwd,
 	subDir,
@@ -648,9 +906,10 @@ export function splitAgentDirectives(prompt) {
 		directives: Object.fromEntries(AGENTS.map((agent) => [agent, []])),
 	};
 	for (const line of prompt.split('\n')) {
-		const match = /^(planner|implementer|reviewer)\s*:\s*(.*)$/iu.exec(
-			line.trim(),
-		);
+		const match =
+			/^(planner|implementer|file-author|reviewer)\s*:\s*(.*)$/iu.exec(
+				line.trim(),
+			);
 		if (match) {
 			result.directives[match[1].toLowerCase()].push(match[2]);
 		} else {
@@ -749,10 +1008,16 @@ function optionsForAgent(options, agentName) {
 }
 
 async function buildAgentSystemPrompt(agentName, workspaceContext, registry) {
-	const prompt = await readFile(
-		new URL(`../prompts/orchestration-${agentName}.md`, import.meta.url),
-		'utf8',
-	);
+	let prompt;
+	try {
+		prompt = getBuiltinSkill(`role:${agentName}`).body;
+	} catch {
+		// Fall back to prompt file for roles not yet in the bundle.
+		prompt = await readFile(
+			new URL(`../prompts/orchestration-${agentName}.md`, import.meta.url),
+			'utf8',
+		);
+	}
 	const core = renderKodrCorePrompt(workspaceContext || {}, {
 		includeMemoryContent: false,
 		includeWorkspaceInstructionContent: false,
@@ -770,11 +1035,13 @@ async function buildAgentSystemPrompt(agentName, workspaceContext, registry) {
 function renderAgentRoster(agentName) {
 	return `## Subagent Pipeline
 
-This run uses three subagent stages:
+This run uses subagent stages:
 
-- **planner** — explores the codebase and writes an implementation plan.
+- **planner** — explores the codebase and emits a structured implementation manifest.
   Receives: the user prompt and workspace file list.
-- **implementer** — reads files and writes code following the plan.
+- **file-author** — writes exactly one file from its contract (used when planner emits a structured manifest).
+  Receives: plan summary, file contract, and sibling export signatures only.
+- **implementer** — reads files and writes code following the plan (fallback when no structured manifest).
   Receives: the plan from the planner.
 - **reviewer** — checks correctness and completeness, may run tests.
   Receives: the plan and the proposed changes.

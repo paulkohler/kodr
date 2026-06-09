@@ -47,6 +47,43 @@ export function proposalResponseFormat() {
 	});
 }
 
+export function plannerResponseFormat() {
+	return jsonSchemaResponseFormat('kodr_plan_manifest', {
+		type: 'object',
+		properties: {
+			summary: { type: 'string' },
+			files: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						path: { type: 'string' },
+						responsibility: { type: 'string' },
+						exports: { type: 'array', items: { type: 'string' } },
+						imports: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									from: { type: 'string' },
+									names: { type: 'array', items: { type: 'string' } },
+								},
+								required: ['from', 'names'],
+								additionalProperties: false,
+							},
+						},
+					},
+					required: ['path', 'responsibility', 'exports', 'imports'],
+					additionalProperties: false,
+				},
+			},
+			verification: { type: 'string' },
+		},
+		required: ['summary', 'files'],
+		additionalProperties: false,
+	});
+}
+
 export function reviewResponseFormat() {
 	return jsonSchemaResponseFormat('kodr_review', {
 		type: 'object',

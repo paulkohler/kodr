@@ -8,7 +8,7 @@ export const OLLAMA_BASE_URL = 'http://localhost:11434/v1';
 export { OPENROUTER_BASE_URL };
 
 const PROVIDERS = new Set(['lmstudio', 'local', 'ollama', 'openrouter']);
-const AGENTS = new Set(['planner', 'implementer', 'reviewer']);
+const AGENTS = new Set(['planner', 'implementer', 'file-author', 'reviewer']);
 
 export class ModelSpecError extends Error {
 	constructor(message) {
@@ -114,7 +114,7 @@ export function parseAgentModelOverride(value) {
 	const spec = value.slice(equals + 1).trim();
 	if (!AGENTS.has(agent)) {
 		throw new ModelSpecError(
-			`Unknown --agent-model agent "${agent}". Expected planner, implementer, or reviewer`,
+			`Unknown --agent-model agent "${agent}". Expected planner, implementer, file-author, or reviewer`,
 		);
 	}
 	if (!spec) {
