@@ -520,7 +520,11 @@ function renderTurnResult(result, options = {}) {
 		);
 	}
 
-	if ((!result.proposal || result.proposalError) && !options.streamed) {
+	if (result.proposalError && !options.streamed) {
+		lines.push(
+			`  ${view.errorText(`response not usable (${result.proposalError.name}): ${result.proposalError.message}`)}`,
+		);
+	} else if (!result.proposal && !options.streamed) {
 		const response = (result.response || '').trim();
 		if (response) {
 			lines.push(indent(response));

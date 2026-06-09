@@ -2926,11 +2926,66 @@ async function resolveParentSession(options, cwd) {
 	}
 
 	return {
-		conversation,
+		conversation: sanitizeSubagentSessionMessages(conversation),
 		model: summary.model || '',
 		runDir,
 		sessionId: summary.sessionId || basename(runDir),
 	};
+}
+
+// Detect sessions contaminated by a prior --subagent-stages run: those runs
+// saved all planner/file-author/reviewer messages verbatim, each with its own
+// system message. Multiple system roles confuse subsequent continuation turns.
+// Collapse them to a clean user+assistant pair that looks like a normal run.
+function sanitizeSubagentSessionMessages(messages) {
+	const systemCount = messages.filter((m) => m.role === 'system').length;
+	if (systemCount <= 1) {
+		return messages;
+	}
+
+	const firstUser = messages.find((m) => m.role === 'user');
+	if (!firstUser) {
+		return messages;
+	}
+
+	// Collect file paths from any assistant proposals embedded in the history.
+	const written = new Set();
+	for (const msg of messages) {
+		if (msg.role !== 'assistant' || typeof msg.content !== 'string') {
+			continue;
+		}
+		try {
+			const parsed = JSON.parse(msg.content);
+			if (Array.isArray(parsed.files)) {
+				for (const f of parsed.files) {
+					if (typeof f?.path === 'string') {
+						written.add(f.path);
+					}
+				}
+			}
+		} catch {
+			// Not JSON — skip.
+		}
+	}
+
+	const summary =
+		written.size > 0
+			? `Implemented: ${[...written].join(', ')}`
+			: 'Previous session completed.';
+
+	return [
+		firstUser,
+		{
+			content: JSON.stringify({
+				files: [],
+				messages: [{ content: summary, level: 'info' }],
+				patches: [],
+				scratchpad: '',
+				status: 'OK',
+			}),
+			role: 'assistant',
+		},
+	];
 }
 
 async function readConversationArtifact(runDir) {

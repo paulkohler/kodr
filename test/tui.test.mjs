@@ -106,6 +106,33 @@ describe('terminal turn ui', () => {
 		assert.match(stdout.text, /review=passed Complete/u);
 	});
 
+	it('shows proposalError message instead of raw response JSON', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+
+		await handleTuiLine(state, 'build it', { stdout }, async () => ({
+			applied: false,
+			ok: false,
+			proposal: null,
+			proposalError: {
+				message: 'Proposal files must have string path and content',
+				name: 'ProposalValidationError',
+			},
+			response:
+				'```json\n{"summary":"plan","files":[{"path":"src/a.mjs","responsibility":"does stuff"}]}\n```',
+			runDir: '/tmp/run-err',
+			sessionId: 'run-err',
+			writeResult: { writes: [] },
+		}));
+
+		assert.match(stdout.text, /ProposalValidationError/u);
+		assert.match(
+			stdout.text,
+			/Proposal files must have string path and content/u,
+		);
+		assert.doesNotMatch(stdout.text, /summary.*plan/u);
+	});
+
 	it('keeps slash commands out of the model channel', async () => {
 		const state = createTuiState({ model: 'test-model' });
 		let calls = 0;
