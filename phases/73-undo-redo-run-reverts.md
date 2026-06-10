@@ -1,5 +1,10 @@
 # Phase 73: Undo/Redo Run Reverts
 
+> **Superseded by [phase 94](./94-git-aware-apply-and-revert.md).** Planning
+> the snapshot-based undo store before git integration was a sequencing miss;
+> see phase 94 and `process/decisions.jsonl` for the rationale. Kept for the
+> record.
+
 ## Goal
 
 Let users undo and redo Kodr-applied changes from CLI/TUI sessions.

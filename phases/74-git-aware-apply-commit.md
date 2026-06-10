@@ -1,5 +1,9 @@
 # Phase 74: Git-Aware Apply and Commit
 
+> **Superseded by [phase 94](./94-git-aware-apply-and-revert.md)**, which
+> merges this with phase 73. See `process/decisions.jsonl`. Kept for the
+> record.
+
 ## Goal
 
 Add an optional, bounded git workflow around applied diffs: stage and commit

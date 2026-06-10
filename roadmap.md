@@ -76,8 +76,10 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 70 Session Compaction And Summaries
 - [x] 71 Self-Dev: Plan-Then-Execute Run
 - [x] 72 Multi-Turn Self-Healing Loop
-- [ ] 73 Undo/Redo Run Reverts
-- [ ] 74 Git-Aware Apply and Commit
+- [ ] 94 Git-Aware Apply And Revert (merges 73 + 74; see phase file for the planning miss)
+- [ ] 95 Project Config And Init
+- [ ] 96 Usable Read Defaults
+- [ ] 97 Interactive Apply Prompt
 - [ ] 75 Optional LSP Adapter
 - [x] 76 Docker Sandbox
 - [x] 77 TUI ANSI Color
