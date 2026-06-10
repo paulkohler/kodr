@@ -63,7 +63,6 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 58 Staged Complex Execution
 - [x] 59 Ranked Repo-Map
 - [x] 60 OpenShell Sandbox Backend
-- [x] 88 OpenShell Worker Mode
 - [x] 61 Token-Budget-Aware Context Assembly
 - [x] 62 Inspector Tool Calls
 - [x] 63 CLI/TUI Inspection Workflow
@@ -76,10 +75,6 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 70 Session Compaction And Summaries
 - [x] 71 Self-Dev: Plan-Then-Execute Run
 - [x] 72 Multi-Turn Self-Healing Loop
-- [ ] 94 Git-Aware Apply And Revert (merges 73 + 74; see phase file for the planning miss)
-- [ ] 95 Project Config And Init
-- [ ] 96 Usable Read Defaults
-- [ ] 97 Interactive Apply Prompt
 - [ ] 75 Optional LSP Adapter
 - [x] 76 Docker Sandbox
 - [x] 77 TUI ANSI Color
@@ -89,15 +84,20 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 81 Agent Progress Events And Start Hooks
 - [x] 82 Per-Agent Model Specs
 - [x] 83 Compact Subagent Handoffs And Verification
+- ~~84 Linkrot Example (Deps + Sonnet Planner)~~ — removed: its runs only exercised the harness; the generated example was not worth keeping.
+- [ ] 85 Async HTTP Run Control And Observability
+- [x] 86 Prompt Caching
+- [x] 87 Prompt Prefix Stability
+- [x] 88 OpenShell Worker Mode
 - [x] 89 Subagent Core Prompt Inheritance
 - [x] 90 Builtin Skills Bundle
 - [x] 91 Structured Plan Manifest
 - [x] 92 Isolated File-Author Subagents
 - [x] 93 Persona From Skill
-- [ ] 84 Linkrot Example (Deps + Sonnet Planner)
-- [ ] 85 Async HTTP Run Control And Observability
-- [x] 86 Prompt Caching
-- [x] 87 Prompt Prefix Stability
+- [ ] 94 Git-Aware Apply And Revert (merges 73 + 74; see phase file for the planning miss)
+- [ ] 95 Project Config And Init
+- [ ] 96 Usable Read Defaults
+- [ ] 97 Interactive Apply Prompt
 
 ## Phase Contract
 
