@@ -46,5 +46,6 @@ This blog records the build as a learning sequence. Keep posts terse and concret
 40. [Phase 82: Per-Agent Model Specs](./82-per-agent-model-specs.md)
 41. [Phase 83: Compact Subagent Handoffs And Verification](./83-compact-subagent-handoffs-verification.md)
 42. [Phase 70: Session Compaction And Summaries](./70-session-compaction-and-summaries.md)
+43. [Phase 85: Async HTTP Run Control And Observability](./85-async-http-run-control.md)
 
 Future posts should track the roadmap phases and include what changed, why, how it failed, and how it was verified.

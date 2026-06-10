@@ -85,7 +85,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 82 Per-Agent Model Specs
 - [x] 83 Compact Subagent Handoffs And Verification
 - ~~84 Linkrot Example (Deps + Sonnet Planner)~~ — removed: its runs only exercised the harness; the generated example was not worth keeping.
-- [ ] 85 Async HTTP Run Control And Observability
+- [x] 85 Async HTTP Run Control And Observability
 - [x] 86 Prompt Caching
 - [x] 87 Prompt Prefix Stability
 - [x] 88 OpenShell Worker Mode

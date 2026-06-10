@@ -299,17 +299,19 @@ Rules:
 
 ## Done Criteria
 
-- [ ] Add async `POST /runs` and status routes backed by the shared channel.
-- [ ] Add a bounded in-memory run registry with queued/running/final states.
-- [ ] Stream progress via `GET /runs/:id/events` using SSE.
-- [ ] Preserve compatibility for existing `GET /sessions`, `GET /sessions/:id`,
+- [x] Add async `POST /runs` and status routes backed by the shared channel.
+- [x] Add a bounded in-memory run registry with queued/running/final states.
+- [x] Stream progress via `GET /runs/:id/events` using SSE (with
+      `Last-Event-ID` replay).
+- [x] Preserve compatibility for existing `GET /sessions`, `GET /sessions/:id`,
       and `POST /turn`.
-- [ ] Add safe run log and artifact inspection routes.
-- [ ] Add best-effort cancellation route with honest status reporting.
-- [ ] Keep HTTP dry-run by default and loopback-only.
-- [ ] Add tests for scripted multi-turn API driving.
-- [ ] Add tests for web-UI-style event/status/artifact consumption.
-- [ ] Update `usage.md`.
-- [ ] Record decisions and failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Add safe run log and artifact inspection routes.
+- [x] Add best-effort cancellation route with honest status reporting
+      (`AbortSignal` plumbing is follow-up work).
+- [x] Keep HTTP dry-run by default and loopback-only.
+- [x] Add tests for scripted multi-turn API driving.
+- [x] Add tests for web-UI-style event/status/artifact consumption.
+- [x] Update `usage.md`.
+- [x] Record decisions and failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.

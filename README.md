@@ -63,13 +63,13 @@ Export a session conversation to Markdown for review or sharing:
 ./kodr session export <session-id> --format markdown
 ```
 
-Start a tiny local JSON HTTP channel for future web UI experiments:
+Start a local JSON HTTP control plane for scripted runs and future web UI experiments:
 
 ```sh
 ./kodr serve
 ```
 
-The server is local-only and dependency-free. It exposes `GET /sessions`, `GET /sessions/:id`, and `POST /turn`; each route flows through the same channel handler used by the CLI and TUI.
+The server is local-only and dependency-free. `POST /runs` submits a turn and returns a run handle immediately; `GET /runs/:id` reports queued/running/completed state, `GET /runs/:id/events` streams progress over SSE, and bounded artifact routes expose the finished run's known files. The original `GET /sessions`, `GET /sessions/:id`, and `POST /turn` routes remain, and every route flows through the same channel handler used by the CLI and TUI. See [usage.md](./usage.md#serve-the-local-channel) for the full API.
 
 Inspect source structure without calling a model:
 

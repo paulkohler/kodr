@@ -174,6 +174,7 @@ export function parseArgs(argv, env = {}) {
 		sessionFormat: 'markdown',
 		sessionSubcommand: '',
 		serveHost: DEFAULT_SERVE_HOST,
+		serveMaxActiveRuns: 1,
 		servePort: DEFAULT_SERVE_PORT,
 		staged: 'auto',
 		subagentStages: false,
@@ -385,6 +386,7 @@ export function parseArgs(argv, env = {}) {
 			arg === '--session-context-chars' ||
 			arg === '--host' ||
 			arg === '--port' ||
+			arg === '--max-active-runs' ||
 			arg === '--file' ||
 			arg === '--symbol' ||
 			arg === '--languages' ||
@@ -605,6 +607,13 @@ function validateServeOptions(options) {
 	) {
 		throw new CliError('--port must be an integer from 0 to 65535');
 	}
+	if (
+		!Number.isInteger(options.serveMaxActiveRuns) ||
+		options.serveMaxActiveRuns < 1 ||
+		options.serveMaxActiveRuns > 8
+	) {
+		throw new CliError('--max-active-runs must be an integer from 1 to 8');
+	}
 }
 
 export function usage() {
@@ -632,7 +641,7 @@ Usage:
   kodr run -p "follow up" --session <run-id>
   kodr tui [--session <run-id>]
   kodr tui --continue
-  kodr serve [--host 127.0.0.1] [--port 8787]
+  kodr serve [--host 127.0.0.1] [--port 8787] [--max-active-runs 1]
   kodr inspect [--symbol name] [--file path] [--json]
   kodr registry [--json]
   kodr run --show-files
@@ -715,8 +724,12 @@ OpenShell sandbox:
   --openshell-keep     Keep the sandbox after the run for inspection.
 
 Web channel:
-  kodr serve           Start a local-only JSON HTTP channel.
-                       Routes: GET /sessions, GET /sessions/:id, POST /turn
+  kodr serve           Start a local-only JSON HTTP control plane.
+                       Async runs: POST /runs, GET /runs(/:id), GET /runs/:id/events (SSE),
+                       GET /runs/:id/logs, GET /runs/:id/artifacts(/:name), POST /runs/:id/cancel
+                       Sessions: GET /sessions(/:id), POST /sessions/:id/turns
+                       Inspection: GET /health, GET /status. Compatibility: POST /turn
+  --max-active-runs N  Concurrent active HTTP runs (default 1; queued otherwise).
 
 Implemented library primitives:
   workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
@@ -1413,6 +1426,8 @@ function assignValue(options, flag, value) {
 		options.serveHost = value;
 	} else if (flag === '--port') {
 		options.servePort = Number(value);
+	} else if (flag === '--max-active-runs') {
+		options.serveMaxActiveRuns = Number(value);
 	} else if (flag === '--file') {
 		options.inspectFile = value;
 	} else if (flag === '--symbol') {

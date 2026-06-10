@@ -703,15 +703,118 @@ directions, or AGENTS.md updates that should be considered.
 
 ### Serve The Local Channel
 
-Start a dependency-free local HTTP channel:
+Start a dependency-free local HTTP control plane:
 
 ```sh
 ./kodr serve
 ./kodr serve --host 127.0.0.1 --port 8787
+./kodr serve --max-active-runs 2
 ```
 
 The server is local-only and routes requests through the same shared channel
-used by CLI and TUI flows.
+used by CLI and TUI flows. Besides the original synchronous routes
+(`GET /sessions`, `GET /sessions/:id`, `POST /turn`), it exposes asynchronous
+run control:
+
+```text
+GET  /health
+GET  /status
+
+POST /runs
+GET  /runs
+GET  /runs/:id
+GET  /runs/:id/events
+GET  /runs/:id/logs
+GET  /runs/:id/artifacts
+GET  /runs/:id/artifacts/:name
+POST /runs/:id/cancel
+
+POST /sessions/:id/turns
+```
+
+`POST /runs` validates a bounded JSON body and immediately returns a run
+handle; the model work continues in the background. Unknown fields are
+rejected, and HTTP runs stay dry-run unless the body passes `"yes": true`:
+
+```sh
+curl -s localhost:8787/runs -d '{
+  "prompt": "Create src/math.mjs with add()",
+  "tools": true,
+  "test": "npm test"
+}'
+```
+
+```json
+{
+  "runId": "run-1765432100000-1",
+  "status": "running",
+  "sessionId": "",
+  "eventsUrl": "/runs/run-1765432100000-1/events",
+  "statusUrl": "/runs/run-1765432100000-1"
+}
+```
+
+Accepted fields are `prompt`, `sessionId`, `continue`, `model`, `tools`,
+`yes`, `test`, `install`, and `subagentStages`. Each maps onto the same typed
+option the CLI uses; there is no raw-flag passthrough.
+
+One run is active at a time by default; later submissions queue with a
+recorded `queueReason` and start automatically when a slot frees. Raise the
+limit with `--max-active-runs` (1–8).
+
+`GET /runs/:id/events` is a Server-Sent Events stream fed by the same
+progress events the CLI and TUI print. A bounded per-run replay buffer means
+late subscribers still see recent events, and a `Last-Event-ID` header resumes
+after a dropped connection:
+
+```text
+event: status
+data: {"status":"running"}
+
+event: progress
+data: {"event":"subagent_start","agent":"planner","model":"qwen/qwen3.6-35b-a3b"}
+
+event: done
+data: {"status":"completed","ok":true,"runDir":".kodr/runs/..."}
+```
+
+`GET /runs/:id/logs` returns the same records as JSON for clients that prefer
+polling. `GET /runs/:id/artifacts` lists known artifacts in the finished run's
+directory, and `GET /runs/:id/artifacts/:name` serves one of them. Artifact
+names are allowlisted (`summary.json`, `writes.json`, `tests.json`,
+`response.md`, and the other documented run artifacts); path traversal, nested
+paths, and unlisted files are refused.
+
+A scripted multi-turn flow looks like:
+
+```sh
+# 1. submit and capture the run handle
+run=$(curl -s localhost:8787/runs -d '{"prompt":"Create src/math.mjs with add()"}')
+id=$(echo "$run" | node -e 'process.stdin.on("data",d=>console.log(JSON.parse(d).runId))')
+
+# 2. wait for completion on the event stream
+curl -sN "localhost:8787/runs/$id/events" > /dev/null
+
+# 3. inspect the result and continue the session
+curl -s "localhost:8787/runs/$id"
+sid=$(curl -s "localhost:8787/runs/$id" | node -e 'process.stdin.on("data",d=>console.log(JSON.parse(d).sessionId))')
+curl -s "localhost:8787/sessions/$sid/turns" -d '{"prompt":"Add subtract() and tests"}'
+```
+
+A web UI can follow the same contract without private hooks: `GET /status` on
+load, `GET /sessions` for the sidebar, `POST /runs` per prompt,
+`GET /runs/:id/events` for the live timeline, `GET /runs/:id` for recovery
+after a dropped stream, and the artifact routes for an inspector pane.
+
+`POST /runs/:id/cancel` is honest about its limits in this version: a queued
+run is cancelled outright, but an active run only records the request
+(`cancelRequested`) and keeps running until its current operation finishes.
+The response says so (`bestEffort: true`). Wiring an `AbortSignal` through
+model calls, tools, installers, and sandboxes is follow-up work.
+
+The in-memory run registry is not durable: restarting `kodr serve` loses
+active-run state, while completed runs remain inspectable through `.kodr/runs`
+and the session routes.
 
 ## Terminal UI
 
