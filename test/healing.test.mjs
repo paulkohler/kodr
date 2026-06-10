@@ -37,14 +37,16 @@ describe('one-shot healing', () => {
 	it('repairs a failing write with explicit apply', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-apply-'));
 		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		// 5s rather than 1s: under full-suite load the node --check spawn can
+		// exceed 1s and make the final verification (and the test) flake.
 		const failed = await runVerification(cwd, 'node --check bad.mjs', {
-			timeoutMs: 1000,
+			timeoutMs: 5000,
 		});
 
 		const result = await oneShotHeal(cwd, failed, repairText('bad.mjs'), {
 			apply: true,
 			testCommand: 'node --check bad.mjs',
-			timeoutMs: 1000,
+			timeoutMs: 5000,
 		});
 
 		assert.equal(result.healed, true);

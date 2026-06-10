@@ -50,16 +50,18 @@ run, and revert an applied run cleanly.
 
 ## Done Criteria
 
-- [ ] Git command allowlist parsed and policy-tested with a fake runner; no
+- [x] Git command allowlist parsed and policy-tested with a fake runner; no
       command outside the allowlist can execute.
-- [ ] Tree state recorded per apply and surfaced in review output.
-- [ ] `--commit` commits only applied files, only on explicit opt-in, with a
-      run-referencing message.
-- [ ] `kodr undo` and TUI `/undo` revert the last applied run and refuse on
+- [x] Tree state recorded per apply and surfaced in review output.
+- [x] `--commit` commits only applied files, only on explicit opt-in, with a
+      run-referencing message (skipped with a recorded reason when
+      verification fails).
+- [x] `kodr undo` and TUI `/undo` revert the last applied run and refuse on
       conflicting later edits.
-- [ ] Non-git fallback uses existing safe-write backups.
-- [ ] Tests for allowlist, commit, undo, conflict refusal, and non-git
-      fallback.
-- [ ] Record decisions and any failures.
-- [ ] Blog post (include the 73/74 planning-miss story).
-- [ ] Mark roadmap complete and commit.
+- [x] Non-git fallback uses existing safe-write backups (undo is backup-based
+      everywhere; git tree state is contextual).
+- [x] Tests for allowlist, commit (fake and real git), undo, conflict
+      refusal, and non-git fallback.
+- [x] Record decisions and any failures.
+- [x] Blog post (include the 73/74 planning-miss story).
+- [x] Mark roadmap complete and commit.

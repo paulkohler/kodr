@@ -301,6 +301,56 @@ Use `--protect-existing` when a task should not overwrite committed files:
 ./kodr run -p "Create a new example app" --yes --protect-existing
 ```
 
+### Commit Applied Writes
+
+In a git workspace, `--commit` stages and commits exactly the files Kodr
+applied, with a generated message that references the run id:
+
+```sh
+./kodr run -p "Add tests for parseArgs" --yes --commit
+./kodr run -p "Fix the parser" --yes --test "npm test" --commit
+```
+
+Commit behavior is deliberately bounded:
+
+- `--commit` requires `--yes`; a dry-run commits nothing.
+- When `--test` is set, a failing verification skips the commit rather than
+  committing a known-broken state. The skip reason is recorded.
+- Only the applied files are staged and committed; unrelated dirty files are
+  untouched.
+- Git use is allowlisted (`status`, `diff`, `add`, `commit`, `checkout`,
+  `rev-parse`) and runs without a shell. There is no push, rebase, branch, or
+  arbitrary git.
+
+Before any apply, Kodr records the workspace tree state (`clean`, `dirty`, or
+`not-a-repo`) in `writes.json` and `git.json` and shows it in the run summary.
+A dirty tree does not block the apply; it tells you whether `git diff` after
+the run shows only Kodr's changes.
+
+### Undo The Last Applied Run
+
+`kodr undo` reverts the most recent applied run using its write manifest and
+the safe-write backups created at apply time:
+
+```sh
+./kodr undo
+./kodr undo --json
+```
+
+In the TUI, `/undo` does the same through the shared channel.
+
+Undo is conservative:
+
+- Each applied file's recorded content hash is checked first. If any file was
+  edited (or deleted) after the apply, the undo refuses with a per-file
+  conflict list and changes nothing.
+- Created files are deleted; modified and patched files are restored from
+  their backups.
+- The revert is recorded as `undo.json` in the run directory, and a second
+  `kodr undo` for the same run refuses rather than walking further back.
+- The mechanism is backup-based, so it works identically in git and non-git
+  workspaces; git tree state is recorded for context.
+
 ### Stream Slow Responses
 
 For local models, streaming makes long calls easier to monitor:
@@ -875,6 +925,7 @@ Commands:
 - `/test` runs the configured test command for the pending review.
 - `/accept` applies the pending review.
 - `/reject` discards the pending review.
+- `/undo` reverts the last applied run (refuses on post-apply edits).
 
 ### Permission Prompts
 
@@ -964,6 +1015,9 @@ or write phase blog posts.
 - Package locks are listed but not packed into context by default.
 - Model output, skills, memory, transcripts, and workspace files are untrusted.
 - Verification commands are allowlisted and run without a shell.
+- Git commands are allowlisted (`status`, `diff`, `add`, `commit`, `checkout`,
+  `rev-parse`) and run without a shell; commits happen only with explicit
+  `--commit`.
 - `--docker-sandbox` runs install/test/tool commands in a fresh container.
 - `--openshell-sandbox` runs command effects in a policy-controlled local
   OpenShell sandbox and refuses silent fallback.

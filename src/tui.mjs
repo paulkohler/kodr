@@ -254,6 +254,23 @@ async function handleSlashCommand(state, text, io, channel) {
 		return { ok: result.ok, result, type: 'command' };
 	}
 
+	if (command === '/undo') {
+		const result = await channel(
+			{ kind: 'undo-run', options: state.baseOptions },
+			io,
+		);
+		io.stdout.write((result.ok ? view.success : view.warning)(result.message));
+		for (const file of result.files || []) {
+			io.stdout.write(view.info(`${file.action.padEnd(8)}${file.path}`));
+		}
+		for (const conflict of result.conflicts || []) {
+			io.stdout.write(
+				view.warning(`conflict ${conflict.path}: ${conflict.reason}`),
+			);
+		}
+		return { ok: result.ok, result, type: 'command' };
+	}
+
 	if (command === '/test') {
 		if (!state.pendingReview) {
 			io.stdout.write(view.warning('no pending review'));
@@ -478,6 +495,7 @@ function renderHelp(view = createTuiView()) {
 		'  /allow',
 		'  /deny',
 		'  /test',
+		'  /undo',
 		'  /sessions',
 		'  /show <session-id>',
 		'  /inspect <symbol-or-file>',

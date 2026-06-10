@@ -17,6 +17,12 @@ import {
 } from './model-client.mjs';
 import { loadMemory } from './memory.mjs';
 import { jailedPath, prepareChanges } from './safe-writes.mjs';
+import {
+	buildCommitMessage,
+	commitAppliedWrites,
+	gitTreeState,
+} from './git-workspace.mjs';
+import { undoLastApply } from './undo.mjs';
 import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
 import { createCycleReviewRequest, runSubagent } from './subagents.mjs';
 import {
@@ -137,6 +143,7 @@ export function parseArgs(argv, env = {}) {
 		openshellWorker: false,
 		dryRun: true,
 		extraHeaders: {},
+		gitCommit: false,
 		help: false,
 		heal: false,
 		enableHooks: false,
@@ -289,6 +296,11 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--heal') {
 			options.heal = true;
+			continue;
+		}
+
+		if (arg === '--commit') {
+			options.gitCommit = true;
 			continue;
 		}
 
@@ -501,6 +513,12 @@ export function parseArgs(argv, env = {}) {
 		options.tools = true;
 	}
 
+	if (options.gitCommit && !options.yes) {
+		throw new CliError(
+			'--commit requires --yes; nothing is committed on a dry-run',
+		);
+	}
+
 	if (!Number.isInteger(options.timeoutMs) || options.timeoutMs < 100) {
 		throw new CliError(
 			'--timeout-ms must be an integer greater than or equal to 100',
@@ -627,6 +645,8 @@ Usage:
   kodr run --prompt-file prompt.md [--out .kodr/runs/name] [--prompt-id slug]
   kodr run -p "task" --dry-run
   kodr run -p "task" --yes [--install] [--test "npm test"] [--test-cwd path] [--heal]
+  kodr run -p "task" --yes --commit
+  kodr undo [--json]
   kodr run -p "task" --yes --docker-sandbox [--docker-keep] [--test "npm test"]
   kodr run -p "task" --yes --openshell-sandbox [--openshell-keep] [--test "npm test"]
   kodr run --prompt-file prompt.md --openshell-worker --yes [--install] [--test "npm test"]
@@ -704,6 +724,9 @@ OpenRouter:
   --install            Run controlled dependency install after applied writes.
                        Uses npm ci when package-lock.json exists, otherwise npm install.
   --heal               After failed verification, run a bounded repair loop.
+  --commit             After a clean apply (and passing tests when --test is set),
+                       git-commit exactly the applied files with a run-referencing
+                       message. Requires --yes. Git use is allowlisted; no push.
   --hooks              Enable configured command hooks. Default config: .kodr/hooks.json
                        Lifecycle: PreToolUse (prevent) -> PostToolUse (audit) -> Stop (loop guard).
                        Hooks run on the host, or in the active Docker/OpenShell sandbox.
@@ -723,6 +746,11 @@ OpenShell sandbox:
   --openshell-policy P Explicit policy YAML. Required with --install.
   --openshell-keep     Keep the sandbox after the run for inspection.
 
+Undo:
+  kodr undo            Revert the last applied run using its write manifest and
+                       safe-write backups. Refuses when applied files were edited
+                       after the apply. Works in git and non-git workspaces.
+
 Web channel:
   kodr serve           Start a local-only JSON HTTP control plane.
                        Async runs: POST /runs, GET /runs(/:id), GET /runs/:id/events (SSE),
@@ -734,6 +762,35 @@ Web channel:
 Implemented library primitives:
   workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
 `;
+}
+
+// Commit exactly the proposal-applied files when --commit was requested and
+// the run is in a committable state: writes applied, no run errors, and tests
+// (when run) passing. Returns null when --commit was not requested, otherwise
+// an honest record of what happened for git.json and the run summary.
+async function maybeCommitAppliedWrites(cwd, options, state) {
+	if (!options.gitCommit) {
+		return null;
+	}
+	if (!state.writeResult.applied || state.writeError || state.runError) {
+		return {
+			committed: false,
+			error: 'Skipped: no writes were applied cleanly, nothing to commit',
+		};
+	}
+	if (state.testResult && !state.testResult.ok) {
+		return {
+			committed: false,
+			error: 'Skipped: verification failed; refusing to commit a broken state',
+		};
+	}
+	return commitAppliedWrites(cwd, {
+		files: state.writeResult.writes.map((write) => write.path),
+		message: buildCommitMessage({
+			prompt: state.prompt,
+			runId: basename(state.runDir),
+		}),
+	});
 }
 
 function withCliProgress(options, io) {
@@ -1157,6 +1214,25 @@ export async function main(argv, io) {
 		);
 	}
 
+	if (options.command === 'undo') {
+		const result = await handleChannelRequest(
+			{ kind: 'undo-run', options },
+			io,
+		);
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+		} else {
+			io.stdout.write(`${result.message}\n`);
+			for (const file of result.files || []) {
+				io.stdout.write(`  ${file.action.padEnd(8)}${file.path}\n`);
+			}
+			for (const conflict of result.conflicts || []) {
+				io.stdout.write(`  conflict ${conflict.path}: ${conflict.reason}\n`);
+			}
+		}
+		return { ok: result.ok, command: 'undo', result };
+	}
+
 	throw new CliError(`Command not implemented yet: ${options.command}`);
 }
 
@@ -1166,17 +1242,32 @@ export async function handleChannelRequest(request, io) {
 	}
 
 	if (request.kind === 'apply-proposal') {
+		const treeState = (await gitTreeState(io.cwd)).state;
 		const writeResult = await prepareChanges(io.cwd, request.proposal, {
 			apply: true,
 			protectExisting: request.options?.protectExisting,
 			protectedPaths: request.options?.protectedPaths,
 		});
+		writeResult.treeState = treeState;
+		const gitCommitResult =
+			request.options?.gitCommit === true
+				? await maybeCommitAppliedWrites(io.cwd, request.options, {
+						prompt: request.options?.prompt || '',
+						runDir: request.runDir || io.cwd,
+						runError: null,
+						testResult: null,
+						writeError: null,
+						writeResult,
+					})
+				: null;
 		return {
 			applied: writeResult.applied,
+			gitCommit: gitCommitResult,
 			ok: writeResult.applied,
 			proposal: request.proposal,
 			runDir: request.runDir || '',
 			sessionId: request.sessionId || '',
+			treeState,
 			writeResult,
 		};
 	}
@@ -1198,6 +1289,10 @@ export async function handleChannelRequest(request, io) {
 			request: request.request,
 			status: decision === 'allow' ? 'approved' : 'denied',
 		};
+	}
+
+	if (request.kind === 'undo-run') {
+		return undoLastApply(io.cwd);
 	}
 
 	if (request.kind === 'session-list') {
@@ -2046,6 +2141,7 @@ async function runPrompt(options, io) {
 			writes: [],
 		};
 		let writeError = null;
+		let treeState = '';
 		if (!proposal && (options.yes || options.testCommand)) {
 			writeError = {
 				message:
@@ -2072,6 +2168,7 @@ async function runPrompt(options, io) {
 				writes: [],
 			};
 		} else if (proposal) {
+			treeState = (await gitTreeState(io.cwd)).state;
 			try {
 				writeResult = await prepareChanges(io.cwd, proposal, {
 					apply: options.yes,
@@ -2089,6 +2186,7 @@ async function runPrompt(options, io) {
 					writes: [],
 				};
 			}
+			writeResult.treeState = treeState;
 		}
 		const installResult =
 			options.installDependencies && options.yes && !writeError
@@ -2131,9 +2229,18 @@ async function runPrompt(options, io) {
 		if (healingResult?.finalVerification) {
 			testResult = healingResult.finalVerification;
 		}
+		const gitCommitResult = await maybeCommitAppliedWrites(io.cwd, options, {
+			prompt,
+			runDir,
+			runError,
+			testResult,
+			writeError,
+			writeResult,
+		});
 
 		summary.applied = writeResult.applied;
 		summary.dependencyInstallRequired = dependencyInstallRequired;
+		summary.gitCommit = gitCommitResult;
 		summary.healed = healingResult ? healingResult.healed : false;
 		summary.healStopReason = healingResult?.stopReason || '';
 		summary.installed = installResult !== null;
@@ -2142,6 +2249,7 @@ async function runPrompt(options, io) {
 		summary.proposalMessageCount = proposalMessages.length;
 		summary.proposalFound = proposal !== null;
 		summary.proposalStatus = proposal?.status || '';
+		summary.treeState = treeState;
 		if (runError) {
 			summary.runError = runError;
 		}
@@ -2173,6 +2281,10 @@ async function runPrompt(options, io) {
 		await writeJson(join(runDir, 'install.json'), installResult);
 		await writeJson(join(runDir, 'tasks.json'), taskPlan);
 		await writeJson(join(runDir, 'writes.json'), writeResult);
+		await writeJson(join(runDir, 'git.json'), {
+			commit: gitCommitResult,
+			treeState,
+		});
 		await writeJson(join(runDir, 'tests.json'), testResult);
 		await writeLastRun(io.cwd, runDir);
 
@@ -3094,6 +3206,16 @@ function renderRunSummary(result) {
 		);
 		for (const write of writes) {
 			lines.push(`  ${write.status.padEnd(7)}${write.path}`);
+		}
+		if (result.treeState && result.treeState !== 'not-a-repo') {
+			lines.push(`Tree before apply: ${result.treeState}`);
+		}
+		if (result.gitCommit?.committed) {
+			lines.push(
+				`Committed: ${result.gitCommit.sha.slice(0, 10)} (${result.gitCommit.files.length} file(s))`,
+			);
+		} else if (result.gitCommit?.error) {
+			lines.push(`Commit: ${result.gitCommit.error}`);
 		}
 
 		if (result.proposal.scratchpad) {

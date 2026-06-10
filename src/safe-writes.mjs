@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
 	copyFile,
 	lstat,
@@ -103,6 +104,9 @@ export async function prepareWrites(cwd, files, options = {}) {
 		writes.push({
 			backupPath,
 			diff,
+			// Content hash of what this write puts on disk. `kodr undo` compares it
+			// against the current file to detect edits made after the apply.
+			hash: contentHash(file.content),
 			path: file.path,
 			status: before.exists ? 'modify' : 'create',
 		});
@@ -180,6 +184,12 @@ export async function preparePatches(cwd, patches, options = {}) {
 		target.content = after;
 	}
 
+	// Patched files land on disk once with the final content, so every write
+	// record for a path carries the hash of that final content.
+	for (const write of writes) {
+		write.hash = contentHash(targets.get(write.path).content);
+	}
+
 	if (apply) {
 		for (const item of targets.values()) {
 			await mkdir(dirname(item.absolute), { recursive: true });
@@ -193,6 +203,10 @@ export async function preparePatches(cwd, patches, options = {}) {
 		applied: apply,
 		writes,
 	};
+}
+
+export function contentHash(content) {
+	return createHash('sha256').update(content, 'utf8').digest('hex');
 }
 
 export async function jailedPath(cwd, path) {

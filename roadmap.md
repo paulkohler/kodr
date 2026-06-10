@@ -75,7 +75,6 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 70 Session Compaction And Summaries
 - [x] 71 Self-Dev: Plan-Then-Execute Run
 - [x] 72 Multi-Turn Self-Healing Loop
-- [ ] 75 Optional LSP Adapter
 - [x] 76 Docker Sandbox
 - [x] 77 TUI ANSI Color
 - [x] 78 Command Hooks And Stop Control
@@ -94,10 +93,11 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 91 Structured Plan Manifest
 - [x] 92 Isolated File-Author Subagents
 - [x] 93 Persona From Skill
-- [ ] 94 Git-Aware Apply And Revert (merges 73 + 74; see phase file for the planning miss)
+- [x] 94 Git-Aware Apply And Revert (merges 73 + 74; see phase file for the planning miss)
 - [ ] 95 Project Config And Init
 - [ ] 96 Usable Read Defaults
 - [ ] 97 Interactive Apply Prompt
+- [ ] 75 Optional LSP Adapter (kept last; capability add, not a usability gap)
 
 ## Phase Contract
 
