@@ -135,9 +135,14 @@ export async function handleTuiLine(state, line, io, channel) {
 		state.pendingReview = null;
 	}
 	const cwd = io.cwd || process.cwd();
-	const { expandedPrompt, files: attachedFiles } = await expandFileReferences(text, cwd);
+	const { expandedPrompt, files: attachedFiles } = await expandFileReferences(
+		text,
+		cwd,
+	);
 	if (attachedFiles.length > 0) {
-		const summary = attachedFiles.map((f) => `${f.path} (${f.chars} chars)`).join(', ');
+		const summary = attachedFiles
+			.map((f) => `${f.path} (${f.chars} chars)`)
+			.join(', ');
 		io.stdout.write(view.info(`attached: ${summary}`));
 	}
 	const options = turnOptions(state, expandedPrompt, io);
@@ -424,6 +429,30 @@ async function handleSlashCommand(state, text, io, channel) {
 		return { ok: true, type: 'command' };
 	}
 
+	if (command === '/why') {
+		const runIdOrPath = value || '';
+		const {
+			resolveRunDir,
+			loadRunAnalysis,
+			buildCausalStory,
+			renderForensicsCli,
+		} = await import('./forensics.mjs');
+		let runDir;
+		try {
+			runDir = await resolveRunDir(
+				io.cwd,
+				runIdOrPath || state.lastRunDir || '',
+			);
+		} catch (err) {
+			io.stdout.write(view.error(err.message));
+			return { ok: false, type: 'command' };
+		}
+		const analysis = await loadRunAnalysis(runDir);
+		const story = buildCausalStory(analysis);
+		io.stdout.write(renderForensicsCli(analysis, story));
+		return { ok: true, story, type: 'command' };
+	}
+
 	if (command === '/retry') {
 		if (!state.lastPrompt) {
 			io.stdout.write(view.warning('no previous prompt to retry'));
@@ -529,6 +558,7 @@ function renderHelp(view = createTuiView()) {
 		'  /test',
 		'  /undo',
 		'  /retry [--model <id>]',
+		'  /why [run-dir]',
 		'  /sessions',
 		'  /show <session-id>',
 		'  /inspect <symbol-or-file>',

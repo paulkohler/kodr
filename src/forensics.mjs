@@ -1,0 +1,483 @@
+// forensics.mjs — zero-dependency, ESM
+// Reads run artifacts and builds a causal story for `kodr why`.
+
+import { readFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+
+// ---------------------------------------------------------------------------
+// Artifact loading
+// ---------------------------------------------------------------------------
+
+async function tryReadJson(filePath) {
+	try {
+		const text = await readFile(filePath, 'utf8');
+		return JSON.parse(text);
+	} catch {
+		return null;
+	}
+}
+
+async function tryReadText(filePath) {
+	try {
+		return await readFile(filePath, 'utf8');
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Load all relevant artifacts from a run directory.
+ * Returns a structured analysis object; missing artifacts are null.
+ *
+ * @param {string} runDir  Absolute path to the run directory.
+ * @returns {Promise<RunAnalysis>}
+ */
+export async function loadRunAnalysis(runDir) {
+	const [summary, writes, tests, contextMd, promptMd, responseMd] =
+		await Promise.all([
+			tryReadJson(join(runDir, 'summary.json')),
+			tryReadJson(join(runDir, 'writes.json')),
+			tryReadJson(join(runDir, 'tests.json')),
+			tryReadText(join(runDir, 'context.md')),
+			tryReadText(join(runDir, 'prompt.md')),
+			tryReadText(join(runDir, 'response.md')),
+		]);
+
+	// Healing artifacts live in a repairs/ sub-directory written by healing.mjs.
+	const repairs = await tryReadJson(join(runDir, 'repairs', 'repairs.json'));
+
+	return {
+		contextMd,
+		promptMd,
+		repairs,
+		responseMd,
+		runDir,
+		summary,
+		tests,
+		writes,
+	};
+}
+
+// ---------------------------------------------------------------------------
+// Causal story builder
+// ---------------------------------------------------------------------------
+
+/**
+ * @typedef {{ phase: string, status: 'ok'|'fail'|'skip'|'warn', detail: string, artifactPath?: string }} StoryStep
+ */
+
+/**
+ * Build a causal story from the run analysis.
+ * Pure function — no I/O.
+ *
+ * @param {object} analysis  Result of loadRunAnalysis.
+ * @returns {StoryStep[]}
+ */
+export function buildCausalStory(analysis) {
+	const { summary, writes, tests, repairs, runDir } = analysis;
+	const steps = [];
+
+	// ------------------------------------------------------------------
+	// 1. Context Assembly
+	// ------------------------------------------------------------------
+	if (analysis.contextMd !== null) {
+		const lines = (analysis.contextMd || '').split('\n');
+		const fileCount = summary?.workspaceFileCount ?? '?';
+		const strategy = summary?.contextStrategy ?? inferStrategy(lines);
+		const chars = (analysis.contextMd || '').length;
+		steps.push({
+			artifactPath: join(runDir, 'context.md'),
+			detail: `strategy=${strategy} workspaceFiles=${fileCount} contextChars=${chars}`,
+			phase: 'Context Assembly',
+			status: 'ok',
+		});
+	} else {
+		steps.push({
+			detail: 'context.md not found — run may not have recorded context',
+			phase: 'Context Assembly',
+			status: 'skip',
+		});
+	}
+
+	// ------------------------------------------------------------------
+	// 2. Model Call
+	// ------------------------------------------------------------------
+	if (summary) {
+		const lb = summary.loopBudget || {};
+		const finishReasons = (summary.finishReasons || []).join(', ') || '?';
+		const tokens = lb.tokens ?? '?';
+		const turns = lb.turns ?? '?';
+		const model = summary.model || '?';
+		const baseUrl = summary.baseUrl || '?';
+		steps.push({
+			artifactPath: join(runDir, 'summary.json'),
+			detail: `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} finishReasons=[${finishReasons}]`,
+			phase: 'Model Call',
+			status: 'ok',
+		});
+	} else {
+		steps.push({
+			detail: 'summary.json not found',
+			phase: 'Model Call',
+			status: 'skip',
+		});
+	}
+
+	// ------------------------------------------------------------------
+	// 3. Proposal Extraction
+	// ------------------------------------------------------------------
+	if (summary) {
+		const found = summary.proposalFound ?? false;
+		const status = summary.proposalStatus || '';
+		const msgCount = summary.proposalMessageCount ?? 0;
+		if (!found) {
+			steps.push({
+				artifactPath: join(runDir, 'response.md'),
+				detail: `no proposal found in model response (responseChars=${summary.responseChars ?? '?'})`,
+				phase: 'Proposal Extraction',
+				status: 'fail',
+			});
+		} else if (status !== 'OK') {
+			steps.push({
+				artifactPath: join(runDir, 'response.md'),
+				detail: `proposal found but status=${status} messages=${msgCount}`,
+				phase: 'Proposal Extraction',
+				status: 'warn',
+			});
+		} else {
+			steps.push({
+				artifactPath: join(runDir, 'response.md'),
+				detail: `proposal found status=${status} messages=${msgCount}`,
+				phase: 'Proposal Extraction',
+				status: 'ok',
+			});
+		}
+	} else {
+		steps.push({
+			detail: 'no summary — cannot determine proposal status',
+			phase: 'Proposal Extraction',
+			status: 'skip',
+		});
+	}
+
+	// ------------------------------------------------------------------
+	// 4. Edit Application
+	// ------------------------------------------------------------------
+	if (writes !== null) {
+		const applied = writes.applied === true;
+		const list = Array.isArray(writes.writes) ? writes.writes : [];
+		const count = list.length;
+		if (!applied && count === 0) {
+			steps.push({
+				artifactPath: join(runDir, 'writes.json'),
+				detail: 'dry-run — no writes applied',
+				phase: 'Edit Application',
+				status: 'skip',
+			});
+		} else if (applied) {
+			steps.push({
+				artifactPath: join(runDir, 'writes.json'),
+				detail: `applied ${count} write(s)`,
+				phase: 'Edit Application',
+				status: 'ok',
+			});
+		} else {
+			steps.push({
+				artifactPath: join(runDir, 'writes.json'),
+				detail: `${count} write(s) proposed, not applied (dry-run)`,
+				phase: 'Edit Application',
+				status: 'warn',
+			});
+		}
+	} else {
+		steps.push({
+			detail: 'writes.json not found',
+			phase: 'Edit Application',
+			status: 'skip',
+		});
+	}
+
+	// ------------------------------------------------------------------
+	// 5. Verification
+	// ------------------------------------------------------------------
+	if (tests !== null && tests !== undefined) {
+		if (typeof tests === 'object' && tests !== null && 'ok' in tests) {
+			const ok = tests.ok === true;
+			const cmd = tests.command || '';
+			const out = tests.output ? tests.output.slice(0, 120) : '';
+			steps.push({
+				artifactPath: join(runDir, 'tests.json'),
+				detail: `command=${cmd || '(none)'} passed=${ok}${out ? ` output=${JSON.stringify(out)}` : ''}`,
+				phase: 'Verification',
+				status: ok ? 'ok' : 'fail',
+			});
+		} else {
+			// tests.json exists but is null or has no .ok field
+			steps.push({
+				artifactPath: join(runDir, 'tests.json'),
+				detail: 'no test run recorded',
+				phase: 'Verification',
+				status: 'skip',
+			});
+		}
+	} else {
+		steps.push({
+			detail: 'tests.json not found — verification not configured',
+			phase: 'Verification',
+			status: 'skip',
+		});
+	}
+
+	// ------------------------------------------------------------------
+	// 6. Healing
+	// ------------------------------------------------------------------
+	if (repairs !== null && repairs !== undefined) {
+		const list = Array.isArray(repairs) ? repairs : [];
+		const turns = list.length;
+		const last = list.at(-1);
+		const stopReason = last?.stopReason || '';
+		const ok = stopReason === 'healed' || last?.ok === true;
+		steps.push({
+			artifactPath: join(runDir, 'repairs', 'repairs.json'),
+			detail: `healingTurns=${turns} stopReason=${stopReason || '(none)'}`,
+			phase: 'Healing',
+			status: turns === 0 ? 'skip' : ok ? 'ok' : 'fail',
+		});
+	} else {
+		steps.push({
+			detail: 'no healing run',
+			phase: 'Healing',
+			status: 'skip',
+		});
+	}
+
+	// ------------------------------------------------------------------
+	// 7. Final Outcome
+	// ------------------------------------------------------------------
+	if (summary) {
+		const lb = summary.loopBudget || {};
+		const ok = summary.ok === true;
+		const stopReason = lb.stopReason || '?';
+		const manifestKeys = Object.keys(summary.artifacts || {}).join(', ');
+		steps.push({
+			artifactPath: join(runDir, 'summary.json'),
+			detail: `ok=${ok} stopReason=${stopReason} artifacts=[${manifestKeys}]`,
+			phase: 'Final Outcome',
+			status: ok ? 'ok' : 'fail',
+		});
+	} else {
+		steps.push({
+			detail: 'no summary — outcome unknown',
+			phase: 'Final Outcome',
+			status: 'skip',
+		});
+	}
+
+	return steps;
+}
+
+// Infer context strategy from context.md header text (best-effort).
+function inferStrategy(lines) {
+	for (const line of lines.slice(0, 20)) {
+		const l = line.toLowerCase();
+		if (l.includes('inspection-aware')) return 'inspection-aware';
+		if (l.includes('whole-file')) return 'whole-file';
+		if (l.includes('file-map')) return 'file-map';
+	}
+	return 'unknown';
+}
+
+// ---------------------------------------------------------------------------
+// CLI renderer
+// ---------------------------------------------------------------------------
+
+const STATUS_ICON = {
+	fail: '\x1b[31m✖\x1b[0m',
+	ok: '\x1b[32m✔\x1b[0m',
+	skip: '\x1b[2m–\x1b[0m',
+	warn: '\x1b[33m⚠\x1b[0m',
+};
+
+const STATUS_LABEL = {
+	fail: '\x1b[31mFAIL\x1b[0m',
+	ok: '\x1b[32m ok \x1b[0m',
+	skip: '\x1b[2mskip\x1b[0m',
+	warn: '\x1b[33mwarn\x1b[0m',
+};
+
+/**
+ * Render the causal story for CLI output (with ANSI colour).
+ *
+ * @param {object} analysis
+ * @param {StoryStep[]} story
+ * @returns {string}
+ */
+export function renderForensicsCli(analysis, story) {
+	const { runDir } = analysis;
+	const runId = basename(runDir);
+	const lines = [];
+
+	lines.push(`\x1b[1mRun forensics: ${runId}\x1b[0m`);
+	lines.push(`  dir: ${runDir}`);
+	lines.push('');
+
+	for (const step of story) {
+		const icon = STATUS_ICON[step.status] ?? '?';
+		const label = STATUS_LABEL[step.status] ?? step.status;
+		lines.push(`  ${icon} [${label}] \x1b[1m${step.phase}\x1b[0m`);
+		lines.push(`         ${step.detail}`);
+		if (step.artifactPath) {
+			lines.push(`         \x1b[2m→ ${step.artifactPath}\x1b[0m`);
+		}
+	}
+
+	lines.push('');
+	return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// HTML renderer
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a minimal, self-contained HTML page for the run-viewer.
+ * No external dependencies — inline CSS only.
+ *
+ * @param {object} analysis
+ * @param {StoryStep[]} story
+ * @returns {string}
+ */
+export function renderForensicsHtml(analysis, story) {
+	const { runDir, summary } = analysis;
+	const runId = basename(runDir);
+	const ts = summary?.timestamp || '';
+	const model = summary?.model || '?';
+	const ok = summary?.ok;
+	const okLabel =
+		ok === true ? '✔ ok' : ok === false ? '✖ failed' : '? unknown';
+	const okClass = ok === true ? 'ok' : ok === false ? 'fail' : 'skip';
+
+	const stepsHtml = story
+		.map((step) => {
+			const cls = step.status;
+			const icon =
+				{ fail: '✖', ok: '✔', skip: '–', warn: '⚠' }[step.status] ?? '?';
+			const artifactHtml = step.artifactPath
+				? `<div class="artifact">${esc(step.artifactPath)}</div>`
+				: '';
+			return `
+      <div class="step ${cls}">
+        <div class="step-header">
+          <span class="icon">${icon}</span>
+          <span class="phase">${esc(step.phase)}</span>
+          <span class="badge ${cls}">${esc(step.status)}</span>
+        </div>
+        <div class="detail">${esc(step.detail)}</div>
+        ${artifactHtml}
+      </div>`;
+		})
+		.join('\n');
+
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kodr run forensics: ${esc(runId)}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace;
+         font-size: 13px; background: #0d1117; color: #c9d1d9; padding: 24px; }
+  h1 { font-size: 16px; color: #e6edf3; margin-bottom: 4px; }
+  .meta { color: #8b949e; font-size: 12px; margin-bottom: 20px; }
+  .meta .outcome { font-weight: bold; margin-left: 8px; }
+  .meta .outcome.ok { color: #3fb950; }
+  .meta .outcome.fail { color: #f85149; }
+  .meta .outcome.skip { color: #8b949e; }
+  .step { border: 1px solid #21262d; border-radius: 6px; padding: 12px 14px;
+          margin-bottom: 10px; background: #161b22; }
+  .step.ok   { border-left: 3px solid #3fb950; }
+  .step.fail { border-left: 3px solid #f85149; }
+  .step.warn { border-left: 3px solid #d29922; }
+  .step.skip { border-left: 3px solid #30363d; }
+  .step-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .icon { font-size: 14px; width: 16px; text-align: center; }
+  .step.ok   .icon { color: #3fb950; }
+  .step.fail .icon { color: #f85149; }
+  .step.warn .icon { color: #d29922; }
+  .step.skip .icon { color: #6e7681; }
+  .phase { font-weight: bold; color: #e6edf3; flex: 1; }
+  .badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: .04em; }
+  .badge.ok   { background: #1f4021; color: #3fb950; }
+  .badge.fail { background: #4c1318; color: #f85149; }
+  .badge.warn { background: #3d2d00; color: #d29922; }
+  .badge.skip { background: #1c2128; color: #6e7681; }
+  .detail { color: #8b949e; word-break: break-all; }
+  .artifact { margin-top: 4px; font-size: 11px; color: #30363d; word-break: break-all; }
+  .artifact::before { content: '→ '; }
+</style>
+</head>
+<body>
+<h1>Run forensics: ${esc(runId)}</h1>
+<div class="meta">
+  model: ${esc(model)}
+  ${ts ? `&nbsp;·&nbsp; ${esc(ts)}` : ''}
+  <span class="outcome ${okClass}">${esc(okLabel)}</span>
+</div>
+${stepsHtml}
+</body>
+</html>`;
+}
+
+function esc(str) {
+	return String(str)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;');
+}
+
+// ---------------------------------------------------------------------------
+// Run directory resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve a run directory from user input:
+ * - If given an absolute path, use it directly.
+ * - If given a relative or timestamp-style string, look under .kodr/runs/.
+ * - If empty / 'last', read .kodr/last-run.
+ *
+ * @param {string} cwd
+ * @param {string} [runIdOrPath]
+ * @returns {Promise<string>}  Absolute path to the run directory.
+ */
+export async function resolveRunDir(cwd, runIdOrPath) {
+	const arg = (runIdOrPath || '').trim();
+
+	if (!arg || arg === 'last') {
+		const lastRunPath = join(cwd, '.kodr', 'last-run');
+		let lastRunText;
+		try {
+			lastRunText = await readFile(lastRunPath, 'utf8');
+		} catch {
+			throw new Error(
+				`No run specified and .kodr/last-run not found. Run kodr at least once or pass a run directory.`,
+			);
+		}
+		const resolved = lastRunText.trim();
+		if (!resolved) {
+			throw new Error('.kodr/last-run is empty');
+		}
+		// last-run may be absolute or relative to cwd
+		return resolved.startsWith('/') ? resolved : join(cwd, resolved);
+	}
+
+	// Absolute path given directly
+	if (arg.startsWith('/')) {
+		return arg;
+	}
+
+	// Bare ID / relative — look under .kodr/runs/
+	const candidate = join(cwd, '.kodr', 'runs', arg);
+	return candidate;
+}

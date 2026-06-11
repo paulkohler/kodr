@@ -7,6 +7,11 @@ import {
 	phaseForProgressEvent,
 	publicRun,
 } from './run-registry.mjs';
+import {
+	buildCausalStory,
+	loadRunAnalysis,
+	renderForensicsHtml,
+} from './forensics.mjs';
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -181,6 +186,14 @@ async function handleHttpRequest(request, response, state) {
 			}
 			if (request.method === 'POST' && subRoute === 'cancel') {
 				writeJson(response, 200, cancelRun(state, runId));
+				return;
+			}
+			if (request.method === 'GET' && subRoute === 'why') {
+				await serveRunForensicsHtml(response, state, runId);
+				return;
+			}
+			if (request.method === 'GET' && subRoute === 'why.json') {
+				await serveRunForensicsJson(response, state, runId);
 				return;
 			}
 		}
@@ -637,6 +650,44 @@ function trimTrailingSlash(pathname) {
 		return pathname.slice(0, -1);
 	}
 	return pathname;
+}
+
+async function serveRunForensicsHtml(response, state, runId) {
+	const runDir = state.runDirs.get(runId);
+	if (!runDir) {
+		writeJson(response, 404, {
+			error:
+				'No run directory recorded yet; forensics are available after the run finishes.',
+		});
+		return;
+	}
+	const analysis = await loadRunAnalysis(runDir);
+	const story = buildCausalStory(analysis);
+	const html = renderForensicsHtml(analysis, story);
+	const body = Buffer.from(html, 'utf8');
+	response.writeHead(200, {
+		'content-length': body.byteLength,
+		'content-type': 'text/html; charset=utf-8',
+	});
+	response.end(body);
+}
+
+async function serveRunForensicsJson(response, state, runId) {
+	const runDir = state.runDirs.get(runId);
+	if (!runDir) {
+		writeJson(response, 404, {
+			error:
+				'No run directory recorded yet; forensics are available after the run finishes.',
+		});
+		return;
+	}
+	const analysis = await loadRunAnalysis(runDir);
+	const story = buildCausalStory(analysis);
+	writeJson(response, 200, {
+		runDir,
+		story,
+		summary: analysis.summary,
+	});
 }
 
 function writeJson(response, status, payload) {

@@ -58,7 +58,11 @@ import {
 	resolveAgentModels,
 	resolveModelOptions,
 } from './model-specs.mjs';
-import { normalizeEditFormat, extractEditBlocks, mergeBlockPatches } from './edit-formats.mjs';
+import {
+	normalizeEditFormat,
+	extractEditBlocks,
+	mergeBlockPatches,
+} from './edit-formats.mjs';
 import { applyModelProfileDefaults } from './model-profiles.mjs';
 import {
 	applyProjectConfig,
@@ -68,7 +72,12 @@ import {
 	renderShowConfig,
 } from './project-config.mjs';
 import { isWorkspaceCase, loadEvalSuite, scoreCase } from './eval.mjs';
-import { recordResults, runWorkspaceCase, runWorkspaceSuite, slugify } from './eval-runner.mjs';
+import {
+	recordResults,
+	runWorkspaceCase,
+	runWorkspaceSuite,
+	slugify,
+} from './eval-runner.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './repomap/index.mjs';
 import {
@@ -123,6 +132,12 @@ import {
 	saveBenchScores,
 	saveRoutingTable,
 } from './bench.mjs';
+import {
+	buildCausalStory,
+	loadRunAnalysis,
+	renderForensicsCli,
+	resolveRunDir,
+} from './forensics.mjs';
 
 export { VERSION };
 
@@ -563,6 +578,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		} else if (options.command === 'session' && positionals.length === 3) {
 			options.sessionSubcommand = positionals[1];
 			options.sessionId = positionals[2];
+		} else if (options.command === 'why' && positionals.length === 2) {
+			options.whyRunId = positionals[1];
 		} else if (positionals.length > 1) {
 			throw new CliError(
 				`Unexpected positional arguments: ${positionals.slice(1).join(' ')}`,
@@ -638,21 +655,21 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			}),
 		);
 		Object.assign(options, applyModelProfileDefaults(options, env));
-		const agentModelEntries = Object.entries(resolveAgentModels(options, env)).map(
-				([agent, modelOptions]) => [
-					agent,
-					applyModelProfileDefaults(
-						{
-							...modelOptions,
-							_sessionContextSet: true,
-							_timeoutSet: options._timeoutSet,
-							sessionContextChars: options.sessionContextChars,
-							timeoutMs: options.timeoutMs,
-						},
-						env,
-					),
-				],
-			);
+		const agentModelEntries = Object.entries(
+			resolveAgentModels(options, env),
+		).map(([agent, modelOptions]) => [
+			agent,
+			applyModelProfileDefaults(
+				{
+					...modelOptions,
+					_sessionContextSet: true,
+					_timeoutSet: options._timeoutSet,
+					sessionContextChars: options.sessionContextChars,
+					timeoutMs: options.timeoutMs,
+				},
+				env,
+			),
+		]);
 		options.agentModels = Object.fromEntries(agentModelEntries);
 	} catch (error) {
 		if (error instanceof ModelSpecError) {
@@ -1760,6 +1777,20 @@ export async function main(argv, io) {
 		}
 
 		return { ok: true, command: 'bench', benchResults };
+	}
+
+	if (options.command === 'why') {
+		const runDir = await resolveRunDir(io.cwd, options.whyRunId || '');
+		const analysis = await loadRunAnalysis(runDir);
+		const story = buildCausalStory(analysis);
+		if (options.json) {
+			io.stdout.write(
+				`${JSON.stringify({ analysis: { ...analysis, contextMd: undefined, promptMd: undefined, responseMd: undefined }, runDir, story }, null, 2)}\n`,
+			);
+		} else {
+			io.stdout.write(renderForensicsCli(analysis, story));
+		}
+		return { command: 'why', ok: true, runDir, story };
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);
