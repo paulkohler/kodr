@@ -52,6 +52,71 @@ response-envelope behavior. Override or add profiles with
 `.kodr/model-profiles.json`, or point `KODR_MODEL_PROFILES` at a JSON file.
 Explicit flags such as `--timeout-ms` and `--session-context-chars` still win.
 
+### Project Config
+
+Stop retyping the same six flags by writing a `.kodr/config.json` in your
+project root. One-time setup:
+
+```sh
+kodr init          # writes .kodr/config.json with current model and baseUrl
+kodr init --force  # overwrite an existing config
+```
+
+`kodr init` also records `testCommand: "npm test"` when `package.json` has a
+`scripts.test` entry, so `--test "npm test"` is the default for subsequent runs.
+
+**Precedence** (highest first):
+
+> CLI flags > env vars > project config > model profile > built-in defaults
+
+Config keys map 1-to-1 with the corresponding CLI flags:
+
+| Key | CLI flag | Notes |
+|-----|----------|-------|
+| `model` | `--model` | Full model spec allowed |
+| `baseUrl` | `--base-url` | Trailing slashes stripped |
+| `testCommand` | `--test` | Must be an allowlisted command |
+| `testCwd` | `--test-cwd` | |
+| `tools` | `--tools` | boolean |
+| `stream` | `--stream` | boolean |
+| `heal` | `--heal` | boolean |
+| `timeoutMs` | `--timeout-ms` | integer >= 100 |
+| `maxTurns` | `--max-turns` | integer >= 1 |
+| `maxRetries` | `--max-retries` | integer >= 0 |
+| `maxTokens` | `--max-tokens` | integer >= 0 |
+| `maxCostUsd` | `--max-cost-usd` | number >= 0 |
+| `protectExisting` | `--protect-existing` | boolean |
+
+**Gate keys are rejected**: `yes`, `gitCommit`, `installDependencies`,
+`enableHooks`, and `apiKey` cannot appear in project config. A config that
+tries to set one of these causes a loud startup error naming the key.
+
+Keys named `"//"` are comment keys and are silently skipped. This allows a
+JSON-native annotation style:
+
+```json
+{
+  "//": "kodr project config — see kodr --help",
+  "model": "qwen/qwen3.6-35b-a3b",
+  "baseUrl": "http://localhost:1234/v1",
+  "testCommand": "npm test",
+  "tools": true,
+  "stream": true
+}
+```
+
+Point to a different config with the `KODR_CONFIG` environment variable.
+
+See the resolved value and its source with:
+
+```sh
+kodr run --show-config
+```
+
+Output shows each option, its resolved value, and its source (`flag` / `env` /
+`config` / `profile` / `builtin`). The resolved config and sources are also
+recorded in `summary.json` under `configSources`.
+
 Context packing uses the active profile's context window minus the completion
 reserve to decide how much workspace context to include. Override those values
 for a run when the serving layer has a different loaded context size:

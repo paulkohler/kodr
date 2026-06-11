@@ -148,18 +148,18 @@ gates:
 
 ## Done Criteria
 
-- [ ] Config file loaded, validated, and merged with the documented
+- [x] Config file loaded, validated, and merged with the documented
       precedence, implemented in the existing sentinel-based resolution.
-- [ ] Apply/approval gate keys rejected loudly; verification allowlist
+- [x] Apply/approval gate keys rejected loudly; verification allowlist
       unwidened by config.
-- [ ] `kodr init` scaffolds the annotated starter and detects the test
+- [x] `kodr init` scaffolds the annotated starter and detects the test
       command; refuses overwrite without `--force`.
-- [ ] `--show-config` prints resolved values with their source.
-- [ ] Resolved config and sources recorded in `summary.json`.
-- [ ] TUI and serve inherit config through the shared channel options.
-- [ ] Tests per Test Requirements (precedence, gates, init, no-config
+- [x] `--show-config` prints resolved values with their source.
+- [x] Resolved config and sources recorded in `summary.json`.
+- [x] TUI and serve inherit config through the shared channel options.
+- [x] Tests per Test Requirements (precedence, gates, init, no-config
       regression, channel inheritance, observability).
-- [ ] `usage.md` and help text updated.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] `usage.md` and help text updated.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.

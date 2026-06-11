@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { createRunArtifacts, writeJson, writeText } from './artifacts.mjs';
 import { loadConfiguredHooks, writeHookArtifact } from './command-hooks.mjs';
 import {
@@ -57,6 +57,13 @@ import {
 	resolveModelOptions,
 } from './model-specs.mjs';
 import { applyModelProfileDefaults } from './model-profiles.mjs';
+import {
+	applyProjectConfig,
+	defaultConfigPath,
+	loadProjectConfig,
+	ProjectConfigError,
+	renderShowConfig,
+} from './project-config.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './repomap/index.mjs';
@@ -125,7 +132,7 @@ export class CliError extends Error {
 	}
 }
 
-export function parseArgs(argv, env = {}) {
+export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 	const options = {
 		baseUrl: env.BASE_URL || DEFAULT_BASE_URL,
 		command: 'help',
@@ -143,6 +150,7 @@ export function parseArgs(argv, env = {}) {
 		openshellWorker: false,
 		dryRun: true,
 		extraHeaders: {},
+		force: false,
 		gitCommit: false,
 		help: false,
 		heal: false,
@@ -162,8 +170,10 @@ export function parseArgs(argv, env = {}) {
 		prompt: '',
 		promptCache: 'auto',
 		promptFile: '',
+		protectExisting: false,
 		provider: 'local',
 		replayDir: '',
+		showConfig: false,
 		showContext: false,
 		showFiles: false,
 		showSkills: false,
@@ -200,11 +210,23 @@ export function parseArgs(argv, env = {}) {
 		yes: false,
 		_apiKeySet: false,
 		_baseUrlSet: false,
+		_baseUrlEnvSet: Boolean(env.BASE_URL),
 		_completionReserveSet: false,
 		_contextWindowSet: false,
+		_healSet: false,
+		_maxCostUsdSet: false,
+		_maxRetriesSet: false,
+		_maxTokensSet: false,
+		_maxTurnsSet: false,
 		_modelSet: false,
+		_modelEnvSet: Boolean(env.MODEL_ID),
+		_protectExistingSet: false,
 		_sessionContextSet: false,
+		_streamSet: false,
+		_testCommandSet: false,
+		_testCwdSet: false,
 		_timeoutSet: false,
+		_toolsSet: false,
 	};
 
 	const positionals = [];
@@ -240,11 +262,22 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--protect-existing') {
 			options.protectExisting = true;
+			options._protectExistingSet = true;
+			continue;
+		}
+
+		if (arg === '--show-config') {
+			options.showConfig = true;
 			continue;
 		}
 
 		if (arg === '--show-context') {
 			options.showContext = true;
+			continue;
+		}
+
+		if (arg === '--force') {
+			options.force = true;
 			continue;
 		}
 
@@ -265,6 +298,7 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--stream') {
 			options.stream = true;
+			options._streamSet = true;
 			continue;
 		}
 
@@ -275,6 +309,7 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--tools') {
 			options.tools = true;
+			options._toolsSet = true;
 			continue;
 		}
 
@@ -296,6 +331,7 @@ export function parseArgs(argv, env = {}) {
 
 		if (arg === '--heal') {
 			options.heal = true;
+			options._healSet = true;
 			continue;
 		}
 
@@ -446,6 +482,46 @@ export function parseArgs(argv, env = {}) {
 		}
 	}
 
+	// Build source map before applying project config so sentinels reflect only
+	// what was set by CLI flags and environment variables.
+	const configSources = {
+		model: options._modelSet
+			? 'flag'
+			: options._modelEnvSet
+				? 'env'
+				: 'builtin',
+		baseUrl: options._baseUrlSet
+			? 'flag'
+			: options._baseUrlEnvSet
+				? 'env'
+				: 'builtin',
+		timeoutMs: options._timeoutSet ? 'flag' : 'builtin',
+		maxTurns: options._maxTurnsSet ? 'flag' : 'builtin',
+		maxRetries: options._maxRetriesSet ? 'flag' : 'builtin',
+		tools: options._toolsSet ? 'flag' : 'builtin',
+		stream: options._streamSet ? 'flag' : 'builtin',
+		heal: options._healSet ? 'flag' : 'builtin',
+		testCommand: options._testCommandSet ? 'flag' : 'builtin',
+		testCwd: options._testCwdSet ? 'flag' : 'builtin',
+		maxTokens: options._maxTokensSet ? 'flag' : 'builtin',
+		maxCostUsd: options._maxCostUsdSet ? 'flag' : 'builtin',
+		protectExisting: options._protectExistingSet ? 'flag' : 'builtin',
+	};
+
+	let loadedProjectConfig;
+	try {
+		loadedProjectConfig = loadProjectConfig(cwd, env);
+	} catch (error) {
+		if (error instanceof ProjectConfigError) {
+			throw new CliError(error.message);
+		}
+		throw error;
+	}
+	const configApplied = applyProjectConfig(options, loadedProjectConfig);
+	for (const key of configApplied) {
+		configSources[key] = 'config';
+	}
+
 	if (options.provider === 'openrouter') {
 		if (options.baseUrl === DEFAULT_BASE_URL && !env.BASE_URL) {
 			options.baseUrl = OPENROUTER_BASE_URL;
@@ -495,13 +571,31 @@ export function parseArgs(argv, env = {}) {
 		}
 		throw error;
 	}
+	// timeoutMs source: if not from flag or config, it came from the profile.
+	if (configSources.timeoutMs === 'builtin') {
+		configSources.timeoutMs = 'profile';
+	}
+	options.configSources = configSources;
+
 	delete options._apiKeySet;
+	delete options._baseUrlEnvSet;
 	delete options._baseUrlSet;
 	delete options._completionReserveSet;
 	delete options._contextWindowSet;
+	delete options._healSet;
+	delete options._maxCostUsdSet;
+	delete options._maxRetriesSet;
+	delete options._maxTokensSet;
+	delete options._maxTurnsSet;
+	delete options._modelEnvSet;
 	delete options._modelSet;
+	delete options._protectExistingSet;
 	delete options._sessionContextSet;
+	delete options._streamSet;
+	delete options._testCommandSet;
+	delete options._testCwdSet;
 	delete options._timeoutSet;
+	delete options._toolsSet;
 
 	if (options.dockerSandbox) {
 		Object.assign(options, dockerDefaults(options));
@@ -641,6 +735,7 @@ Usage:
   kodr --help
   kodr --version
   kodr probe [--json]
+  kodr init [--force]
   kodr run -p "task" [--json]
   kodr run --prompt-file prompt.md [--out .kodr/runs/name] [--prompt-id slug]
   kodr run -p "task" --dry-run
@@ -667,6 +762,7 @@ Usage:
   kodr run --show-files
   kodr run --show-context
   kodr run --show-skills
+  kodr run --show-config
   kodr cycle-review --transcript-file chat.md [--json]
   kodr compare -p "task" --models "m1,openrouter:m2" [--json]
   kodr eval --suite evals/suite.json [--json]
@@ -675,6 +771,24 @@ Usage:
   kodr session show <sessionId> [--json]
   kodr session export <sessionId> --format markdown
   kodr replay <run-dir>
+
+Project config:
+  kodr init             Write a starter .kodr/config.json with the currently
+                        resolved model, base URL, and (when package.json has a
+                        test script) testCommand: "npm test".
+  --force               Overwrite existing .kodr/config.json (init only).
+  .kodr/config.json     Per-project defaults. Precedence (highest first):
+                          CLI flags > env vars > project config > model profile > built-in defaults
+                        Allowed keys: model, baseUrl, testCommand, testCwd, tools,
+                          stream, heal, timeoutMs, maxTurns, maxRetries, maxTokens,
+                          maxCostUsd, protectExisting
+                        Gate keys rejected: yes, gitCommit, installDependencies,
+                          enableHooks, apiKey
+                        Keys named "//" are comment keys and are silently skipped.
+                        Override the path with KODR_CONFIG env var.
+  kodr run --show-config
+                        Print each resolved config option with its source
+                        (flag / env / config / profile / builtin) and exit.
 
 Local-model defaults:
   --base-url URL       Default: ${DEFAULT_BASE_URL}
@@ -793,6 +907,55 @@ async function maybeCommitAppliedWrites(cwd, options, state) {
 	});
 }
 
+async function runInit(options, io) {
+	const configPath = defaultConfigPath(io.cwd, io.env || {});
+
+	let exists = false;
+	try {
+		await readFile(configPath, 'utf8');
+		exists = true;
+	} catch {
+		exists = false;
+	}
+
+	if (exists && !options.force) {
+		throw new CliError(
+			`${configPath} already exists — use kodr init --force to overwrite`,
+		);
+	}
+
+	let testCommand = null;
+	try {
+		const pkg = JSON.parse(
+			await readFile(join(io.cwd, 'package.json'), 'utf8'),
+		);
+		if (pkg?.scripts?.test) testCommand = 'npm test';
+	} catch {
+		// No package.json or no test script — omit testCommand from starter.
+	}
+
+	const config = {
+		'//':
+			'kodr project config — see `kodr --help` and usage.md. ' +
+			'Gate keys (yes, gitCommit, installDependencies, enableHooks, apiKey) are not allowed.',
+		model: options.model,
+		baseUrl: options.baseUrl,
+	};
+	if (testCommand) {
+		config.testCommand = testCommand;
+	}
+
+	await mkdir(dirname(configPath), { recursive: true });
+	await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+
+	return {
+		configPath,
+		model: options.model,
+		baseUrl: options.baseUrl,
+		testCommand,
+	};
+}
+
 function withCliProgress(options, io) {
 	if (typeof options.onProgress === 'function') {
 		return options;
@@ -806,7 +969,7 @@ function withCliProgress(options, io) {
 }
 
 export async function main(argv, io) {
-	const options = parseArgs(argv, io.env);
+	const options = parseArgs(argv, io.env, io.cwd || process.cwd());
 
 	if (options.version) {
 		io.stdout.write(`${VERSION}\n`);
@@ -831,7 +994,22 @@ export async function main(argv, io) {
 		return { ok: true, command: 'probe', result };
 	}
 
+	if (options.command === 'init') {
+		const result = await runInit(options, io);
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+		} else {
+			io.stdout.write(`Wrote ${result.configPath}\n`);
+		}
+		return { ok: true, command: 'init', result };
+	}
+
 	if (options.command === 'run') {
+		if (options.showConfig) {
+			io.stdout.write(renderShowConfig(options));
+			return { ok: true, command: 'run', configSources: options.configSources };
+		}
+
 		if (options.showSkills) {
 			const skills = await discoverSkills(io.cwd);
 			io.stdout.write(renderSkillIndex(skills));
@@ -1484,8 +1662,10 @@ function assignValue(options, flag, value) {
 		options.suitePath = value;
 	} else if (flag === '--test') {
 		options.testCommand = value;
+		options._testCommandSet = true;
 	} else if (flag === '--test-cwd') {
 		options.testCwd = value;
+		options._testCwdSet = true;
 	} else if (flag === '--timeout-ms') {
 		options.timeoutMs = Number(value);
 		options._timeoutSet = true;
@@ -1509,14 +1689,18 @@ function assignValue(options, flag, value) {
 		options.hooksConfigPath = value;
 	} else if (flag === '--max-cost-usd') {
 		options.maxCostUsd = value;
+		options._maxCostUsdSet = true;
 	} else if (flag === '--max-retries') {
 		options.maxRetries = Number(value);
+		options._maxRetriesSet = true;
 	} else if (flag === '--max-thinking-tokens') {
 		options.maxThinkingTokens = Number(value);
 	} else if (flag === '--max-tokens') {
 		options.maxTokens = Number(value);
+		options._maxTokensSet = true;
 	} else if (flag === '--max-turns') {
 		options.maxTurns = Number(value);
+		options._maxTurnsSet = true;
 	} else if (flag === '--host') {
 		options.serveHost = value;
 	} else if (flag === '--port') {
@@ -2046,6 +2230,7 @@ async function runPrompt(options, io) {
 				writes: 'writes.json',
 			},
 			baseUrl: options.baseUrl,
+			configSources: options.configSources || {},
 			contextBudget: context.contextBudget || null,
 			promptPrefix: context.promptPrefix || null,
 			applyRequested: options.yes,
@@ -2609,6 +2794,7 @@ async function runStagedPrompt({
 			writes: 'writes.json',
 		},
 		baseUrl: options.baseUrl,
+		configSources: options.configSources || {},
 		contextBudget: context.contextBudget || null,
 		promptPrefix: context.promptPrefix || null,
 		finishReasons,
