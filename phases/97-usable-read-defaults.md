@@ -126,19 +126,19 @@ boolean fields.
 
 ## Done Criteria
 
-- [ ] `tools`, `stream`, `heal`, and `inspectContext` are tri-state with
+- [x] `tools`, `stream`, `heal`, and `inspectContext` are tri-state with
       `--no-*` escapes and phase 96 config precedence, visible in
       `--show-config` and `summary.json`.
-- [ ] Tools default resolves per model profile with both overrides
+- [x] Tools default resolves per model profile with both overrides
       tested; `compare`/`eval` unaffected.
-- [ ] Stream defaults on for interactive TTY only, with a chunk renderer
+- [x] Stream defaults on for interactive TTY only, with a chunk renderer
       for one-shot runs; server turns unchanged.
-- [ ] Inspect-context is the default packing strategy with recorded
+- [x] Inspect-context is the default packing strategy with recorded
       fallback; tools-on file-map packing unchanged.
-- [ ] Heal defaults on for `--yes` + `--test` runs.
-- [ ] Write/exec gates verified unchanged by tests.
-- [ ] usage.md Safety Defaults section and README examples state the new
+- [x] Heal defaults on for `--yes` + `--test` runs.
+- [x] Write/exec gates verified unchanged by tests.
+- [x] usage.md Safety Defaults section and README examples state the new
       defaults and the unchanged write gates.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.

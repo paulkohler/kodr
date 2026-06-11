@@ -77,9 +77,10 @@ Config keys map 1-to-1 with the corresponding CLI flags:
 | `baseUrl` | `--base-url` | Trailing slashes stripped |
 | `testCommand` | `--test` | Must be an allowlisted command |
 | `testCwd` | `--test-cwd` | |
-| `tools` | `--tools` | boolean |
-| `stream` | `--stream` | boolean |
-| `heal` | `--heal` | boolean |
+| `tools` | `--tools` / `--no-tools` | boolean (default `auto`: on when profile has `nativeToolCalls`) |
+| `stream` | `--stream` / `--no-stream` | boolean (default `auto`: on for interactive TTY) |
+| `heal` | `--heal` / `--no-heal` | boolean (default `auto`: on when `--yes` and `--test` are both set) |
+| `inspectContext` | `--inspect-context` / `--no-inspect-context` | boolean (default `auto`: on, fallback gracefully) |
 | `timeoutMs` | `--timeout-ms` | integer >= 100 |
 | `maxTurns` | `--max-turns` | integer >= 1 |
 | `maxRetries` | `--max-retries` | integer >= 0 |

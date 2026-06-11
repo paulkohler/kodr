@@ -153,7 +153,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		force: false,
 		gitCommit: false,
 		help: false,
-		heal: false,
+		heal: 'auto',
 		enableHooks: false,
 		agentModels: {},
 		agentModelSpecs: {},
@@ -161,7 +161,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		inspectFile: '',
 		inspectSymbol: '',
 		inspectLanguages: [],
-		inspectContext: false,
+		inspectContext: 'auto',
 		installDependencies: false,
 		json: false,
 		model: env.MODEL_ID || DEFAULT_MODEL_ID,
@@ -178,7 +178,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		showFiles: false,
 		showSkills: false,
 		skills: [],
-		stream: false,
+		stream: 'auto',
 		suitePath: '',
 		testCommand: '',
 		models: [],
@@ -197,7 +197,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		subagentStages: false,
 		skipReview: false,
 		reviewTimeoutMs: '',
-		tools: false,
+		tools: 'auto',
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		transcriptFile: '',
@@ -214,6 +214,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		_completionReserveSet: false,
 		_contextWindowSet: false,
 		_healSet: false,
+		_inspectContextSet: false,
 		_maxCostUsdSet: false,
 		_maxRetriesSet: false,
 		_maxTokensSet: false,
@@ -283,6 +284,13 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--inspect-context') {
 			options.inspectContext = true;
+			options._inspectContextSet = true;
+			continue;
+		}
+
+		if (arg === '--no-inspect-context') {
+			options.inspectContext = false;
+			options._inspectContextSet = true;
 			continue;
 		}
 
@@ -302,6 +310,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			continue;
 		}
 
+		if (arg === '--no-stream') {
+			options.stream = false;
+			options._streamSet = true;
+			continue;
+		}
+
 		if (arg === '--openrouter') {
 			options.provider = 'openrouter';
 			continue;
@@ -309,6 +323,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--tools') {
 			options.tools = true;
+			options._toolsSet = true;
+			continue;
+		}
+
+		if (arg === '--no-tools') {
+			options.tools = false;
 			options._toolsSet = true;
 			continue;
 		}
@@ -331,6 +351,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--heal') {
 			options.heal = true;
+			options._healSet = true;
+			continue;
+		}
+
+		if (arg === '--no-heal') {
+			options.heal = false;
 			options._healSet = true;
 			continue;
 		}
@@ -501,6 +527,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		tools: options._toolsSet ? 'flag' : 'builtin',
 		stream: options._streamSet ? 'flag' : 'builtin',
 		heal: options._healSet ? 'flag' : 'builtin',
+		inspectContext: options._inspectContextSet ? 'flag' : 'builtin',
 		testCommand: options._testCommandSet ? 'flag' : 'builtin',
 		testCwd: options._testCwdSet ? 'flag' : 'builtin',
 		maxTokens: options._maxTokensSet ? 'flag' : 'builtin',
@@ -575,6 +602,10 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 	if (configSources.timeoutMs === 'builtin') {
 		configSources.timeoutMs = 'profile';
 	}
+	// tools source: if not from flag or config, it was auto-resolved from the profile.
+	if (configSources.tools === 'builtin') {
+		configSources.tools = 'profile';
+	}
 	options.configSources = configSources;
 
 	delete options._apiKeySet;
@@ -583,6 +614,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 	delete options._completionReserveSet;
 	delete options._contextWindowSet;
 	delete options._healSet;
+	delete options._inspectContextSet;
 	delete options._maxCostUsdSet;
 	delete options._maxRetriesSet;
 	delete options._maxTokensSet;
@@ -745,6 +777,7 @@ Usage:
   kodr run -p "task" --yes --docker-sandbox [--docker-keep] [--test "npm test"]
   kodr run -p "task" --yes --openshell-sandbox [--openshell-keep] [--test "npm test"]
   kodr run --prompt-file prompt.md --openshell-worker --yes [--install] [--test "npm test"]
+  kodr run -p "task" [--no-tools] [--no-stream] [--no-heal] [--no-inspect-context]
   kodr run -p "task" --tools --hooks [--hooks-config .kodr/hooks.json]
   kodr run -p "task" --yes --protect-existing
   kodr run -p "task" --tools --yes --staged
@@ -780,8 +813,8 @@ Project config:
   .kodr/config.json     Per-project defaults. Precedence (highest first):
                           CLI flags > env vars > project config > model profile > built-in defaults
                         Allowed keys: model, baseUrl, testCommand, testCwd, tools,
-                          stream, heal, timeoutMs, maxTurns, maxRetries, maxTokens,
-                          maxCostUsd, protectExisting
+                          stream, heal, inspectContext, timeoutMs, maxTurns, maxRetries,
+                          maxTokens, maxCostUsd, protectExisting
                         Gate keys rejected: yes, gitCommit, installDependencies,
                           enableHooks, apiKey
                         Keys named "//" are comment keys and are silently skipped.
@@ -838,6 +871,8 @@ OpenRouter:
   --install            Run controlled dependency install after applied writes.
                        Uses npm ci when package-lock.json exists, otherwise npm install.
   --heal               After failed verification, run a bounded repair loop.
+                       Default: auto (on when --yes and --test are both set).
+  --no-heal            Disable automatic healing even when --yes and --test are set.
   --commit             After a clean apply (and passing tests when --test is set),
                        git-commit exactly the applied files with a run-referencing
                        message. Requires --yes. Git use is allowlisted; no push.
@@ -971,6 +1006,14 @@ function withCliProgress(options, io) {
 export async function main(argv, io) {
 	const options = parseArgs(argv, io.env, io.cwd || process.cwd());
 
+	// Resolve 'auto' stream: on for interactive TTY non-json runs, off otherwise.
+	if (options.stream === 'auto') {
+		options.stream = io.stdout.isTTY === true && !options.json;
+		if (options.configSources) {
+			options.configSources.stream = 'auto';
+		}
+	}
+
 	if (options.version) {
 		io.stdout.write(`${VERSION}\n`);
 		return { ok: true, command: 'version' };
@@ -1025,8 +1068,14 @@ export async function main(argv, io) {
 		if (options.showContext) {
 			const memory = await loadMemory(io.cwd);
 			const prompt = await loadOptionalPrompt(options, io.cwd);
+			const inspectionResult = await createInspectionContext(
+				io.cwd,
+				options,
+				prompt,
+			);
+			const inspection = inspectionResult?.enabled ? inspectionResult : null;
 			const context = await buildWorkspaceContext(io.cwd, {
-				inspection: await createInspectionContext(io.cwd, options, prompt),
+				inspection,
 				memory,
 				...workspaceContextOptions(options),
 			});
@@ -1035,6 +1084,16 @@ export async function main(argv, io) {
 		}
 
 		const runOptions = options.json ? options : withCliProgress(options, io);
+		// Wire chunk renderer for interactive one-shot streaming (TTY, non-json).
+		if (
+			options.stream &&
+			!options.json &&
+			typeof runOptions.onStreamContent !== 'function'
+		) {
+			runOptions.onStreamContent = (chunk) => {
+				io.stdout.write(chunk);
+			};
+		}
 		if (
 			Object.keys(runOptions.agentModelSpecs || {}).length > 0 &&
 			!runOptions.subagentStages
@@ -1849,6 +1908,7 @@ async function runPrompt(options, io) {
 		let rawInitialMessages;
 		let inspectionPlan = null;
 		let sessionCompaction = null;
+		let contextPackingResult = null;
 
 		if (parent) {
 			// Continuation: freeze the system prompt from the parent transcript.
@@ -1870,9 +1930,19 @@ async function runPrompt(options, io) {
 			// Build a minimal context for artifacts (context.md, workspaceFileCount).
 			memory = await loadMemory(io.cwd);
 			skills = await loadSkills(io.cwd, options.skills);
-			const inspection = await createInspectionContext(io.cwd, options, prompt);
+			contextPackingResult = await createInspectionContext(
+				io.cwd,
+				options,
+				prompt,
+			);
+			const inspection = contextPackingResult?.enabled
+				? contextPackingResult
+				: null;
 			if (inspection) {
-				inspectionPlan = createInspectionTaskPlan(prompt, inspection.index);
+				const plan = createInspectionTaskPlan(prompt, inspection.index);
+				if (hasInspectionTargets(plan)) {
+					inspectionPlan = plan;
+				}
 			}
 			context = await buildWorkspaceContext(io.cwd, {
 				inspection,
@@ -1884,9 +1954,19 @@ async function runPrompt(options, io) {
 		} else {
 			skills = await loadSkills(io.cwd, options.skills);
 			memory = await loadMemory(io.cwd);
-			const inspection = await createInspectionContext(io.cwd, options, prompt);
+			contextPackingResult = await createInspectionContext(
+				io.cwd,
+				options,
+				prompt,
+			);
+			const inspection = contextPackingResult?.enabled
+				? contextPackingResult
+				: null;
 			if (inspection) {
-				inspectionPlan = createInspectionTaskPlan(prompt, inspection.index);
+				const plan = createInspectionTaskPlan(prompt, inspection.index);
+				if (hasInspectionTargets(plan)) {
+					inspectionPlan = plan;
+				}
 			}
 			modelPrompt = inspectionPlan
 				? `${renderInspectionTaskPlan(inspectionPlan)}\n\n${prompt}`
@@ -2232,6 +2312,10 @@ async function runPrompt(options, io) {
 			baseUrl: options.baseUrl,
 			configSources: options.configSources || {},
 			contextBudget: context.contextBudget || null,
+			contextPacking: resolveContextPackingRecord(
+				contextPackingResult,
+				options,
+			),
 			promptPrefix: context.promptPrefix || null,
 			applyRequested: options.yes,
 			finishReasons: completion.finishReasons,
@@ -2943,7 +3027,12 @@ async function runHealingIfNeeded({
 	systemPrompt,
 	testResult,
 }) {
-	if (!options.heal || !options.yes || !testResult || testResult.ok) {
+	if (
+		(options.heal !== true && options.heal !== 'auto') ||
+		!options.yes ||
+		!testResult ||
+		testResult.ok
+	) {
 		return null;
 	}
 
@@ -3327,20 +3416,34 @@ async function loadPrompt(options, cwd) {
 }
 
 async function createInspectionContext(cwd, options, prompt) {
-	if (!options.inspectContext) {
+	if (options.inspectContext === false) {
 		return null;
 	}
-	return {
-		enabled: true,
-		index: await inspectWithRegistry(cwd, {
+	const auto = options.inspectContext === 'auto';
+	try {
+		const index = await inspectWithRegistry(cwd, {
 			languages:
 				options.inspectLanguages.length > 0
 					? options.inspectLanguages
 					: undefined,
 			query: prompt,
-		}),
-		query: prompt,
-	};
+		});
+		return {
+			enabled: true,
+			index,
+			query: prompt,
+			strategy: 'inspection-aware',
+		};
+	} catch (error) {
+		if (auto) {
+			return {
+				enabled: false,
+				fallbackReason: error.message,
+				strategy: 'whole-file',
+			};
+		}
+		throw error;
+	}
 }
 
 async function loadOptionalPrompt(options, cwd) {
@@ -3631,4 +3734,24 @@ function hasDependencyMetadataWrites(writes) {
 	return writes.some((write) =>
 		/(^|\/)(package\.json|package-lock\.json)$/u.test(write.path),
 	);
+}
+
+function hasInspectionTargets(plan) {
+	return (
+		(plan?.inspection?.targetFiles?.length ?? 0) > 0 ||
+		(plan?.inspection?.targetSymbols?.length ?? 0) > 0
+	);
+}
+
+function resolveContextPackingRecord(inspectionResult, options) {
+	if (options.tools) {
+		return { strategy: 'file-map', fallbackReason: null };
+	}
+	if (inspectionResult?.enabled) {
+		return { strategy: 'inspection-aware', fallbackReason: null };
+	}
+	return {
+		strategy: 'whole-file',
+		fallbackReason: inspectionResult?.fallbackReason || null,
+	};
 }

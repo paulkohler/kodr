@@ -238,15 +238,18 @@ describe('applyProjectConfig', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseArgs precedence', () => {
-	it('no-config regression: parseArgs with no config matches default behavior', async () => {
+	it('no-config regression: parseArgs with no config resolves auto defaults', async () => {
 		const cwd = await setup(); // no config file
 		const opts = parseArgs(['run', '-p', 'hi'], {}, cwd);
 		assert.equal(opts.model, 'qwen/qwen3.6-35b-a3b');
 		assert.equal(opts.baseUrl, 'http://localhost:1234/v1');
 		assert.equal(opts.timeoutMs, 600000);
-		assert.equal(opts.tools, false);
-		assert.equal(opts.stream, false);
-		assert.equal(opts.heal, false);
+		// tools resolves from profile nativeToolCalls (true for default profile)
+		assert.equal(opts.tools, true);
+		// stream and heal stay 'auto' until resolved in main()
+		assert.equal(opts.stream, 'auto');
+		assert.equal(opts.heal, 'auto');
+		assert.equal(opts.inspectContext, 'auto');
 		assert.equal(opts.testCommand, '');
 		assert.equal(opts.maxTurns, 8);
 		assert.equal(opts.maxRetries, 7);
@@ -360,12 +363,13 @@ describe('parseArgs precedence', () => {
 		assert.equal(opts.configSources.protectExisting, 'config');
 	});
 
-	it('configSources uses builtin for options not in config', async () => {
+	it('configSources uses profile for tools auto-resolved from profile', async () => {
 		const cwd = await setup({ model: 'config/model' });
 		const opts = parseArgs(['run', '-p', 'hi'], {}, cwd);
-		assert.equal(opts.configSources.tools, 'builtin');
+		assert.equal(opts.configSources.tools, 'profile');
 		assert.equal(opts.configSources.stream, 'builtin');
 		assert.equal(opts.configSources.heal, 'builtin');
+		assert.equal(opts.configSources.inspectContext, 'builtin');
 	});
 });
 

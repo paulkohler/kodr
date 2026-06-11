@@ -26,6 +26,7 @@ const KNOWN_KEYS = new Set([
 	'tools',
 	'stream',
 	'heal',
+	'inspectContext',
 	'timeoutMs',
 	'maxTurns',
 	'maxRetries',
@@ -133,6 +134,7 @@ function validateValue(key, value, configPath) {
 		case 'tools':
 		case 'stream':
 		case 'heal':
+		case 'inspectContext':
 		case 'protectExisting':
 			if (typeof value !== 'boolean') fail('must be a boolean');
 			return value;
@@ -219,6 +221,8 @@ function shouldApply(key, options) {
 			return !options._streamSet;
 		case 'heal':
 			return !options._healSet;
+		case 'inspectContext':
+			return !options._inspectContextSet;
 		case 'testCommand':
 			return !options._testCommandSet;
 		case 'testCwd':
@@ -243,9 +247,10 @@ export function renderShowConfig(options) {
 	const rows = [
 		['model', String(options.model ?? '')],
 		['baseUrl', String(options.baseUrl ?? '')],
-		['tools', String(options.tools ?? false)],
-		['stream', String(options.stream ?? false)],
-		['heal', String(options.heal ?? false)],
+		['tools', String(options.tools ?? 'auto')],
+		['stream', String(options.stream ?? 'auto')],
+		['heal', String(options.heal ?? 'auto')],
+		['inspectContext', String(options.inspectContext ?? 'auto')],
 		['testCommand', String(options.testCommand ?? '')],
 		['testCwd', String(options.testCwd ?? '')],
 		['timeoutMs', String(options.timeoutMs ?? '')],

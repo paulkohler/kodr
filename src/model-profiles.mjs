@@ -135,6 +135,9 @@ export function applyModelProfileDefaults(
 	if (!options._timeoutSet) {
 		next.timeoutMs = profile.timeoutMs;
 	}
+	if (options.tools === 'auto') {
+		next.tools = profile.nativeToolCalls;
+	}
 	if (!options._sessionContextSet) {
 		next.sessionContextChars = sessionContextCharsForProfile(effectiveProfile);
 	}
