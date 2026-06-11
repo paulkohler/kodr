@@ -64,6 +64,7 @@ export async function prepareChanges(cwd, proposal, options = {}) {
 
 	return {
 		applied: apply,
+		failedPatches: patchResult.failedPatches || [],
 		protected: protectedChanges,
 		writes: [...fileResult.writes, ...patchResult.writes],
 	};
@@ -132,6 +133,7 @@ export async function preparePatches(cwd, patches, options = {}) {
 	const timestamp =
 		options.timestamp || new Date().toISOString().replaceAll(':', '-');
 	const writes = [];
+	const failedPatches = [];
 	const targets = new Map();
 
 	for (const patch of patches) {
@@ -140,7 +142,16 @@ export async function preparePatches(cwd, patches, options = {}) {
 		if (!target) {
 			const before = await readExisting(jailed.absolute);
 			if (!before.exists) {
-				throw new SafeWriteError(`Patch target does not exist: ${patch.path}`);
+				failedPatches.push({
+					path: patch.path,
+					reason: 'missing_target',
+					search: patch.search,
+					occurrences: 0,
+					region: '',
+				});
+				// Mark as missing so subsequent patches to the same path also fail fast.
+				targets.set(patch.path, { missing: true });
+				continue;
 			}
 			target = {
 				absolute: jailed.absolute,
@@ -153,16 +164,28 @@ export async function preparePatches(cwd, patches, options = {}) {
 			targets.set(patch.path, target);
 		}
 
-		if (target.content === null) {
-			throw new SafeWriteError(`Patch target does not exist: ${patch.path}`);
+		if (target.missing) {
+			failedPatches.push({
+				path: patch.path,
+				reason: 'missing_target',
+				search: patch.search,
+				occurrences: 0,
+				region: '',
+			});
+			continue;
 		}
 
 		const normalized = normalizePatch(target.content, patch);
 		const occurrences = countOccurrences(target.content, normalized.search);
 		if (occurrences !== 1) {
-			throw new SafeWriteError(
-				`Patch search must match exactly once in ${patch.path}; found ${occurrences}`,
-			);
+			failedPatches.push({
+				path: patch.path,
+				reason: occurrences === 0 ? 'no_match' : 'multiple_matches',
+				search: patch.search,
+				occurrences,
+				region: closestRegion(target.content, patch.search),
+			});
+			continue;
 		}
 
 		const after = target.content.replace(normalized.search, normalized.replace);
@@ -192,6 +215,11 @@ export async function preparePatches(cwd, patches, options = {}) {
 
 	if (apply) {
 		for (const item of targets.values()) {
+			// Skip sentinel entries for missing targets and skip files whose
+			// content was never changed (all patches to this file failed).
+			if (item.missing || item.content === item.original) {
+				continue;
+			}
 			await mkdir(dirname(item.absolute), { recursive: true });
 			await mkdir(dirname(item.backupPath), { recursive: true });
 			await copyFile(item.absolute, item.backupPath);
@@ -202,7 +230,51 @@ export async function preparePatches(cwd, patches, options = {}) {
 	return {
 		applied: apply,
 		writes,
+		failedPatches,
 	};
+}
+
+export function closestRegion(content, search, contextLines = 3) {
+	const contentLineArr = splitLines(content);
+	const searchLineArr = splitLines(search);
+
+	if (searchLineArr.length === 0 || searchLineArr.length > 40) {
+		return '';
+	}
+
+	const windowSize = searchLineArr.length;
+	const normalizedSearch = new Set(
+		searchLineArr.map((line) => normalizeHorizontalWhitespace(line)),
+	);
+
+	let bestScore = 0;
+	let bestIndex = -1;
+
+	for (let i = 0; i <= contentLineArr.length - windowSize; i += 1) {
+		const window = contentLineArr.slice(i, i + windowSize);
+		let score = 0;
+		for (const line of window) {
+			if (normalizedSearch.has(normalizeHorizontalWhitespace(line))) {
+				score += 1;
+			}
+		}
+		if (score > bestScore) {
+			bestScore = score;
+			bestIndex = i;
+		}
+	}
+
+	if (bestScore === 0) {
+		return '';
+	}
+
+	const start = Math.max(0, bestIndex - contextLines);
+	const end = Math.min(
+		contentLineArr.length - 1,
+		bestIndex + windowSize - 1 + contextLines,
+	);
+	const text = contentLineArr.slice(start, end + 1).join('');
+	return `lines ${start + 1}-${end + 1}:\n${text}`;
 }
 
 export function contentHash(content) {

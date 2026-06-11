@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
+import { normalizeEditFormat } from './edit-formats.mjs';
 import { LMSTUDIO_BASE_URL, OLLAMA_BASE_URL } from './model-specs.mjs';
 import { OPENROUTER_BASE_URL } from './completion.mjs';
 
@@ -135,6 +136,9 @@ export function applyModelProfileDefaults(
 	if (!options._timeoutSet) {
 		next.timeoutMs = profile.timeoutMs;
 	}
+	if (!options._editFormatSet) {
+		next.editFormat = profile.editFormat;
+	}
 	if (options.tools === 'auto') {
 		next.tools = profile.nativeToolCalls;
 	}
@@ -172,6 +176,7 @@ function normalizeProfile(profile, source) {
 			profile.contextWindow,
 			DEFAULT_CONTEXT_WINDOW,
 		),
+		editFormat: normalizeEditFormat(profile.editFormat),
 		id,
 		nativeToolCalls: profile.nativeToolCalls !== false,
 		provider,
@@ -244,6 +249,7 @@ function serializeProfile(profile) {
 		completionReserve: profile.completionReserve,
 		configPath: profile.configPath,
 		contextWindow: profile.contextWindow,
+		editFormat: profile.editFormat,
 		id: profile.id,
 		key: profile.key,
 		matched: profile.matched,

@@ -260,3 +260,7 @@
 {"phase":"101","decision":"Post-write sensor returns null rather than throwing on any failure","reason":"A sensor must never abort a run — it provides signal, not gating."}
 {"phase":"101","decision":"Harness manifest is a pure function with zero imports","reason":"It classifies state that already exists; coupling it to I/O would make testing and future extraction harder."}
 {"phase":"101","decision":"Diagnostics suppress warnings when errors are present","reason":"Error-only rendering keeps repair prompts focused; warnings are noise when errors exist."}
+{"phase":"102","decision":"Re-target phase from unified-diff input to tolerant patch application","reason":"NEXT.md described a codebase that did not exist — unified diffs were never an input format. The real problem was preparePatches throwing on match failures."}
+{"phase":"102","decision":"Security violations still throw SafeWriteError; only match failures become tolerant","reason":"Path traversal and symlink escapes are non-negotiable security boundaries. Match failures are operational — the model can retry."}
+{"phase":"102","decision":"Patch retries run before the approval prompt","reason":"The user should see consolidated final writes, not intermediate partial results. Retries happen during the dry-run phase."}
+{"phase":"102","decision":"Staged and subagent orchestration keep patch format only — no retry loop","reason":"Staged orchestration uses whole-file writes from isolated file-authors. Adding retry complexity there has no benefit."}

@@ -2566,7 +2566,7 @@ describe('run', () => {
 		}
 	});
 
-	it('records failed patch proposals as failed run artifacts', async () => {
+	it('records failed patch proposals as tolerant failedPatches', async () => {
 		const server = await startFakeModelServer({
 			responses: [
 				{
@@ -2600,27 +2600,17 @@ describe('run', () => {
 				},
 			);
 
-			assert.equal(result.ok, false);
+			// Tolerant patches: run succeeds but with zero writes
+			assert.equal(result.ok, true);
 			assert.equal(await readFile(join(cwd, 'README.md'), 'utf8'), 'hello\n');
-
-			const summary = JSON.parse(
-				await readFile(join(result.result.runDir, 'summary.json'), 'utf8'),
-			);
-			assert.equal(summary.ok, false);
-			assert.match(summary.writeError.message, /found 0/u);
 
 			const writes = JSON.parse(
 				await readFile(join(result.result.runDir, 'writes.json'), 'utf8'),
 			);
-			assert.match(writes.error.message, /found 0/u);
-
-			const tasks = JSON.parse(
-				await readFile(join(result.result.runDir, 'tasks.json'), 'utf8'),
-			);
-			assert.equal(
-				tasks.tasks.find((task) => task.id === 'edit-readme-md').status,
-				'failed',
-			);
+			assert.equal(writes.writes.length, 0);
+			assert.equal(writes.failedPatches.length, 1);
+			assert.equal(writes.failedPatches[0].reason, 'no_match');
+			assert.equal(writes.failedPatches[0].path, 'README.md');
 		} finally {
 			await server.close();
 		}

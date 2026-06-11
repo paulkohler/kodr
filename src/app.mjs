@@ -58,6 +58,7 @@ import {
 	resolveAgentModels,
 	resolveModelOptions,
 } from './model-specs.mjs';
+import { normalizeEditFormat } from './edit-formats.mjs';
 import { applyModelProfileDefaults } from './model-profiles.mjs';
 import {
 	applyProjectConfig,
@@ -154,6 +155,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		openshellSandbox: false,
 		openshellWorker: false,
 		dryRun: true,
+		editFormat: 'patch',
 		extraHeaders: {},
 		force: false,
 		gitCommit: false,
@@ -214,11 +216,13 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		maxThinkingTokens: '',
 		maxTokens: '',
 		maxTurns: 8,
+		patchRetries: 2,
 		version: false,
 		yes: false,
 		_apiKeySet: false,
 		_baseUrlSet: false,
 		_dryRunSet: false,
+		_editFormatSet: false,
 		_baseUrlEnvSet: Boolean(env.BASE_URL),
 		_completionReserveSet: false,
 		_contextWindowSet: false,
@@ -230,6 +234,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		_maxTokensSet: false,
 		_maxTurnsSet: false,
 		_modelSet: false,
+		_patchRetriesSet: false,
 		_modelEnvSet: Boolean(env.MODEL_ID),
 		_protectExistingSet: false,
 		_sessionContextSet: false,
@@ -372,6 +377,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			continue;
 		}
 
+		if (arg === '--no-patch-retries') {
+			options.patchRetries = 0;
+			options._patchRetriesSet = true;
+			continue;
+		}
+
 		if (arg === '--heal') {
 			options.heal = true;
 			options._healSet = true;
@@ -505,7 +516,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			arg === '--file' ||
 			arg === '--symbol' ||
 			arg === '--languages' ||
-			arg === '--prior-scratchpad'
+			arg === '--patch-retries' ||
+			arg === '--prior-scratchpad' ||
+			arg === '--edit-format'
 		) {
 			// Consume the next token as the value unconditionally. An empty string
 			// or a value that starts with "--" (e.g. a literal prompt) is still a
@@ -856,7 +869,7 @@ Project config:
   --force               Overwrite existing .kodr/config.json (init only).
   .kodr/config.json     Per-project defaults. Precedence (highest first):
                           CLI flags > env vars > project config > model profile > built-in defaults
-                        Allowed keys: model, baseUrl, testCommand, testCwd, tools,
+                        Allowed keys: model, baseUrl, editFormat, testCommand, testCwd, tools,
                           stream, heal, inspectContext, lsp, timeoutMs, maxTurns, maxRetries,
                           maxTokens, maxCostUsd, protectExisting
                         Gate keys rejected: yes, gitCommit, installDependencies,
@@ -909,6 +922,11 @@ OpenRouter:
   --prior-scratchpad   Path to a scratchpad file to inject into the user message.
                        Use "last" to read from the most recent run's scratchpad.
                        Truncated to 2000 characters. Skipped if empty.
+  --edit-format <whole|patch|blocks>
+                       How the model formats file edits. Default: patch.
+                         patch  — JSON patches/files envelope (default)
+                         whole  — full-file rewrites in the JSON envelope
+                         blocks — SEARCH/REPLACE blocks outside JSON (no json_schema)
   --staged             Force plan-first staged execution for complex work.
   --no-staged          Disable automatic staged execution.
   --subagent-stages    Run planner, implementer, and reviewer as isolated tool agents.
@@ -1966,8 +1984,14 @@ function assignValue(options, flag, value) {
 			.split(',')
 			.map((s) => s.trim())
 			.filter(Boolean);
+	} else if (flag === '--patch-retries') {
+		options.patchRetries = Number(value);
+		options._patchRetriesSet = true;
 	} else if (flag === '--prior-scratchpad') {
 		options.priorScratchpadPath = value;
+	} else if (flag === '--edit-format') {
+		options.editFormat = normalizeEditFormat(value);
+		options._editFormatSet = true;
 	}
 }
 
@@ -2023,6 +2047,38 @@ async function probe(options, io) {
 
 	await writeJson(join(runDir, 'result.json'), result);
 	return result;
+}
+
+function renderPatchRetryPrompt(failedPatches) {
+	const lines = [
+		'The following patches did not match the current file content:',
+		'',
+	];
+	for (const fp of failedPatches) {
+		const reasonLabel =
+			fp.reason === 'no_match'
+				? 'no match'
+				: fp.reason === 'multiple_matches'
+					? `${fp.occurrences} matches`
+					: fp.reason;
+		lines.push(`## ${fp.path} (${reasonLabel})`, '');
+		if (fp.search) {
+			lines.push('Your search text:', '```', fp.search, '```', '');
+		}
+		if (fp.region) {
+			lines.push(
+				`The closest matching region in the file:`,
+				'```',
+				fp.region,
+				'```',
+				'',
+			);
+		}
+	}
+	lines.push(
+		'Re-emit corrected patches for only these failed paths. Use the same format (JSON with patches array). Do not resend patches that already succeeded.',
+	);
+	return lines.join('\n');
 }
 
 export async function runPrompt(options, io) {
@@ -2085,7 +2141,9 @@ export async function runPrompt(options, io) {
 			...options,
 			cwd: io.cwd,
 			hooks: configuredHooks.hooks,
-			responseFormat: proposalResponseFormat(),
+			...(options.editFormat !== 'blocks'
+				? { responseFormat: proposalResponseFormat() }
+				: {}),
 		};
 
 		// Resolve parent session (if --continue or --session was passed).
@@ -2730,6 +2788,107 @@ export async function runPrompt(options, io) {
 					writes: [],
 				};
 			}
+
+			// Patch retry loop: if patches failed to match, send structured
+			// feedback to the model and re-apply only the failed patches.
+			if (
+				!writeError &&
+				(writeResult.failedPatches?.length ?? 0) > 0 &&
+				options.patchRetries > 0
+			) {
+				const maxRetryAttempts = options.patchRetries;
+				let retryConversation = [...completion.messages];
+				let currentFailedPatches = writeResult.failedPatches;
+				let retryAttempts = 0;
+				const recoveredPaths = [];
+
+				for (
+					let attempt = 0;
+					attempt < maxRetryAttempts && currentFailedPatches.length > 0;
+					attempt += 1
+				) {
+					retryAttempts += 1;
+					const retryPromptText = renderPatchRetryPrompt(currentFailedPatches);
+					retryConversation = [
+						...retryConversation,
+						{ content: retryPromptText, role: 'user' },
+					];
+
+					let retryCompletion;
+					try {
+						retryCompletion = await completeWithContinuations(
+							runOptions,
+							model,
+							'',
+							context.systemPrompt,
+							{ initialMessages: retryConversation },
+						);
+					} catch {
+						// Model call failed; stop retrying.
+						break;
+					}
+
+					let retryProposal;
+					try {
+						retryProposal = extractProposal(retryCompletion.text);
+					} catch {
+						// Could not parse proposal; stop retrying.
+						break;
+					}
+
+					if (!retryProposal) {
+						break;
+					}
+
+					// Filter proposal to only the still-failing paths.
+					const failingPathSet = new Set(
+						currentFailedPatches.map((fp) => fp.path),
+					);
+					const filteredProposal = {
+						...retryProposal,
+						patches: (retryProposal.patches ?? []).filter((p) =>
+							failingPathSet.has(p.path),
+						),
+						files: (retryProposal.files ?? []).filter((f) =>
+							failingPathSet.has(f.path),
+						),
+					};
+
+					let retryResult;
+					try {
+						retryResult = await prepareChanges(io.cwd, filteredProposal, {
+							apply: writeResult.applied,
+							protectExisting: options.protectExisting,
+							protectedPaths: protectedWritePaths(options),
+						});
+					} catch {
+						break;
+					}
+
+					// Merge successful writes.
+					for (const w of retryResult.writes) {
+						recoveredPaths.push(w.path);
+						writeResult.writes = writeResult.writes.filter(
+							(existing) => existing.path !== w.path,
+						);
+						writeResult.writes.push(w);
+					}
+
+					// Advance conversation for next iteration.
+					retryConversation = retryCompletion.messages;
+
+					// Narrow to still-failing patches.
+					currentFailedPatches = retryResult.failedPatches ?? [];
+				}
+
+				writeResult.failedPatches = currentFailedPatches;
+				writeResult.patchRetries = {
+					attempts: retryAttempts,
+					recoveredPaths,
+					unresolved: currentFailedPatches.map((fp) => fp.path),
+				};
+			}
+
 			writeResult.treeState = treeState;
 		}
 		const installResult =
@@ -2853,6 +3012,10 @@ export async function runPrompt(options, io) {
 		});
 		await writeJson(join(runDir, 'tests.json'), testResult);
 		await writeJson(join(runDir, 'diagnostics.json'), postWriteDiagnostics);
+		await writeJson(
+			join(runDir, 'patch-retries.json'),
+			writeResult.patchRetries ?? null,
+		);
 		await writeLastRun(io.cwd, runDir);
 
 		return {
@@ -3332,6 +3495,7 @@ function workspaceContextOptions(options) {
 	return {
 		completionReserve: options.completionReserve,
 		contextWindow: options.contextWindow,
+		editFormat: options.editFormat,
 		...(options.contextBudgetChars
 			? { totalBytes: options.contextBudgetChars }
 			: {}),

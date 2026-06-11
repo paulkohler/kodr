@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
+import { EDIT_FORMATS, normalizeEditFormat } from './edit-formats.mjs';
 
 export class ProjectConfigError extends Error {
 	constructor(message) {
@@ -21,6 +22,7 @@ const KNOWN_KEYS = new Set([
 	'//',
 	'model',
 	'baseUrl',
+	'editFormat',
 	'testCommand',
 	'testCwd',
 	'tools',
@@ -137,6 +139,11 @@ function validateValue(key, value, configPath) {
 			if (typeof value !== 'string') fail('must be a string');
 			return value;
 
+		case 'editFormat':
+			if (!EDIT_FORMATS.includes(value))
+				fail(`must be one of: ${EDIT_FORMATS.join(', ')}`);
+			return value;
+
 		case 'baseUrl':
 			if (typeof value !== 'string') fail('must be a string');
 			return value.replace(/\/+$/u, '');
@@ -240,6 +247,8 @@ function shouldApply(key, options) {
 			return !options._modelSet && !options._modelEnvSet;
 		case 'baseUrl':
 			return !options._baseUrlSet && !options._baseUrlEnvSet;
+		case 'editFormat':
+			return !options._editFormatSet;
 		case 'timeoutMs':
 			return !options._timeoutSet;
 		case 'maxTurns':
@@ -280,6 +289,7 @@ export function renderShowConfig(options) {
 	const rows = [
 		['model', String(options.model ?? '')],
 		['baseUrl', String(options.baseUrl ?? '')],
+		['editFormat', String(options.editFormat ?? 'patch')],
 		['tools', String(options.tools ?? 'auto')],
 		['stream', String(options.stream ?? 'auto')],
 		['heal', String(options.heal ?? 'auto')],

@@ -148,65 +148,72 @@ describe('safe writes', () => {
 		);
 	});
 
-	it('rejects stale or ambiguous patches', async () => {
+	it('collects stale or ambiguous patches into failedPatches instead of throwing', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-stale-patch-'));
 		await writeFile(join(cwd, 'README.md'), 'same\nsame\n', 'utf8');
 
-		await assert.rejects(
-			() =>
-				preparePatches(cwd, [
-					{
-						path: 'README.md',
-						replace: 'changed',
-						search: 'same',
-					},
-				]),
-			/match exactly once/u,
-		);
-		await assert.rejects(
-			() =>
-				preparePatches(cwd, [
-					{
-						path: 'README.md',
-						replace: 'changed',
-						search: 'missing',
-					},
-				]),
-			/found 0/u,
-		);
+		const multipleResult = await preparePatches(cwd, [
+			{
+				path: 'README.md',
+				replace: 'changed',
+				search: 'same',
+			},
+		]);
+		assert.equal(multipleResult.failedPatches.length, 1);
+		assert.equal(multipleResult.failedPatches[0].reason, 'multiple_matches');
+		assert.equal(multipleResult.failedPatches[0].occurrences, 2);
+		assert.equal(multipleResult.writes.length, 0);
+
+		const noMatchResult = await preparePatches(cwd, [
+			{
+				path: 'README.md',
+				replace: 'changed',
+				search: 'missing',
+			},
+		]);
+		assert.equal(noMatchResult.failedPatches.length, 1);
+		assert.equal(noMatchResult.failedPatches[0].reason, 'no_match');
+		assert.equal(noMatchResult.failedPatches[0].occurrences, 0);
+		assert.equal(noMatchResult.writes.length, 0);
+
+		// File must be untouched.
 		assert.equal(
 			await readFile(join(cwd, 'README.md'), 'utf8'),
 			'same\nsame\n',
 		);
 	});
 
-	it('does not partially apply a patch batch when a later patch is stale', async () => {
+	it('applies successful patches and collects failed ones without partial-apply side-effects', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-patch-batch-'));
 		await writeFile(join(cwd, 'a.txt'), 'alpha\n', 'utf8');
 		await writeFile(join(cwd, 'b.txt'), 'beta\n', 'utf8');
 
-		await assert.rejects(
-			() =>
-				preparePatches(
-					cwd,
-					[
-						{
-							path: 'a.txt',
-							replace: 'ALPHA\n',
-							search: 'alpha\n',
-						},
-						{
-							path: 'b.txt',
-							replace: 'BETA\n',
-							search: 'missing\n',
-						},
-					],
-					{ apply: true },
-				),
-			/found 0/u,
+		const result = await preparePatches(
+			cwd,
+			[
+				{
+					path: 'a.txt',
+					replace: 'ALPHA\n',
+					search: 'alpha\n',
+				},
+				{
+					path: 'b.txt',
+					replace: 'BETA\n',
+					search: 'missing\n',
+				},
+			],
+			{ apply: true },
 		);
 
-		assert.equal(await readFile(join(cwd, 'a.txt'), 'utf8'), 'alpha\n');
+		// a.txt patch succeeded and was applied.
+		assert.equal(result.writes.length, 1);
+		assert.equal(result.writes[0].path, 'a.txt');
+		assert.equal(await readFile(join(cwd, 'a.txt'), 'utf8'), 'ALPHA\n');
+
+		// b.txt patch failed; file is untouched, no backup written.
+		assert.equal(result.failedPatches.length, 1);
+		assert.equal(result.failedPatches[0].path, 'b.txt');
+		assert.equal(result.failedPatches[0].reason, 'no_match');
 		assert.equal(await readFile(join(cwd, 'b.txt'), 'utf8'), 'beta\n');
 	});
 
