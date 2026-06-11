@@ -1001,6 +1001,7 @@ describe('run', () => {
 				context: 'context.md',
 				conversation: 'conversation.json',
 				conversationRaw: 'conversation-raw.json',
+				diagnostics: 'diagnostics.json',
 				messages: 'messages.json',
 				prompt: 'prompt.md',
 				promptPrefix: 'prompt-prefix.json',

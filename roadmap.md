@@ -100,6 +100,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 98 Interactive Apply Prompt
 - [x] 99 Optional LSP Adapter (renumbered from 75; kept last as a capability add, not a usability gap)
 - [x] 100 Brownfield Edit Eval Suite
+- [x] 101 Harness Engineering — Opinionated Sensors
 
 ## Phase Contract
 

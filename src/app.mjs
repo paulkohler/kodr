@@ -112,6 +112,8 @@ import {
 } from './session-compaction.mjs';
 import { runTui } from './tui.mjs';
 import { VERSION } from './version.mjs';
+import { buildHarnessManifest } from './harness.mjs';
+import { runPostWriteDiagnostics } from './post-write-sensor.mjs';
 
 export { VERSION };
 
@@ -165,7 +167,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		inspectSymbol: '',
 		inspectLanguages: [],
 		inspectContext: 'auto',
-		lsp: false,
+		lsp: 'auto',
 		installDependencies: false,
 		json: false,
 		model: env.MODEL_ID || DEFAULT_MODEL_ID,
@@ -917,6 +919,10 @@ OpenRouter:
   --heal               After failed verification, run a bounded repair loop.
                        Default: auto (on when --yes and --test are both set).
   --no-heal            Disable automatic healing even when --yes and --test are set.
+  --lsp                Enable LSP enrichment (run all available LSP servers on PATH).
+  --no-lsp             Disable LSP enrichment.
+                       Default: auto (use any LSP server found on PATH; skip silently
+                       if none are available).
   --commit             After a clean apply (and passing tests when --test is set),
                        git-commit exactly the applied files with a run-referencing
                        message. Requires --yes. Git use is allowlisted; no push.
@@ -2255,11 +2261,17 @@ export async function runPrompt(options, io) {
 				// bounded heal loop the standard path uses so --heal is honored here
 				// too; the primary --model is the implementer, so it owns repairs.
 				let testResult = orchestrationResult.testResult;
+				const postWriteDiagnostics = await runPostWriteDiagnostics(
+					io.cwd,
+					orchestrationResult.writeResult,
+					options,
+				);
 				const healingResult = await runHealingIfNeeded({
 					cwd: await verificationCwd(io.cwd, options),
 					commandRunner,
 					model,
 					options,
+					postWriteDiagnostics,
 					registry,
 					runDir,
 					systemPrompt: context.systemPrompt,
@@ -2285,6 +2297,7 @@ export async function runPrompt(options, io) {
 					artifacts: {
 						context: 'context.md',
 						conversation: 'conversation.json',
+						diagnostics: 'diagnostics.json',
 						messages: 'messages.json',
 						prompt: 'prompt.md',
 						promptPrefix: 'prompt-prefix.json',
@@ -2343,6 +2356,24 @@ export async function runPrompt(options, io) {
 				summary.healStopReason = healingResult?.stopReason || '';
 				taskPlan = updateTasksFromRun(taskPlan, summary);
 				summary.taskCounts = taskCounts(taskPlan);
+				summary.harness = buildHarnessManifest({
+					context,
+					contextPacking: resolveContextPackingRecord(
+						contextPackingResult,
+						options,
+					),
+					inspectionIndex: contextPackingResult?.index ?? null,
+					inspectionPlan,
+					sessionCompaction,
+					proposalFound: orchestrationResult.proposalFound,
+					proposalError: null,
+					writeResult: orchestrationResult.writeResult,
+					writeError: orchestrationResult.writeError ?? null,
+					postWriteDiagnostics,
+					installResult: orchestrationResult.installResult ?? null,
+					testResult,
+					healingResult,
+				});
 
 				await writeText(responsePath, orchestrationResult.response);
 				await writeJson(
@@ -2365,6 +2396,7 @@ export async function runPrompt(options, io) {
 					join(runDir, 'writes.json'),
 					orchestrationResult.writeResult,
 				);
+				await writeJson(join(runDir, 'diagnostics.json'), postWriteDiagnostics);
 				await writeLastRun(io.cwd, runDir);
 
 				return {
@@ -2475,6 +2507,7 @@ export async function runPrompt(options, io) {
 				context: 'context.md',
 				conversation: 'conversation.json',
 				conversationRaw: 'conversation-raw.json',
+				diagnostics: 'diagnostics.json',
 				messages: 'messages.json',
 				prompt: 'prompt.md',
 				promptPrefix: 'prompt-prefix.json',
@@ -2544,6 +2577,24 @@ export async function runPrompt(options, io) {
 			summary.writeCount = 0;
 			taskPlan = updateTasksFromRun(taskPlan, summary);
 			summary.taskCounts = taskCounts(taskPlan);
+			summary.harness = buildHarnessManifest({
+				context,
+				contextPacking: resolveContextPackingRecord(
+					contextPackingResult,
+					options,
+				),
+				inspectionIndex: contextPackingResult?.index ?? null,
+				inspectionPlan,
+				sessionCompaction,
+				proposalFound: false,
+				proposalError,
+				writeResult: null,
+				writeError: null,
+				postWriteDiagnostics: null,
+				installResult: null,
+				testResult: null,
+				healingResult: null,
+			});
 
 			const writeResult = {
 				applied: false,
@@ -2572,6 +2623,7 @@ export async function runPrompt(options, io) {
 			await writeJson(join(runDir, 'tasks.json'), taskPlan);
 			await writeJson(join(runDir, 'writes.json'), writeResult);
 			await writeJson(join(runDir, 'tests.json'), null);
+			await writeJson(join(runDir, 'diagnostics.json'), null);
 			await writeLastRun(io.cwd, runDir);
 
 			return {
@@ -2697,6 +2749,11 @@ export async function runPrompt(options, io) {
 		const dependencyInstallRequired = hasDependencyMetadataWrites(
 			writeResult.writes,
 		);
+		const postWriteDiagnostics = await runPostWriteDiagnostics(
+			io.cwd,
+			writeResult,
+			options,
+		);
 		let testResult =
 			options.testCommand && shouldApply && !writeError && !runError
 				? await runVerification(
@@ -2713,6 +2770,7 @@ export async function runPrompt(options, io) {
 			commandRunner,
 			model,
 			options: { ...options, yes: shouldApply },
+			postWriteDiagnostics,
 			registry,
 			runDir,
 			systemPrompt: context.systemPrompt,
@@ -2753,6 +2811,21 @@ export async function runPrompt(options, io) {
 		summary.writeCount = writeResult.writes.length;
 		taskPlan = updateTasksFromRun(taskPlan, summary);
 		summary.taskCounts = taskCounts(taskPlan);
+		summary.harness = buildHarnessManifest({
+			context,
+			contextPacking: summary.contextPacking,
+			inspectionIndex: contextPackingResult?.index ?? null,
+			inspectionPlan,
+			sessionCompaction,
+			proposalFound: proposal !== null,
+			proposalError: null,
+			writeResult,
+			writeError,
+			postWriteDiagnostics,
+			installResult,
+			testResult,
+			healingResult,
+		});
 
 		await writeText(responsePath, completion.text);
 		await writeConversationArtifacts(
@@ -2779,6 +2852,7 @@ export async function runPrompt(options, io) {
 			treeState,
 		});
 		await writeJson(join(runDir, 'tests.json'), testResult);
+		await writeJson(join(runDir, 'diagnostics.json'), postWriteDiagnostics);
 		await writeLastRun(io.cwd, runDir);
 
 		return {
@@ -3026,6 +3100,11 @@ async function runStagedPrompt({
 		};
 	}
 	const dependencyInstallRequired = hasDependencyMetadataWrites(allWrites);
+	const postWriteDiagnostics = await runPostWriteDiagnostics(
+		io.cwd,
+		{ applied: options.yes && allWrites.length > 0, writes: allWrites },
+		options,
+	);
 	let testResult =
 		options.testCommand && options.yes && !writeError && !runError
 			? await runVerification(
@@ -3042,6 +3121,7 @@ async function runStagedPrompt({
 		commandRunner,
 		model,
 		options,
+		postWriteDiagnostics,
 		registry,
 		runDir,
 		systemPrompt: context.systemPrompt,
@@ -3083,6 +3163,7 @@ async function runStagedPrompt({
 		artifacts: {
 			context: 'context.md',
 			conversation: 'conversation.json',
+			diagnostics: 'diagnostics.json',
 			messages: 'messages.json',
 			prompt: 'prompt.md',
 			promptPrefix: 'prompt-prefix.json',
@@ -3154,6 +3235,21 @@ async function runStagedPrompt({
 	}
 	taskPlan = updateTasksFromRun(taskPlan, summary);
 	summary.taskCounts = taskCounts(taskPlan);
+	summary.harness = buildHarnessManifest({
+		context,
+		contextPacking: null,
+		inspectionIndex: null,
+		inspectionPlan: null,
+		sessionCompaction: null,
+		proposalFound: lastProposal !== null,
+		proposalError: null,
+		writeResult,
+		writeError,
+		postWriteDiagnostics,
+		installResult,
+		testResult,
+		healingResult,
+	});
 
 	await writeText(responsePath, completion.text);
 	await writeJson(join(runDir, 'conversation.json'), completion.messages);
@@ -3175,6 +3271,7 @@ async function runStagedPrompt({
 	await writeJson(join(runDir, 'tasks.json'), taskPlan);
 	await writeJson(join(runDir, 'writes.json'), writeResult);
 	await writeJson(join(runDir, 'tests.json'), testResult);
+	await writeJson(join(runDir, 'diagnostics.json'), postWriteDiagnostics);
 	await writeLastRun(io.cwd, runDir);
 
 	return {
@@ -3246,6 +3343,7 @@ async function runHealingIfNeeded({
 	cwd,
 	model,
 	options,
+	postWriteDiagnostics,
 	registry,
 	runDir,
 	systemPrompt,
@@ -3269,6 +3367,7 @@ async function runHealingIfNeeded({
 	return runSelfHealingLoop(cwd, testResult, {
 		apply: true,
 		artifactDir: join(runDir, 'repairs'),
+		diagnostics: postWriteDiagnostics,
 		maxTurns: Math.max(1, Math.min(options.maxTurns, 3)),
 		repairTurn: async ({ prompt }) => {
 			const completion =

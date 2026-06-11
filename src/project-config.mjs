@@ -150,9 +150,11 @@ function validateValue(key, value, configPath) {
 			return value;
 
 		case 'lsp': {
-			// Accepts true (all servers) or an array of known server names.
+			// Accepts true/false/'auto' (all/no/available servers) or an array of known server names.
 			// Rejects command strings and unknown names to prevent config injection.
 			if (value === true) return true;
+			if (value === false) return false;
+			if (value === 'auto') return 'auto';
 			if (Array.isArray(value)) {
 				for (const name of value) {
 					if (typeof name !== 'string') {
@@ -164,7 +166,7 @@ function validateValue(key, value, configPath) {
 				}
 				return value;
 			}
-			fail('must be true or an array of known server names');
+			fail('must be true, false, "auto", or an array of known server names');
 			break;
 		}
 
@@ -305,6 +307,8 @@ export function renderShowConfig(options) {
 
 function lspConfigDisplay(lsp) {
 	if (lsp === true) return 'true';
+	if (lsp === false) return 'false';
+	if (lsp === 'auto') return 'auto';
 	if (Array.isArray(lsp)) return lsp.join(',') || '[]';
-	return 'false';
+	return 'auto';
 }

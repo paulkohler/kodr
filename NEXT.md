@@ -77,7 +77,7 @@ are anecdotes. This is also the phase that converts "model quality is improving
 fast" from a hope into a dashboard — rerun the suite when a new model lands in
 LM Studio and get a score.
 
-### Phase 101 — Edit-Format Reliability
+### Phase 102 — Edit-Format Reliability
 
 The single biggest lesson from Aider's public benchmarking is that *edit format
 is the dominant variable* for small models — whole-file rewrites, unified
@@ -96,7 +96,7 @@ but format choice is static and patch application is brittle. This phase:
 *Why second:* this is the highest-leverage reliability fix per line of code, and
 phase 100 gives it a scoreboard.
 
-### Phase 102 — Repair Pressure And No-Progress Detection
+### Phase 103 — Repair Pressure And No-Progress Detection
 
 Make the harness refuse to be fooled. Directly from the postgres trial:
 
@@ -111,11 +111,11 @@ Make the harness refuse to be fooled. Directly from the postgres trial:
   failing-test count gets the test output diff fed back, not just "tests still
   fail."
 
-*Why third:* phases 100/101 make first attempts better; this phase makes the
+*Why third:* phases 100/102 make first attempts better; this phase makes the
 *loop* converge when first attempts are not enough. Converging loops are what
 small models need most.
 
-### Phase 103 — Daily-Driver TUI Session
+### Phase 104 — Daily-Driver TUI Session
 
 The TUI works but reads like a debug console. Make `kodr` with no arguments (in
 a configured project) open the session loop, and make that loop pleasant within
@@ -130,10 +130,10 @@ the line-oriented, zero-dependency constraint:
 - `/retry` to rerun the last turn (optionally with `--model X`), since free
   tokens make "just try again with the bigger model" a natural gesture.
 
-*Why now:* after 100–102 the runs are worth living in. This is the phase where
+*Why now:* after 100–103 the runs are worth living in. This is the phase where
 someone who is not the author starts kodr in the morning and keeps it open.
 
-### Phase 104 — Measured Model Routing
+### Phase 105 — Measured Model Routing
 
 The phase 69 profile registry plus phase 82 per-agent model specs already allow
 manual routing. Make it automatic and *measured*: a small fast model handles
@@ -148,7 +148,7 @@ a new 8B model lands that beats your 35B at diffs, `kodr bench` discovers it
 and routing uses it the same day. No other tool does per-machine, per-model
 empirical routing, because no other tool assumes tokens are free.
 
-### Phase 105 — Run Forensics As A Product Surface
+### Phase 106 — Run Forensics As A Product Surface
 
 Cash in transparency. Every artifact already exists; the missing piece is the
 reader. `kodr why [run-id]` renders a failed (or last) run as a causal story:
@@ -162,19 +162,19 @@ keeping with the phase 50 sketch).
 and the thing every local-model user struggles with daily. It also feeds
 development: the postgres trial showed diagnosis is where the harness learns.
 
-### Phase 106 — Free-Token Background Loops
+### Phase 107 — Free-Token Background Loops
 
 The killer local-first application: workflows too token-expensive to run on
 metered APIs. One narrow, well-gated entry point: `kodr watch --test "npm
 test"` — on file change, run tests; on failure, propose a repair as a *pending
 review* (never auto-apply; the phase 98 gate machinery already holds it).
-Artifacts and undo make it safe; the phase 102 no-progress detection keeps it
+Artifacts and undo make it safe; the phase 103 no-progress detection keeps it
 from spinning. Start deliberately small — test-failure repair only.
 
 *Why late:* it composes everything before it (repair convergence, routing,
 review gates) and is irresponsible to ship before the loop reliably converges.
 
-### Phase 107 — Publish `@kodr/repomap`
+### Phase 108 — Publish `@kodr/repomap`
 
 Extract and publish the repomap library that phase 95 prepared. Real package,
 real README with the runnable examples, provenance note that it was built by a
@@ -188,27 +188,28 @@ back into app code.
 
 ## Sequencing logic in one paragraph
 
-Measure first (100), because everything else optimizes against it. Then fix the
-two reliability layers in causal order: better first attempts (101), then
-converging repair loops (102). Only then invest in the daily-driver surface
-(103) — polishing a UI around runs that fail is wasted. Routing (104) needs the
-bench from 100 and makes 103/106 dramatically better as models improve.
-Forensics (105) can land anytime after 100 but pays most once people use the
-tool daily. Background loops (106) are the local-first payoff and must come
-after convergence is trustworthy. Publication (107) is parallel-track.
+Measure first (100), because everything else optimizes against it. Harness
+engineering (101) makes existing controls visible and on by default. Then fix
+the two reliability layers in causal order: better first attempts (102), then
+converging repair loops (103). Only then invest in the daily-driver surface
+(104) — polishing a UI around runs that fail is wasted. Routing (105) needs the
+bench from 100 and makes 104/107 dramatically better as models improve.
+Forensics (106) can land anytime after 100 but pays most once people use the
+tool daily. Background loops (107) are the local-first payoff and must come
+after convergence is trustworthy. Publication (108) is parallel-track.
 
 ## The user-experience arc
 
 - **Today:** kodr can complete one-shot greenfield tasks against a local model,
   with good artifacts and safe apply gates, but real repair work stalls and the
   user falls back to doing it by hand.
-- **After 100–102:** you point kodr at a real repo and edits land reliably for
+- **After 100–103:** you point kodr at a real repo and edits land reliably for
   your specific model, with a scoreboard proving it; failed loops converge or
   fail loudly with a named reason.
-- **After 103–105:** kodr is a session you keep open. It picks the right model
+- **After 104–106:** kodr is a session you keep open. It picks the right model
   per task on its own, and when something goes wrong, `kodr why` shows the
   exact request that misfired.
-- **After 106–107:** kodr quietly burns your idle GPU on test repairs that wait
+- **After 107–108:** kodr quietly burns your idle GPU on test repairs that wait
   for your review, and a piece of it lives on npm where other people's tools
   depend on it.
 
@@ -216,9 +217,9 @@ after convergence is trustworthy. Publication (107) is parallel-track.
 
 - **No more greenfield examples.** Five exist; they no longer find new
   failures. Brownfield evals (100) replace them as the harness's stress test.
-- **No web UI buildout** beyond the read-only run viewer in 105. The channel
+- **No web UI buildout** beyond the read-only run viewer in 106. The channel
   contract keeps the option open; a real frontend is a different project.
 - **No new sandbox backends.** Docker + OpenShell + worker mode cover the
   threat models. Depth, not breadth.
-- **No new model providers** until routing (104) exists — adding endpoints is
+- **No new model providers** until routing (105) exists — adding endpoints is
   easy; knowing which model to send work to is the actual gap.

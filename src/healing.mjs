@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { writeJson, writeText } from './artifacts.mjs';
+import { renderDiagnosticsForModel } from './harness.mjs';
 import { buildWorkspaceContext } from './context-packer.mjs';
 import { extractJson } from './json-extractor.mjs';
 import { prepareChanges, prepareWrites } from './safe-writes.mjs';
@@ -70,6 +71,8 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 
 	const apply = options.apply === true || options.yes === true;
 	const maxTurns = Math.max(1, options.maxTurns || 2);
+	let diagnostics = options.diagnostics || null;
+	const diagnosticsProvider = options.diagnosticsProvider || null;
 	const turnTimeoutMs =
 		options.turnTimeoutMs ||
 		options.timeoutMs ||
@@ -90,6 +93,7 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 		const before = await workspaceSnapshot(cwd);
 		const repairContext = await buildRepairContext(cwd, verification, {
 			scratchpad,
+			diagnostics,
 		});
 		const prompt = renderLoopRepairPrompt(repairContext, {
 			index,
@@ -179,6 +183,19 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			break;
 		}
 
+		// Re-run diagnostics on changed files if a provider was given
+		if (diagnosticsProvider) {
+			const changedPaths = snapshotDiff.changed
+				.filter((c) => c.status !== 'delete')
+				.map((c) => c.path);
+			try {
+				diagnostics = await diagnosticsProvider(changedPaths);
+				await writeJson(join(turnDir, 'diagnostics.json'), diagnostics);
+			} catch {
+				// Sensor failure must never abort a repair turn
+			}
+		}
+
 		verification = apply
 			? await runVerification(cwd, options.testCommand, {
 					runner: options.commandRunner || null,
@@ -228,6 +245,7 @@ export async function buildRepairContext(cwd, testResult, options = {}) {
 	}
 
 	return {
+		diagnostics: options.diagnostics || null,
 		failurePaths,
 		files: [...contextFiles.entries()].map(([path, content]) => ({
 			content,
@@ -260,11 +278,14 @@ ${file.content}
 	const scratchpad = repairContext.scratchpad
 		? `\n\n## Prior scratchpad\n${repairContext.scratchpad}`
 		: '';
+	const diagnosticsSection = repairContext.diagnostics
+		? `\n\n## Diagnostics on changed files\n\n${renderDiagnosticsForModel(repairContext.diagnostics)}`
+		: '';
 
 	return `Repair turn ${index} of ${maxTurns}.
 
 The previous verification failed. Propose one small repair as JSON with optional files, patches, and scratchpad fields. Prefer patches. Touch the failing path unless the stack trace clearly points elsewhere.
-
+${diagnosticsSection}
 ## tests.json
 \`\`\`json
 ${tests}

@@ -206,7 +206,8 @@ function mergeExternalFile(baseFile, externalFile) {
  * available or when they fail.
  *
  * options.lsp — controls LSP enrichment:
- *   false / undefined   → skip LSP (default, no spawning)
+ *   false / undefined   → skip LSP (no spawning)
+ *   'auto'              → run all available LSP entries (silent skip when none found)
  *   true                → run all available LSP entries
  *   string[]            → run only named LSP entries
  */
@@ -292,6 +293,7 @@ export async function inspectWithRegistry(
 
 function lspEntryAllowed(entry, lspEnabled) {
 	if (lspEnabled === true) return true;
+	if (lspEnabled === 'auto') return true;
 	if (Array.isArray(lspEnabled)) return lspEnabled.includes(entry.name);
 	return false;
 }
