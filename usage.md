@@ -238,7 +238,22 @@ Useful options:
 
 ### Apply Changes
 
-Pass `--yes` to apply model-proposed writes.
+On an interactive TTY, Kodr prompts before writing anything:
+
+```
+Proposed writes:
+  create  src/index.mjs
+apply? [y/N]
+```
+
+Type `y` or `yes` (case-insensitive) to apply. Empty line, any other input, or
+EOF declines and keeps the workspace untouched — the run artifacts and the
+dry-run summary are still written. If an accepted prompt triggers `--test` or
+`--heal`, those steps run automatically, exactly as `--yes` would.
+
+Pass `--dry-run` to skip the prompt and always produce a dry-run result.
+Pass `--yes` to skip the prompt and always apply.
+Both flags work in non-TTY and `--json` contexts where the prompt never fires.
 
 ```sh
 ./kodr run -p "Add tests for parseArgs" --yes

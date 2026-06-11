@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { createRunArtifacts, writeJson, writeText } from './artifacts.mjs';
 import { loadConfiguredHooks, writeHookArtifact } from './command-hooks.mjs';
 import {
@@ -17,6 +18,7 @@ import {
 } from './model-client.mjs';
 import { loadMemory } from './memory.mjs';
 import { jailedPath, prepareChanges } from './safe-writes.mjs';
+import { createPermissionRequest } from './tools.mjs';
 import {
 	buildCommitMessage,
 	commitAppliedWrites,
@@ -210,6 +212,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		yes: false,
 		_apiKeySet: false,
 		_baseUrlSet: false,
+		_dryRunSet: false,
 		_baseUrlEnvSet: Boolean(env.BASE_URL),
 		_completionReserveSet: false,
 		_contextWindowSet: false,
@@ -252,6 +255,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--dry-run') {
 			options.dryRun = true;
+			options._dryRunSet = true;
 			continue;
 		}
 
@@ -771,6 +775,7 @@ Usage:
   kodr run -p "task" [--json]
   kodr run --prompt-file prompt.md [--out .kodr/runs/name] [--prompt-id slug]
   kodr run -p "task" --dry-run
+  kodr run -p "task"              # TTY: prompts apply? [y/N] before writing
   kodr run -p "task" --yes [--install] [--test "npm test"] [--test-cwd path] [--heal]
   kodr run -p "task" --yes --commit
   kodr undo [--json]
@@ -1003,6 +1008,50 @@ function withCliProgress(options, io) {
 	};
 }
 
+function makeCliApplyApprover(io) {
+	return async function cliApplyApprover(request) {
+		if (request.action !== 'apply-writes') {
+			return { decision: 'deny', reason: 'Approver only handles apply-writes' };
+		}
+		const writes = request.input?.writes || [];
+		const messages = request.input?.messages || [];
+		io.stdout.write('\nProposed writes:\n');
+		for (const write of writes) {
+			io.stdout.write(
+				`  ${(write.status || 'write').padEnd(7)}${write.path}\n`,
+			);
+		}
+		if (messages.length > 0) {
+			io.stdout.write('Messages:\n');
+			for (const message of messages) {
+				io.stdout.write(`  [${message.level}] ${message.content}\n`);
+			}
+		}
+		io.stdout.write('apply? [y/N] ');
+		const rl = createInterface({
+			input: io.stdin,
+			output: io.stdout,
+			terminal: false,
+		});
+		let answer = '';
+		try {
+			// Async iterator handles EOF cleanly: ends the loop with answer = ''.
+			for await (const line of rl) {
+				answer = line;
+				break;
+			}
+		} catch {
+			// Error reading — treat as decline.
+		} finally {
+			rl.close();
+		}
+		const accepted = /^y(?:es)?$/iu.test(answer.trim());
+		return accepted
+			? { decision: 'allow', reason: 'accepted' }
+			: { decision: 'deny', reason: 'declined' };
+	};
+}
+
 export async function main(argv, io) {
 	const options = parseArgs(argv, io.env, io.cwd || process.cwd());
 
@@ -1101,6 +1150,17 @@ export async function main(argv, io) {
 			io.stderr?.write?.(
 				'info: --agent-model overrides are only used with --subagent-stages\n',
 			);
+		}
+		// Inject an interactive apply approver for TTY CLI runs unless the user
+		// passed --yes, --dry-run, or --json.
+		if (
+			io.stdin?.isTTY &&
+			io.stdout?.isTTY &&
+			!options.json &&
+			!options.yes &&
+			!options._dryRunSet
+		) {
+			runOptions.applyApprover = makeCliApplyApprover(io);
 		}
 		const result = await handleChannelRequest(
 			{ kind: 'run-turn', options: runOptions },
@@ -1497,6 +1557,20 @@ export async function handleChannelRequest(request, io) {
 						writeResult,
 					})
 				: null;
+		// Update run artifacts so /undo can find this TUI-accepted apply.
+		if (request.runDir && writeResult.applied) {
+			await writeJson(join(request.runDir, 'writes.json'), writeResult);
+			try {
+				const summaryPath = join(request.runDir, 'summary.json');
+				const raw = await readFile(summaryPath, 'utf8');
+				const summary = JSON.parse(raw);
+				summary.applied = true;
+				summary.applyDecision = 'late-apply';
+				await writeJson(summaryPath, summary);
+			} catch {
+				// Run dir may predate applyDecision or lack a summary.
+			}
+		}
 		return {
 			applied: writeResult.applied,
 			gitCommit: gitCommitResult,
@@ -2351,6 +2425,7 @@ async function runPrompt(options, io) {
 		if (proposalError) {
 			let taskPlan = inspectionPlan || createTaskPlan(prompt);
 			summary.applied = false;
+			summary.applyDecision = 'none';
 			summary.ok = false;
 			summary.proposalError = proposalError;
 			summary.proposalFound = false;
@@ -2405,6 +2480,10 @@ async function runPrompt(options, io) {
 		let taskPlan =
 			inspectionPlan ||
 			createTaskPlan(prompt, proposal ? proposalPaths(proposal) : []);
+		// Resolve how writes will be decided: 'flag' (--yes), 'prompt-accepted',
+		// 'prompt-declined', or 'none' (no approver / explicit --dry-run).
+		let applyDecision = options.yes ? 'flag' : 'none';
+		let shouldApply = options.yes;
 		let writeResult = {
 			applied: false,
 			writes: [],
@@ -2439,11 +2518,44 @@ async function runPrompt(options, io) {
 		} else if (proposal) {
 			treeState = (await gitTreeState(io.cwd)).state;
 			try {
-				writeResult = await prepareChanges(io.cwd, proposal, {
-					apply: options.yes,
-					protectExisting: options.protectExisting,
-					protectedPaths: protectedWritePaths(options),
-				});
+				const hasApprover =
+					typeof options.applyApprover === 'function' && !options._dryRunSet;
+				if (!options.yes && hasApprover) {
+					// Dry-run first to get the real write list, then ask.
+					const dryResult = await prepareChanges(io.cwd, proposal, {
+						apply: false,
+						protectExisting: options.protectExisting,
+						protectedPaths: protectedWritePaths(options),
+					});
+					if (dryResult.writes.length > 0) {
+						const request = createPermissionRequest(
+							'apply-writes',
+							{ messages: proposalMessages, writes: dryResult.writes },
+							'Apply all proposed writes to the workspace?',
+						);
+						const decision = await options.applyApprover(request);
+						if (decision?.decision === 'allow') {
+							applyDecision = 'prompt-accepted';
+							shouldApply = true;
+							writeResult = await prepareChanges(io.cwd, proposal, {
+								apply: true,
+								protectExisting: options.protectExisting,
+								protectedPaths: protectedWritePaths(options),
+							});
+						} else {
+							applyDecision = 'prompt-declined';
+							writeResult = dryResult;
+						}
+					} else {
+						writeResult = dryResult;
+					}
+				} else {
+					writeResult = await prepareChanges(io.cwd, proposal, {
+						apply: options.yes,
+						protectExisting: options.protectExisting,
+						protectedPaths: protectedWritePaths(options),
+					});
+				}
 			} catch (error) {
 				writeError = {
 					message: error.message,
@@ -2458,7 +2570,7 @@ async function runPrompt(options, io) {
 			writeResult.treeState = treeState;
 		}
 		const installResult =
-			options.installDependencies && options.yes && !writeError
+			options.installDependencies && shouldApply && !writeError
 				? await runDependencyInstall(await verificationCwd(io.cwd, options), {
 						runner: commandRunner,
 						timeoutMs: options.timeoutMs,
@@ -2475,7 +2587,7 @@ async function runPrompt(options, io) {
 			writeResult.writes,
 		);
 		let testResult =
-			options.testCommand && options.yes && !writeError && !runError
+			options.testCommand && shouldApply && !writeError && !runError
 				? await runVerification(
 						await verificationCwd(io.cwd, options),
 						options.testCommand,
@@ -2489,7 +2601,7 @@ async function runPrompt(options, io) {
 			cwd: await verificationCwd(io.cwd, options),
 			commandRunner,
 			model,
-			options,
+			options: { ...options, yes: shouldApply },
 			registry,
 			runDir,
 			systemPrompt: context.systemPrompt,
@@ -2508,6 +2620,7 @@ async function runPrompt(options, io) {
 		});
 
 		summary.applied = writeResult.applied;
+		summary.applyDecision = applyDecision;
 		summary.dependencyInstallRequired = dependencyInstallRequired;
 		summary.gitCommit = gitCommitResult;
 		summary.healed = healingResult ? healingResult.healed : false;
@@ -3486,9 +3599,11 @@ function renderRunSummary(result) {
 		const writes = result.writeResult?.writes || [];
 		const mode = result.applied
 			? 'applied'
-			: result.applyRequested
-				? 'not applied'
-				: 'dry-run (no changes written)';
+			: result.applyDecision === 'prompt-declined'
+				? 'dry-run (declined)'
+				: result.applyRequested
+					? 'not applied'
+					: 'dry-run (no changes written)';
 		lines.push('');
 		lines.push(
 			`Proposal: ${result.proposalStatus || 'OK'} — ${writes.length} file(s), ${mode}`,
@@ -3570,7 +3685,13 @@ function renderRunSummary(result) {
 		!result.applied && (result.writeResult?.writes || []).length > 0;
 	lines.push('');
 	if (hasUnappliedWrites) {
-		lines.push('Re-run with --yes to apply these changes.');
+		if (result.applyDecision === 'prompt-declined') {
+			lines.push(
+				'Apply declined. Re-run with --yes to apply, or omit --dry-run to be prompted again.',
+			);
+		} else {
+			lines.push('Re-run with --yes to apply these changes.');
+		}
 	}
 	lines.push(`Run dir: ${result.runDir}`);
 	lines.push(`Full response: ${result.responsePath}`);

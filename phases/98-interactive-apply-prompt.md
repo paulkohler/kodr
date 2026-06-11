@@ -167,20 +167,20 @@ propose, show, ask `apply? [y/N]`, apply — without calling the model again.
 
 ## Done Criteria
 
-- [ ] Interactive dry-run proposals prompt once at the `runPrompt` apply
+- [x] Interactive dry-run proposals prompt once at the `runPrompt` apply
       gate and apply without a second model call.
-- [ ] The prompt uses the phase 67 permission request/decision shape, with
+- [x] The prompt uses the phase 67 permission request/decision shape, with
       the approver injected only by the CLI run branch.
-- [ ] Decline, EOF, non-TTY, `--json`, explicit `--dry-run`, and `--yes`
+- [x] Decline, EOF, non-TTY, `--json`, explicit `--dry-run`, and `--yes`
       paths all behave per the gate matrix, with `_dryRunSet` added.
-- [ ] `summary.applyDecision` recorded for accepted, declined, flag, and
+- [x] `summary.applyDecision` recorded for accepted, declined, flag, and
       none cases; declined proposals visible in run artifacts.
-- [ ] Install, verification, and heal run after an accepted apply exactly
+- [x] Install, verification, and heal run after an accepted apply exactly
       as under `--yes`.
-- [ ] `apply-proposal` updates run artifacts so TUI `/accept` applies are
+- [x] `apply-proposal` updates run artifacts so TUI `/accept` applies are
       visible to `/undo`.
-- [ ] Tests per Test Requirements.
-- [ ] usage.md and help text document the prompt and its off switches.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Tests per Test Requirements.
+- [x] usage.md and help text document the prompt and its off switches.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.
