@@ -1,15 +1,19 @@
 import { createHash } from 'node:crypto';
-import { lstat, readFile, readdir } from 'node:fs/promises';
-import { relative, sep } from 'node:path';
-import { rankSymbols } from './repo-map.mjs';
+import {
+	buildFileMap,
+	buildFileSummaries,
+	buildInspectionChunks,
+	listContextFiles as repomapListContextFiles,
+	matchingSymbols,
+	queryTokens,
+	rankSymbols,
+	readTextPrefix,
+	renderFileMapText,
+	renderInspectionSummary,
+	selectInspectionChunks,
+} from './repomap/index.mjs';
 
-const DEFAULT_IGNORES = new Set([
-	'.git',
-	'node_modules',
-	'dist',
-	'build',
-	'coverage',
-]);
+const KODR_IGNORE_PATTERNS = [/^\.kodr(?:$|-)/u];
 
 const DEFAULT_MAP_ONLY_FILES = new Set([
 	'bun.lock',
@@ -22,10 +26,6 @@ const DEFAULT_MAP_ONLY_FILES = new Set([
 
 const DEFAULT_PER_FILE_BYTES = 20000;
 const DEFAULT_TOTAL_BYTES = 80000;
-const FILE_MAP_MAX_FILES = 200;
-const INSPECTION_MAX_CHUNKS = 12;
-const INSPECTION_CONTEXT_LINES = 2;
-const INSPECTION_SUMMARY_MAX_FILES = 80;
 const APPROX_CHARS_PER_TOKEN = 4;
 
 export async function buildWorkspaceContext(cwd, options = {}) {
@@ -227,10 +227,10 @@ function escapeAttribute(value) {
 }
 
 export async function listContextFiles(cwd) {
-	const files = [];
-	await walk(cwd, cwd, files);
-	return files.sort((left, right) => left.localeCompare(right));
+	return repomapListContextFiles(cwd, { ignorePatterns: KODR_IGNORE_PATTERNS });
 }
+
+export { selectInspectionChunks } from './repomap/index.mjs';
 
 export function renderContextMarkdown(context) {
 	const parts = [];
@@ -256,7 +256,7 @@ export function renderContextMarkdown(context) {
 	if (context.fileMap) {
 		parts.push(`## File map\n\n${renderFileMapText(context.fileMap)}`);
 	} else if (context.inspection) {
-		parts.push(renderInspectionContextMarkdown(context.inspection));
+		parts.push(renderInspectionSummary(context.inspection));
 		for (const file of context.files) {
 			parts.push(`## ${file.path}\n\n\`\`\`\n${file.content}\n\`\`\``);
 		}
@@ -273,33 +273,6 @@ export function renderContextMarkdown(context) {
 	}
 
 	return `${parts.join('\n\n')}\n`;
-}
-
-async function buildFileMap(cwd, files) {
-	const shown = files.slice(0, FILE_MAP_MAX_FILES);
-	const hidden = files.length - shown.length;
-	const entries = [];
-	for (const file of shown) {
-		try {
-			const stat = await lstat(`${cwd}/${file}`);
-			entries.push({ path: file, size: stat.size });
-		} catch {
-			entries.push({ path: file, size: 0 });
-		}
-	}
-	return { entries, hidden, total: files.length };
-}
-
-function renderFileMapText(fileMap) {
-	const lines = fileMap.entries.map(
-		({ path, size }) => `${path} (${size} bytes)`,
-	);
-	if (fileMap.hidden > 0) {
-		lines.push(
-			`... ${fileMap.hidden} more file${fileMap.hidden === 1 ? '' : 's'} — use list_files to explore`,
-		);
-	}
-	return `Workspace files (${fileMap.total} total):\n${lines.join('\n')}\nUse read_file to read any file.`;
 }
 
 function renderOmittedFiles(files) {
@@ -353,7 +326,7 @@ function renderVolatilePromptSection(context) {
 		);
 	} else if (context.inspection) {
 		parts.push(
-			`Inspection-aware workspace context:\n${renderInspectionContextMarkdown(context.inspection)}`,
+			`Inspection-aware workspace context:\n${renderInspectionSummary(context.inspection)}`,
 		);
 		if (context.files.length > 0) {
 			parts.push(
@@ -528,12 +501,12 @@ function isMapOnlyFile(path) {
 
 async function buildInspectionContext(cwd, inspection, budget = {}) {
 	const index = inspection.index || { files: [], symbols: [] };
-	const queryTerms = queryTokens(inspection.query || '');
+	const terms = queryTokens(inspection.query || '');
 	const rankedSymbols = rankedSymbolsForInspection(
 		index,
 		inspection.query || '',
 	);
-	const matches = matchingSymbols(rankedSymbols, queryTerms);
+	const matches = matchingSymbols(rankedSymbols, terms);
 	const candidateChunks = await buildInspectionChunks(cwd, index, matches);
 	const planned = selectInspectionChunks(candidateChunks, budget.budgetChars);
 	const summaries = buildFileSummaries(index.files);
@@ -551,275 +524,11 @@ async function buildInspectionContext(cwd, inspection, budget = {}) {
 	};
 }
 
-export function selectInspectionChunks(
-	chunks,
-	budgetChars = DEFAULT_TOTAL_BYTES,
-) {
-	const selected = [];
-	let used = 0;
-	let droppedChars = 0;
-	let droppedChunks = 0;
-	for (const chunk of chunks) {
-		const bytes = Buffer.byteLength(chunk.content || '');
-		if (used + bytes <= budgetChars) {
-			selected.push({ ...chunk, estimatedChars: bytes });
-			used += bytes;
-		} else if (selected.length === 0 && budgetChars > 0) {
-			const content = truncateUtf8(chunk.content || '', budgetChars);
-			const estimatedChars = Buffer.byteLength(content);
-			selected.push({
-				...chunk,
-				content,
-				estimatedChars,
-				truncated: true,
-			});
-			used += estimatedChars;
-			droppedChars += bytes - estimatedChars;
-			droppedChunks += 1;
-		} else {
-			droppedChars += bytes;
-			droppedChunks += 1;
-		}
-	}
-	return { chunks: selected, droppedChars, droppedChunks, usedChars: used };
-}
-
-function truncateUtf8(value, maxBytes) {
-	return Buffer.from(value, 'utf8').subarray(0, maxBytes).toString('utf8');
-}
-
 function rankedSymbolsForInspection(index, query) {
 	if (Array.isArray(index.rankedSymbols) && index.rankedSymbols.length > 0) {
 		return index.rankedSymbols;
 	}
 	return rankSymbols(index, { query });
-}
-
-async function buildInspectionChunks(cwd, index, matches) {
-	const chunks = [];
-	const seen = new Set();
-
-	for (const match of matches) {
-		await addSymbolChunk(cwd, index, chunks, seen, match, 'symbol');
-		await addImportChunk(cwd, index, chunks, seen, match.path);
-		await addReferenceChunks(cwd, index, chunks, seen, match.name);
-		await addRelatedTestChunks(cwd, index, chunks, seen, match);
-		if (chunks.length >= INSPECTION_MAX_CHUNKS) {
-			break;
-		}
-	}
-
-	return chunks.slice(0, INSPECTION_MAX_CHUNKS);
-}
-
-async function addSymbolChunk(cwd, index, chunks, seen, symbol, kind) {
-	const key = `${symbol.path}:${symbol.lineStart}-${symbol.lineEnd}:${kind}`;
-	if (seen.has(key)) {
-		return;
-	}
-	const lines = await fileLines(cwd, index, symbol.path);
-	if (!lines.length) {
-		return;
-	}
-	const lineStart = Math.max(1, symbol.lineStart);
-	const lineEnd = Math.min(lines.length, symbol.lineEnd);
-	const content = lines.slice(lineStart - 1, lineEnd).join('\n');
-	chunks.push({
-		content,
-		kind,
-		lineEnd,
-		lineStart,
-		name: symbol.name,
-		path: `${symbol.path}#${symbol.name}:${lineStart}-${lineEnd}`,
-		sourcePath: symbol.path,
-	});
-	seen.add(key);
-}
-
-async function addImportChunk(cwd, index, chunks, seen, path) {
-	const file = index.files.find((item) => item.path === path);
-	if (!file || file.imports.length === 0) {
-		return;
-	}
-	const lineStart = file.imports[0].line;
-	const lineEnd = file.imports.at(-1).line;
-	const key = `${path}:${lineStart}-${lineEnd}:imports`;
-	if (seen.has(key)) {
-		return;
-	}
-	const lines = await fileLines(cwd, index, path);
-	const content = lines.slice(lineStart - 1, lineEnd).join('\n');
-	chunks.push({
-		content,
-		kind: 'imports',
-		lineEnd,
-		lineStart,
-		name: 'imports',
-		path: `${path}#imports:${lineStart}-${lineEnd}`,
-		sourcePath: path,
-	});
-	seen.add(key);
-}
-
-async function addReferenceChunks(cwd, index, chunks, seen, symbolName) {
-	const boundary = new RegExp(`\\b${escapeRegExp(symbolName)}\\b`, 'u');
-	for (const file of index.files) {
-		const lines = await fileLines(cwd, index, file.path);
-		for (const [offset, text] of lines.entries()) {
-			if (!boundary.test(text)) {
-				continue;
-			}
-			const line = offset + 1;
-			const lineStart = Math.max(1, line - INSPECTION_CONTEXT_LINES);
-			const lineEnd = Math.min(lines.length, line + INSPECTION_CONTEXT_LINES);
-			const key = `${file.path}:${lineStart}-${lineEnd}:reference:${symbolName}`;
-			if (seen.has(key)) {
-				continue;
-			}
-			chunks.push({
-				content: lines.slice(lineStart - 1, lineEnd).join('\n'),
-				kind: 'reference',
-				lineEnd,
-				lineStart,
-				name: symbolName,
-				path: `${file.path}#ref-${symbolName}:${lineStart}-${lineEnd}`,
-				sourcePath: file.path,
-			});
-			seen.add(key);
-			if (chunks.length >= INSPECTION_MAX_CHUNKS) {
-				return;
-			}
-		}
-	}
-}
-
-async function addRelatedTestChunks(cwd, index, chunks, seen, match) {
-	for (const symbol of index.symbols) {
-		if (symbol.kind !== 'test') {
-			continue;
-		}
-		const testPath = symbol.path.toLowerCase();
-		const sameFile = symbol.path === match.path;
-		const testFile = testPath.includes('test') || testPath.endsWith('_test.go');
-		if (!sameFile && !testFile) {
-			continue;
-		}
-		const lines = await fileLines(cwd, index, symbol.path);
-		const body = lines
-			.slice(symbol.lineStart - 1, Math.min(lines.length, symbol.lineEnd))
-			.join('\n');
-		if (!body.includes(match.name) && !symbol.name.includes(match.name)) {
-			continue;
-		}
-		await addSymbolChunk(cwd, index, chunks, seen, symbol, 'related-test');
-		if (chunks.length >= INSPECTION_MAX_CHUNKS) {
-			return;
-		}
-	}
-}
-
-async function fileLines(cwd, index, path) {
-	const file = index.files.find((item) => item.path === path);
-	if (file?._contentLines) {
-		return file._contentLines.map((line) => line.text);
-	}
-	const content = await readTextPrefix(
-		`${cwd}/${path}`,
-		DEFAULT_PER_FILE_BYTES,
-	);
-	return content ? content.split(/\r?\n/u) : [];
-}
-
-function matchingSymbols(symbols, terms) {
-	if (terms.length === 0) {
-		return [];
-	}
-	const exactNames = terms.filter((term) => term.includes(':exact:'));
-	if (exactNames.length > 0) {
-		const exact = exactNames.map((term) => term.replace(':exact:', ''));
-		return symbols.filter((symbol) => {
-			const name = normalizeSymbolName(symbol.name);
-			return exact.some((term) => name === term || name.includes(term));
-		});
-	}
-	return symbols.filter((symbol) => {
-		const haystack = symbolTokens(symbol.name);
-		return terms.some((term) => haystack.includes(term));
-	});
-}
-
-function queryTokens(query) {
-	const exactIdentifiers = [...query.matchAll(/\b[A-Za-z_$][\w$]{2,}\b/gu)]
-		.map((match) => match[0])
-		.filter((token) => /[A-Z_]/u.test(token) || token.length >= 12)
-		.map((token) => `${normalizeSymbolName(token)}:exact:`);
-	if (exactIdentifiers.length > 0) {
-		return exactIdentifiers.slice(0, 10);
-	}
-	return normalizeTokens(query)
-		.filter((token) => token.length >= 3)
-		.slice(0, 20);
-}
-
-function symbolTokens(value) {
-	return normalizeTokens(value).join(' ');
-}
-
-function normalizeTokens(value) {
-	return value
-		.replaceAll(/([a-z0-9])([A-Z])/gu, '$1 $2')
-		.toLowerCase()
-		.split(/[^a-z0-9]+/u)
-		.filter(Boolean);
-}
-
-function normalizeSymbolName(value) {
-	return normalizeTokens(value).join('');
-}
-
-function buildFileSummaries(files) {
-	return files.slice(0, INSPECTION_SUMMARY_MAX_FILES).map((file) => ({
-		importCount: file.imports.length,
-		language: file.language,
-		lineCount: file.lineCount,
-		path: file.path,
-		symbols: file.symbols.slice(0, 12).map((symbol) => ({
-			kind: symbol.kind,
-			lineStart: symbol.lineStart,
-			name: symbol.name,
-		})),
-	}));
-}
-
-function renderInspectionContextMarkdown(inspection) {
-	const lines = [
-		`## Inspection context`,
-		'',
-		`Mode: ${inspection.mode}`,
-		`Files indexed: ${inspection.totalFileCount}`,
-		`Symbols indexed: ${inspection.totalSymbolCount}`,
-		`Selected symbols: ${inspection.selectedSymbolCount}`,
-		`Selected chunks: ${inspection.chunks.length}`,
-		`Dropped chunks: ${inspection.droppedChunks || 0}`,
-		`Dropped chars: ${inspection.droppedChars || 0}`,
-		'',
-		'### File summaries',
-	];
-	for (const file of inspection.fileSummaries) {
-		const symbols = file.symbols
-			.map((symbol) => `${symbol.kind} ${symbol.name}@${symbol.lineStart}`)
-			.join(', ');
-		lines.push(
-			`- ${file.path} (${file.language}, ${file.lineCount} lines, ${file.importCount} imports)${symbols ? `: ${symbols}` : ''}`,
-		);
-	}
-	if (inspection.chunks.length === 0) {
-		lines.push('');
-		lines.push(
-			'No symbol-specific chunks selected; use file summaries as fallback.',
-		);
-	}
-	return lines.join('\n');
 }
 
 function renderSelectedChunks(files) {
@@ -841,70 +550,4 @@ function renderSelectedChunks(files) {
 
 function escapeRegExp(value) {
 	return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-}
-
-async function walk(root, dir, files) {
-	const entries = await readdir(dir, { withFileTypes: true });
-	const sorted = entries.sort((left, right) =>
-		left.name.localeCompare(right.name),
-	);
-
-	for (const entry of sorted) {
-		if (shouldIgnoreEntry(entry.name)) {
-			continue;
-		}
-
-		const path = `${dir}/${entry.name}`;
-		const relativePath = relative(root, path).split(sep).join('/');
-
-		if (entry.isDirectory()) {
-			await walk(root, path, files);
-			continue;
-		}
-
-		if (!entry.isFile()) {
-			continue;
-		}
-
-		const stat = await lstat(path);
-		if (stat.isSymbolicLink()) {
-			continue;
-		}
-
-		files.push(relativePath);
-	}
-}
-
-function shouldIgnoreEntry(name) {
-	return DEFAULT_IGNORES.has(name) || /^\.kodr(?:$|-)/u.test(name);
-}
-
-async function readTextPrefix(path, maxBytes) {
-	const buffer = await readFile(path);
-	const prefix = buffer.subarray(0, maxBytes);
-
-	if (looksBinary(prefix)) {
-		return null;
-	}
-
-	return prefix.toString('utf8');
-}
-
-function looksBinary(buffer) {
-	if (buffer.length === 0) {
-		return false;
-	}
-
-	let suspicious = 0;
-	for (const byte of buffer) {
-		if (byte === 0) {
-			return true;
-		}
-
-		if (byte < 7 || (byte > 13 && byte < 32)) {
-			suspicious += 1;
-		}
-	}
-
-	return suspicious / buffer.length > 0.1;
 }

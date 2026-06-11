@@ -7,7 +7,7 @@ import {
 	classifyLanguage,
 	inspectFile,
 	inspectWorkspace,
-} from '../src/code-inspector.mjs';
+} from '../src/repomap/index.mjs';
 
 describe('classifyLanguage', () => {
 	it('classifies supported source files', () => {

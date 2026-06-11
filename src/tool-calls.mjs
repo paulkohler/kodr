@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { inspectWorkspace, findReferences } from './code-inspector.mjs';
+import { inspectWorkspace, findReferences } from './repomap/index.mjs';
 import {
 	createChatCompletion,
 	firstAssistantMessage,

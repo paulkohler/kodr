@@ -1,12 +1,24 @@
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
-import { listContextFiles } from './context-packer.mjs';
-import { rankSymbols } from './repo-map.mjs';
+import { listContextFiles } from './workspace-files.mjs';
+import { rankSymbols } from './rank.mjs';
 
 const MAX_INSPECT_BYTES = 200000;
 
+/**
+ * Build a symbol index for all inspectable files under cwd.
+ *
+ * Options forwarded to listContextFiles: ignore, ignorePatterns
+ * Options for inspection: languages, symbol, query
+ *
+ * Each file entry in index.files includes a `contentLines` array
+ * ({ number, text }) capped at MAX_INSPECT_BYTES.
+ */
 export async function inspectWorkspace(cwd, options = {}) {
-	const files = await listContextFiles(cwd);
+	const files = await listContextFiles(cwd, {
+		ignore: options.ignore,
+		ignorePatterns: options.ignorePatterns,
+	});
 	const inspected = [];
 
 	for (const path of files) {
@@ -24,12 +36,9 @@ export async function inspectWorkspace(cwd, options = {}) {
 		}
 
 		const inspectedFile = inspectFile(path, content, language);
-		Object.defineProperty(inspectedFile, '_contentLines', {
-			value: content.split(/\r?\n/u).map((text, index) => ({
-				number: index + 1,
-				text,
-			})),
-		});
+		inspectedFile.contentLines = content
+			.split(/\r?\n/u)
+			.map((text, index) => ({ number: index + 1, text }));
 		inspected.push(inspectedFile);
 	}
 
@@ -111,7 +120,7 @@ export function findReferences(index, symbolName) {
 	const boundary = new RegExp(`\\b${escapeRegExp(symbolName)}\\b`, 'u');
 
 	for (const file of index.files) {
-		for (const line of file._contentLines || []) {
+		for (const line of file.contentLines || []) {
 			if (boundary.test(line.text)) {
 				references.push({
 					line: line.number,

@@ -117,20 +117,20 @@ What does not change:
 
 ## Done Criteria
 
-- [ ] `src/repomap/` exists with `index.mjs` as the single entry point and
+- [x] `src/repomap/` exists with `index.mjs` as the single entry point and
       the layout above.
-- [ ] Boundary test proves repomap imports only node builtins plus sibling
+- [x] Boundary test proves repomap imports only node builtins plus sibling
       repomap files, and app code imports only the entry point.
-- [ ] `src/code-inspector.mjs` and `src/repo-map.mjs` removed; all import
+- [x] `src/code-inspector.mjs` and `src/repo-map.mjs` removed; all import
       sites updated.
-- [ ] `.kodr` ignore pattern injected by kodr via options, not hardcoded in
+- [x] `.kodr` ignore pattern injected by kodr via options, not hardcoded in
       the library.
-- [ ] `_contentLines` replaced by a documented index field.
-- [ ] External inspector registry assembles its index through the public
+- [x] `_contentLines` replaced by a documented index field.
+- [x] External inspector registry assembles its index through the public
       API.
-- [ ] `src/repomap/README.md` documents the API with runnable examples.
-- [ ] Full test suite passes with only import-path edits to existing
+- [x] `src/repomap/README.md` documents the API with runnable examples.
+- [x] Full test suite passes with only import-path edits to existing
       tests; new repomap tests added per Test Requirements.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.

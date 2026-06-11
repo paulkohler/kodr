@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
-import { inspectWorkspace } from './code-inspector.mjs';
-import { rankSymbols } from './repo-map.mjs';
+import { inspectWorkspace, rankSymbols } from './repomap/index.mjs';
 
 const DEFAULT_TIMEOUT = 10000;
 
@@ -185,7 +184,7 @@ function mergeExternalFile(baseFile, externalFile) {
 	return {
 		...baseFile,
 		...externalFile,
-		_contentLines: baseFile._contentLines,
+		contentLines: baseFile.contentLines,
 	};
 }
 

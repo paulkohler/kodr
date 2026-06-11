@@ -94,7 +94,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 92 Isolated File-Author Subagents
 - [x] 93 Persona From Skill
 - [x] 94 Git-Aware Apply And Revert (merges 73 + 74; see phase file for the planning miss)
-- [ ] 95 Extractable Repo Map Library
+- [x] 95 Extractable Repo Map Library
 - [ ] 96 Project Config And Init
 - [ ] 97 Usable Read Defaults
 - [ ] 98 Interactive Apply Prompt

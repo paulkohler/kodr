@@ -59,7 +59,7 @@ import {
 import { applyModelProfileDefaults } from './model-profiles.mjs';
 import { loadEvalSuite, scoreCase } from './eval.mjs';
 import { startKodrServer } from './server.mjs';
-import { inspectWorkspace } from './code-inspector.mjs';
+import { inspectWorkspace } from './repomap/index.mjs';
 import {
 	filterInspectionIndex,
 	renderInspection,

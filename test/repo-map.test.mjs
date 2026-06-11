@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { rankSymbols } from '../src/repo-map.mjs';
+import { rankSymbols } from '../src/repomap/index.mjs';
 
 describe('rankSymbols', () => {
 	it('orders symbols by deterministic query, reference, kind, and path score', () => {
@@ -57,7 +57,7 @@ describe('rankSymbols', () => {
 
 function file(path, lines) {
 	return {
-		_contentLines: lines.map((text, index) => ({ number: index + 1, text })),
+		contentLines: lines.map((text, index) => ({ number: index + 1, text })),
 		imports: [],
 		language: 'javascript',
 		lineCount: lines.length,

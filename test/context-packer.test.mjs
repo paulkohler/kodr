@@ -9,9 +9,11 @@ import {
 	planContextBudget,
 	renderContextMarkdown,
 	renderPromptSections,
-	selectInspectionChunks,
 } from '../src/context-packer.mjs';
-import { inspectWorkspace } from '../src/code-inspector.mjs';
+import {
+	inspectWorkspace,
+	selectInspectionChunks,
+} from '../src/repomap/index.mjs';
 
 describe('context packing', () => {
 	it('walks files deterministically and ignores generated directories', async () => {

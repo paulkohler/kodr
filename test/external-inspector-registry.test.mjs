@@ -194,7 +194,7 @@ describe('mergeInspectorResults', () => {
 				language: 'go',
 				lineCount: 5,
 				path: 'main.go',
-				_contentLines: [
+				contentLines: [
 					{ line: 1, text: 'package main' },
 					{ line: 2, text: 'func main() {' },
 					{ line: 3, text: 'Run()' },

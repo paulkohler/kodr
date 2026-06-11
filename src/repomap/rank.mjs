@@ -53,7 +53,7 @@ function referenceCounts(index, symbols) {
 	const counts = new Map(names.map((name) => [name, 0]));
 
 	for (const file of index.files || []) {
-		const lines = file._contentLines || [];
+		const lines = file.contentLines || [];
 		for (const line of lines) {
 			for (const { name, pattern } of patterns) {
 				pattern.lastIndex = 0;
