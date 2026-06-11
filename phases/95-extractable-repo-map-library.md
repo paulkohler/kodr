@@ -112,7 +112,7 @@ What does not change:
 - No tree-sitter or any parser dependency; regex extraction stays.
 - No index caching or incremental re-indexing.
 - No new languages, ranking signals, or chunk heuristics.
-- No change to phase 75's LSP adapter plan (an adapter would feed this
+- No change to phase 99's LSP adapter plan (an adapter would feed this
   library's index from outside it).
 
 ## Done Criteria

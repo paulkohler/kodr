@@ -98,7 +98,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 96 Project Config And Init
 - [x] 97 Usable Read Defaults
 - [ ] 98 Interactive Apply Prompt
-- [ ] 75 Optional LSP Adapter (kept last; capability add, not a usability gap)
+- [ ] 99 Optional LSP Adapter (renumbered from 75; kept last as a capability add, not a usability gap)
 
 ## Phase Contract
 
