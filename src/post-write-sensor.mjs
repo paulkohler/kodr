@@ -5,7 +5,7 @@ import {
 	REGISTRY,
 } from './external-inspector-registry.mjs';
 import { runLspInspector } from './lsp-client.mjs';
-import { classifyLanguage } from './repomap/inspector.mjs';
+import { classifyLanguage } from './repomap/index.mjs';
 
 /**
  * Determine whether a registry LSP entry is allowed given the lsp option value.
