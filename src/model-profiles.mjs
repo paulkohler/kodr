@@ -3,6 +3,7 @@ import { isAbsolute, resolve } from 'node:path';
 import { normalizeEditFormat } from './edit-formats.mjs';
 import { LMSTUDIO_BASE_URL, OLLAMA_BASE_URL } from './model-specs.mjs';
 import { OPENROUTER_BASE_URL } from './completion.mjs';
+import { loadRoutingTableSync } from './bench.mjs';
 
 export const DEFAULT_CONTEXT_WINDOW = 32768;
 export const DEFAULT_COMPLETION_RESERVE = 4096;
@@ -144,6 +145,13 @@ export function applyModelProfileDefaults(
 	}
 	if (!options._sessionContextSet) {
 		next.sessionContextChars = sessionContextCharsForProfile(effectiveProfile);
+	}
+	// Load routing table from .kodr/routing.json if present. Advisory only —
+	// does not auto-override options.model. Consumers may read routingTable to
+	// suggest an alternate model.
+	const routingTable = loadRoutingTableSync(cwd);
+	if (routingTable !== null) {
+		next.routingTable = routingTable;
 	}
 	return next;
 }

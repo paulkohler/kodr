@@ -68,7 +68,7 @@ import {
 	renderShowConfig,
 } from './project-config.mjs';
 import { isWorkspaceCase, loadEvalSuite, scoreCase } from './eval.mjs';
-import { recordResults, runWorkspaceCase, slugify } from './eval-runner.mjs';
+import { recordResults, runWorkspaceCase, runWorkspaceSuite, slugify } from './eval-runner.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './repomap/index.mjs';
 import {
@@ -115,6 +115,14 @@ import { runTui } from './tui.mjs';
 import { VERSION } from './version.mjs';
 import { buildHarnessManifest } from './harness.mjs';
 import { runPostWriteDiagnostics } from './post-write-sensor.mjs';
+import {
+	computeRoutingTable,
+	discoverModels,
+	loadBenchScores,
+	renderBenchResults,
+	saveBenchScores,
+	saveRoutingTable,
+} from './bench.mjs';
 
 export { VERSION };
 
@@ -630,8 +638,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			}),
 		);
 		Object.assign(options, applyModelProfileDefaults(options, env));
-		options.agentModels = Object.fromEntries(
-			Object.entries(resolveAgentModels(options, env)).map(
+		const agentModelEntries = Object.entries(resolveAgentModels(options, env)).map(
 				([agent, modelOptions]) => [
 					agent,
 					applyModelProfileDefaults(
@@ -645,8 +652,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 						env,
 					),
 				],
-			),
-		);
+			);
+		options.agentModels = Object.fromEntries(agentModelEntries);
 	} catch (error) {
 		if (error instanceof ModelSpecError) {
 			throw new CliError(error.message);
@@ -856,6 +863,7 @@ Usage:
   kodr cycle-review --transcript-file chat.md [--json]
   kodr compare -p "task" --models "m1,openrouter:m2" [--json]
   kodr eval --suite evals/suite.json [--json] [--record] [--cases id1,id2]
+  kodr bench --suite evals/suite.json [--base-url URL] [--json]
   kodr prompt-history <promptId> [--json]
   kodr session list [--json]
   kodr session show <sessionId> [--json]
@@ -1663,6 +1671,95 @@ export async function main(argv, io) {
 			}
 		}
 		return { ok: result.ok, command: 'undo', result };
+	}
+
+	if (options.command === 'bench') {
+		if (!options.suitePath) {
+			throw new CliError('kodr bench requires --suite');
+		}
+		const suitePath = await jailedPath(io.cwd, options.suitePath);
+		const suiteText = await readFile(suitePath.absolute, 'utf8');
+		const suite = loadEvalSuite(suiteText);
+		const suiteDir = dirname(suitePath.absolute);
+
+		const models = await discoverModels(options.baseUrl, options.timeoutMs);
+		if (models.length === 0) {
+			throw new CliError(
+				`No models found at ${options.baseUrl}. Is LM Studio running?`,
+			);
+		}
+
+		if (!options.json) {
+			io.stdout.write(`Bench: ${suite.name}\n`);
+			io.stdout.write(`Models: ${models.join(', ')}\n`);
+		}
+
+		const runDir = await createRunArtifacts(io.cwd, options.out);
+		const existingScores = await loadBenchScores(io.cwd);
+
+		for (const modelId of models) {
+			if (!options.json) {
+				io.stdout.write(`\nRunning suite against: ${modelId}\n`);
+			}
+			const modelOptions = {
+				...options,
+				model: modelId,
+				_runPrompt: runPrompt,
+			};
+
+			const caseResults = await runWorkspaceSuite(
+				suite,
+				suiteDir,
+				modelOptions,
+				io,
+				runDir,
+				null,
+			);
+
+			const ranCases = caseResults.filter((r) => r.status === 'ran');
+			const passCount = ranCases.filter((r) => r.ok).length;
+			const totalCount = ranCases.length;
+			const score = totalCount > 0 ? passCount / totalCount : 0;
+			const editFormat =
+				ranCases.length > 0 ? (ranCases[0].editFormat ?? 'patch') : 'patch';
+
+			const entry = {
+				score,
+				passCount,
+				totalCount,
+				timestamp: new Date().toISOString(),
+				editFormat,
+			};
+			existingScores.set(modelId, entry);
+
+			if (!options.json) {
+				io.stdout.write(
+					`  ${modelId}: ${passCount}/${totalCount} (score ${score.toFixed(2)})\n`,
+				);
+			}
+		}
+
+		await saveBenchScores(io.cwd, existingScores);
+
+		const routingTable = computeRoutingTable(existingScores);
+		await saveRoutingTable(io.cwd, routingTable);
+
+		const benchResults = {
+			suite: suite.name,
+			models: Object.fromEntries(existingScores),
+			routingTable,
+			timestamp: new Date().toISOString(),
+		};
+
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(benchResults, null, 2)}\n`);
+		} else {
+			io.stdout.write(`\n${renderBenchResults(existingScores, routingTable)}`);
+			io.stdout.write(`Scores saved to .kodr/bench-scores.json\n`);
+			io.stdout.write(`Routing saved to .kodr/routing.json\n`);
+		}
+
+		return { ok: true, command: 'bench', benchResults };
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);

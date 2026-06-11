@@ -104,6 +104,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 102 Edit-Format Reliability
 - [x] 103 Repair Pressure And No-Progress Detection
 - [x] 104 Daily-Driver TUI Session
+- [x] 105 Measured Model Routing
 
 ## Phase Contract
 
