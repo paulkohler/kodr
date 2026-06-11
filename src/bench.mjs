@@ -24,10 +24,9 @@ export async function discoverModels(baseUrl, timeoutMs = 10000) {
 			signal: controller.signal,
 		});
 	} catch (error) {
-		throw new Error(
-			`Failed to reach ${url}: ${error.message}`,
-			{ cause: error },
-		);
+		throw new Error(`Failed to reach ${url}: ${error.message}`, {
+			cause: error,
+		});
 	} finally {
 		clearTimeout(timer);
 	}
@@ -40,9 +39,7 @@ export async function discoverModels(baseUrl, timeoutMs = 10000) {
 
 	const body = await response.json();
 	if (!Array.isArray(body?.data)) {
-		throw new Error(
-			`Unexpected response from ${url}: missing data array`,
-		);
+		throw new Error(`Unexpected response from ${url}: missing data array`);
 	}
 
 	return body.data.map((m) => m.id).filter(Boolean);
@@ -76,8 +73,7 @@ export async function loadBenchScores(cwd) {
 export async function saveBenchScores(cwd, scores) {
 	const path = join(cwd, SCORES_PATH);
 	await mkdir(join(cwd, '.kodr'), { recursive: true });
-	const obj =
-		scores instanceof Map ? Object.fromEntries(scores) : scores;
+	const obj = scores instanceof Map ? Object.fromEntries(scores) : scores;
 	await writeFile(path, JSON.stringify(obj, null, 2), 'utf8');
 }
 
@@ -92,12 +88,15 @@ export function computeRoutingTable(scores, options = {}) {
 	const threshold = options.threshold ?? 0.3;
 
 	const entries =
-		scores instanceof Map
-			? [...scores.entries()]
-			: Object.entries(scores);
+		scores instanceof Map ? [...scores.entries()] : Object.entries(scores);
 
 	if (entries.length === 0) {
-		return { editModel: null, cheapModel: null, editScore: null, cheapScore: null };
+		return {
+			editModel: null,
+			cheapModel: null,
+			editScore: null,
+			cheapScore: null,
+		};
 	}
 
 	// Sort descending by score for deterministic selection.
@@ -176,9 +175,7 @@ export async function saveRoutingTable(cwd, table) {
  */
 export function renderBenchResults(scores, routingTable) {
 	const entries =
-		scores instanceof Map
-			? [...scores.entries()]
-			: Object.entries(scores);
+		scores instanceof Map ? [...scores.entries()] : Object.entries(scores);
 
 	const lines = [];
 	lines.push('Bench results:');
@@ -205,7 +202,9 @@ export function renderBenchResults(scores, routingTable) {
 	if (routingTable) {
 		lines.push('');
 		lines.push('Routing:');
-		lines.push(`  edit  → ${routingTable.editModel ?? 'none'} (score ${routingTable.editScore?.toFixed(2) ?? '?'})`);
+		lines.push(
+			`  edit  → ${routingTable.editModel ?? 'none'} (score ${routingTable.editScore?.toFixed(2) ?? '?'})`,
+		);
 		const sameModel = routingTable.cheapModel === routingTable.editModel;
 		lines.push(
 			`  cheap → ${routingTable.cheapModel ?? 'none'} (score ${routingTable.cheapScore?.toFixed(2) ?? '?'})${sameModel ? ' [same as edit]' : ''}`,

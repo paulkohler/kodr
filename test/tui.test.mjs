@@ -761,17 +761,22 @@ describe('terminal turn ui', () => {
 		const calls = [];
 		const stdout = captureStream();
 
-		await handleTuiLine(state, 'write a parser', { stdout }, async (request) => {
-			calls.push(request);
-			return {
-				applied: false,
-				ok: true,
-				response: 'done',
-				runDir: '/tmp/r1',
-				sessionId: 's1',
-				writeResult: { writes: [] },
-			};
-		});
+		await handleTuiLine(
+			state,
+			'write a parser',
+			{ stdout },
+			async (request) => {
+				calls.push(request);
+				return {
+					applied: false,
+					ok: true,
+					response: 'done',
+					runDir: '/tmp/r1',
+					sessionId: 's1',
+					writeResult: { writes: [] },
+				};
+			},
+		);
 
 		await handleTuiLine(state, '/retry', { stdout }, async (request) => {
 			calls.push(request);
@@ -795,7 +800,12 @@ describe('terminal turn ui', () => {
 		const state = createTuiState({ model: 'test-model' });
 		const stdout = captureStream();
 
-		const result = await handleTuiLine(state, '/retry', { stdout }, async () => {});
+		const result = await handleTuiLine(
+			state,
+			'/retry',
+			{ stdout },
+			async () => {},
+		);
 
 		assert.equal(result.ok, false);
 		assert.match(stdout.text, /no previous prompt/u);
@@ -856,7 +866,6 @@ describe('terminal turn ui', () => {
 		}
 	});
 });
-
 
 function proposalResult(options = {}) {
 	return {

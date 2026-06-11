@@ -60,7 +60,9 @@ describe('renderEditFormatContract', () => {
 
 	it("'patch': contains 'search'", () => {
 		// The patch contract mentions search text must match
-		assert.ok(renderEditFormatContract('patch').toLowerCase().includes('search'));
+		assert.ok(
+			renderEditFormatContract('patch').toLowerCase().includes('search'),
+		);
 	});
 
 	it("'whole': starts with 'You are Kodr'", () => {
@@ -71,7 +73,8 @@ describe('renderEditFormatContract', () => {
 		const text = renderEditFormatContract('whole');
 		// The whole contract talks about full-file writes
 		assert.ok(
-			text.includes('full-file writes') || text.includes('complete file content'),
+			text.includes('full-file writes') ||
+				text.includes('complete file content'),
 		);
 	});
 
@@ -125,9 +128,14 @@ describe('renderEditFormatContract', () => {
  * @returns {string}
  */
 function makeBlock(path, search, replace) {
-	return [path, '<<<<<<< SEARCH', search, '=======', replace, '>>>>>>> REPLACE'].join(
-		'\n',
-	);
+	return [
+		path,
+		'<<<<<<< SEARCH',
+		search,
+		'=======',
+		replace,
+		'>>>>>>> REPLACE',
+	].join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +274,9 @@ describe('extractEditBlocks', () => {
 		const { patches, errors } = extractEditBlocks(text);
 		assert.equal(patches.length, 0);
 		assert.ok(errors.length > 0);
-		assert.ok(errors.some((e) => e.reason.toLowerCase().includes('missing >>>>>>>')));
+		assert.ok(
+			errors.some((e) => e.reason.toLowerCase().includes('missing >>>>>>>')),
+		);
 	});
 
 	it('empty search content → error entry', () => {
@@ -282,7 +292,9 @@ describe('extractEditBlocks', () => {
 		const { patches, errors } = extractEditBlocks(text);
 		assert.equal(patches.length, 0);
 		assert.ok(errors.length > 0);
-		assert.ok(errors.some((e) => e.reason.toLowerCase().includes('empty search')));
+		assert.ok(
+			errors.some((e) => e.reason.toLowerCase().includes('empty search')),
+		);
 	});
 
 	it('non-string input → error entry, not a throw', () => {
@@ -293,7 +305,9 @@ describe('extractEditBlocks', () => {
 	});
 
 	it('no blocks in text → empty patches and empty errors', () => {
-		const { patches, errors } = extractEditBlocks('Hello world, no blocks here.');
+		const { patches, errors } = extractEditBlocks(
+			'Hello world, no blocks here.',
+		);
 		assert.equal(patches.length, 0);
 		assert.equal(errors.length, 0);
 	});
@@ -375,7 +389,13 @@ describe('blocks-in-app-flow integration', () => {
 	it('proposal with empty patches + text with blocks → merged result has those patches', () => {
 		// Simulate what app.mjs does after extractProposal when editFormat==='blocks':
 		// the JSON envelope has empty patches, but the raw text contains SEARCH/REPLACE blocks.
-		const proposal = { status: 'OK', messages: [], files: [], patches: [], scratchpad: '' };
+		const proposal = {
+			status: 'OK',
+			messages: [],
+			files: [],
+			patches: [],
+			scratchpad: '',
+		};
 		const rawText = [
 			JSON.stringify(proposal),
 			'',
@@ -402,7 +422,13 @@ describe('blocks-in-app-flow integration', () => {
 
 	it('block errors are recorded in proposal._blockErrors', () => {
 		// Simulate a malformed block: missing ======= separator
-		const proposal = { status: 'OK', messages: [], files: [], patches: [], scratchpad: '' };
+		const proposal = {
+			status: 'OK',
+			messages: [],
+			files: [],
+			patches: [],
+			scratchpad: '',
+		};
 		const rawText = [
 			JSON.stringify(proposal),
 			'',
@@ -451,7 +477,11 @@ describe('blocks-in-app-flow integration', () => {
 	});
 
 	it('proposal already has patches → blocks are appended after existing patches', () => {
-		const existingPatch = { path: 'src/existing.js', search: 'old', replace: 'new' };
+		const existingPatch = {
+			path: 'src/existing.js',
+			search: 'old',
+			replace: 'new',
+		};
 		const proposal = { status: 'OK', patches: [existingPatch] };
 		const rawText = makeBlock('src/added.js', 'x', 'y');
 

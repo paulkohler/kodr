@@ -37,9 +37,7 @@ function startModelsServer(models) {
 			resolve({
 				baseUrl: `http://127.0.0.1:${port}/v1`,
 				close: () =>
-					new Promise((r, j) =>
-						server.close((e) => (e ? j(e) : r())),
-					),
+					new Promise((r, j) => server.close((e) => (e ? j(e) : r()))),
 			});
 		});
 	});
@@ -102,9 +100,7 @@ describe('discoverModels', () => {
 				},
 			);
 		} finally {
-			await new Promise((r, j) =>
-				server.close((e) => (e ? j(e) : r())),
-			);
+			await new Promise((r, j) => server.close((e) => (e ? j(e) : r())));
 		}
 	});
 
@@ -126,9 +122,7 @@ describe('discoverModels', () => {
 				},
 			);
 		} finally {
-			await new Promise((r, j) =>
-				server.close((e) => (e ? j(e) : r())),
-			);
+			await new Promise((r, j) => server.close((e) => (e ? j(e) : r())));
 		}
 	});
 });
@@ -139,8 +133,26 @@ describe('saveBenchScores / loadBenchScores', () => {
 	it('round-trips a Map of score entries', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-bench-scores-'));
 		const scores = new Map([
-			['model-a', { score: 0.9, passCount: 9, totalCount: 10, timestamp: '2026-01-01T00:00:00.000Z', editFormat: 'patch' }],
-			['model-b', { score: 0.5, passCount: 5, totalCount: 10, timestamp: '2026-01-01T00:00:00.000Z', editFormat: 'whole' }],
+			[
+				'model-a',
+				{
+					score: 0.9,
+					passCount: 9,
+					totalCount: 10,
+					timestamp: '2026-01-01T00:00:00.000Z',
+					editFormat: 'patch',
+				},
+			],
+			[
+				'model-b',
+				{
+					score: 0.5,
+					passCount: 5,
+					totalCount: 10,
+					timestamp: '2026-01-01T00:00:00.000Z',
+					editFormat: 'whole',
+				},
+			],
 		]);
 
 		await saveBenchScores(cwd, scores);
@@ -159,7 +171,9 @@ describe('saveBenchScores / loadBenchScores', () => {
 
 	it('creates .kodr directory if absent', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-bench-mkdir-'));
-		const scores = new Map([['model-x', { score: 1.0, passCount: 1, totalCount: 1 }]]);
+		const scores = new Map([
+			['model-x', { score: 1.0, passCount: 1, totalCount: 1 }],
+		]);
 		await saveBenchScores(cwd, scores);
 		const text = await readFile(join(cwd, '.kodr/bench-scores.json'), 'utf8');
 		const obj = JSON.parse(text);
@@ -181,7 +195,12 @@ describe('saveBenchScores / loadBenchScores', () => {
 describe('saveRoutingTable / loadRoutingTable', () => {
 	it('round-trips a routing table', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-routing-'));
-		const table = { editModel: 'model-a', editScore: 0.9, cheapModel: 'model-b', cheapScore: 0.5 };
+		const table = {
+			editModel: 'model-a',
+			editScore: 0.9,
+			cheapModel: 'model-b',
+			cheapScore: 0.5,
+		};
 		await saveRoutingTable(cwd, table);
 		const loaded = await loadRoutingTable(cwd);
 		assert.deepEqual(loaded, table);
@@ -269,10 +288,31 @@ describe('computeRoutingTable', () => {
 describe('renderBenchResults', () => {
 	it('includes model scores and routing sections', () => {
 		const scores = new Map([
-			['model-a', { score: 0.9, passCount: 9, totalCount: 10, timestamp: '2026-01-01T00:00:00.000Z' }],
-			['model-b', { score: 0.5, passCount: 5, totalCount: 10, timestamp: '2026-02-01T00:00:00.000Z' }],
+			[
+				'model-a',
+				{
+					score: 0.9,
+					passCount: 9,
+					totalCount: 10,
+					timestamp: '2026-01-01T00:00:00.000Z',
+				},
+			],
+			[
+				'model-b',
+				{
+					score: 0.5,
+					passCount: 5,
+					totalCount: 10,
+					timestamp: '2026-02-01T00:00:00.000Z',
+				},
+			],
 		]);
-		const table = { editModel: 'model-a', editScore: 0.9, cheapModel: 'model-b', cheapScore: 0.5 };
+		const table = {
+			editModel: 'model-a',
+			editScore: 0.9,
+			cheapModel: 'model-b',
+			cheapScore: 0.5,
+		};
 		const output = renderBenchResults(scores, table);
 
 		assert.match(output, /Bench results:/);
@@ -289,14 +329,23 @@ describe('renderBenchResults', () => {
 	});
 
 	it('shows [same as edit] when cheap and edit are the same model', () => {
-		const scores = new Map([['only', { score: 1.0, passCount: 1, totalCount: 1 }]]);
-		const table = { editModel: 'only', editScore: 1.0, cheapModel: 'only', cheapScore: 1.0 };
+		const scores = new Map([
+			['only', { score: 1.0, passCount: 1, totalCount: 1 }],
+		]);
+		const table = {
+			editModel: 'only',
+			editScore: 1.0,
+			cheapModel: 'only',
+			cheapScore: 1.0,
+		};
 		const output = renderBenchResults(scores, table);
 		assert.match(output, /\[same as edit\]/);
 	});
 
 	it('omits routing section when routingTable is null', () => {
-		const scores = new Map([['model-a', { score: 0.8, passCount: 8, totalCount: 10 }]]);
+		const scores = new Map([
+			['model-a', { score: 0.8, passCount: 8, totalCount: 10 }],
+		]);
 		const output = renderBenchResults(scores, null);
 		assert.equal(output.includes('Routing:'), false);
 	});

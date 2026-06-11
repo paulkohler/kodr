@@ -238,7 +238,11 @@ describe('runWatchLoop', () => {
 
 		handle.close();
 
-		assert.equal(channelCalls, 0, 'channel should not be called on clean start');
+		assert.equal(
+			channelCalls,
+			0,
+			'channel should not be called on clean start',
+		);
 	});
 
 	it('respects no-progress: does not spin endlessly', async () => {

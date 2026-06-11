@@ -255,7 +255,10 @@ describe('one-shot healing', () => {
 
 describe('extractFailCount', () => {
 	it('counts "not ok" lines', () => {
-		const result = { stdout: 'not ok 1 - test failed\nnot ok 2 - another\n', stderr: '' };
+		const result = {
+			stdout: 'not ok 1 - test failed\nnot ok 2 - another\n',
+			stderr: '',
+		};
 		assert.equal(extractFailCount(result), 2);
 	});
 
@@ -319,7 +322,10 @@ describe('renderEscalationPrompt', () => {
 			files: [],
 			diagnostics: null,
 		};
-		const prompt = renderEscalationPrompt(repairContext, { index: 2, maxTurns: 3 });
+		const prompt = renderEscalationPrompt(repairContext, {
+			index: 2,
+			maxTurns: 3,
+		});
 		assert.match(prompt, /ESCALATION/u);
 		assert.match(prompt, /proposed no changes/u);
 		assert.match(prompt, /thinking hard/u);
@@ -334,7 +340,10 @@ describe('renderEscalationPrompt', () => {
 			files: [],
 			diagnostics: null,
 		};
-		const prompt = renderEscalationPrompt(repairContext, { index: 2, maxTurns: 3 });
+		const prompt = renderEscalationPrompt(repairContext, {
+			index: 2,
+			maxTurns: 3,
+		});
 		assert.doesNotMatch(prompt, /Prior scratchpad/u);
 	});
 });
