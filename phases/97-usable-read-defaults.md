@@ -1,4 +1,4 @@
-# Phase 96: Usable Read Defaults
+# Phase 97: Usable Read Defaults
 
 ## Goal
 
@@ -27,7 +27,7 @@ execution keep their existing gates.
   asked for apply-and-verify, and the repair loop is already bounded.
   `--no-heal` opts out.
 - Every new default has a `--no-*` escape and is overridable from the phase
-  95 project config.
+  96 project config.
 - README and usage.md Safety Defaults sections updated to state the new
   defaults and the unchanged write gates.
 

@@ -1,4 +1,4 @@
-# Phase 97: Interactive Apply Prompt
+# Phase 98: Interactive Apply Prompt
 
 ## Goal
 
@@ -20,7 +20,7 @@ review and `/accept`; the CLI should get the same one-pass flow.
 - Default answer is No; EOF, timeout, or any non-`y` input declines.
 - Non-interactive stdin/stdout, `--json`, and explicit `--dry-run` keep the
   current behavior exactly. `--yes` continues to skip the prompt.
-- After an accepted apply, the configured `--test` verification (and phase 96
+- After an accepted apply, the configured `--test` verification (and phase 97
   heal default) run as if `--yes` had been passed.
 
 ## Non-Goals
