@@ -164,6 +164,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		inspectSymbol: '',
 		inspectLanguages: [],
 		inspectContext: 'auto',
+		lsp: false,
 		installDependencies: false,
 		json: false,
 		model: env.MODEL_ID || DEFAULT_MODEL_ID,
@@ -218,6 +219,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		_contextWindowSet: false,
 		_healSet: false,
 		_inspectContextSet: false,
+		_lspSet: false,
 		_maxCostUsdSet: false,
 		_maxRetriesSet: false,
 		_maxTokensSet: false,
@@ -295,6 +297,18 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		if (arg === '--no-inspect-context') {
 			options.inspectContext = false;
 			options._inspectContextSet = true;
+			continue;
+		}
+
+		if (arg === '--lsp') {
+			options.lsp = true;
+			options._lspSet = true;
+			continue;
+		}
+
+		if (arg === '--no-lsp') {
+			options.lsp = false;
+			options._lspSet = true;
 			continue;
 		}
 
@@ -532,6 +546,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		stream: options._streamSet ? 'flag' : 'builtin',
 		heal: options._healSet ? 'flag' : 'builtin',
 		inspectContext: options._inspectContextSet ? 'flag' : 'builtin',
+		lsp: options._lspSet ? 'flag' : 'builtin',
 		testCommand: options._testCommandSet ? 'flag' : 'builtin',
 		testCwd: options._testCwdSet ? 'flag' : 'builtin',
 		maxTokens: options._maxTokensSet ? 'flag' : 'builtin',
@@ -619,6 +634,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 	delete options._contextWindowSet;
 	delete options._healSet;
 	delete options._inspectContextSet;
+	delete options._lspSet;
 	delete options._maxCostUsdSet;
 	delete options._maxRetriesSet;
 	delete options._maxTokensSet;
@@ -818,7 +834,7 @@ Project config:
   .kodr/config.json     Per-project defaults. Precedence (highest first):
                           CLI flags > env vars > project config > model profile > built-in defaults
                         Allowed keys: model, baseUrl, testCommand, testCwd, tools,
-                          stream, heal, inspectContext, timeoutMs, maxTurns, maxRetries,
+                          stream, heal, inspectContext, lsp, timeoutMs, maxTurns, maxRetries,
                           maxTokens, maxCostUsd, protectExisting
                         Gate keys rejected: yes, gitCommit, installDependencies,
                           enableHooks, apiKey
@@ -3539,6 +3555,7 @@ async function createInspectionContext(cwd, options, prompt) {
 				options.inspectLanguages.length > 0
 					? options.inspectLanguages
 					: undefined,
+			lsp: options.lsp || false,
 			query: prompt,
 		});
 		return {
@@ -3866,13 +3883,18 @@ function hasInspectionTargets(plan) {
 
 function resolveContextPackingRecord(inspectionResult, options) {
 	if (options.tools) {
-		return { strategy: 'file-map', fallbackReason: null };
+		return { fallbackReason: null, lspInspectors: [], strategy: 'file-map' };
 	}
 	if (inspectionResult?.enabled) {
-		return { strategy: 'inspection-aware', fallbackReason: null };
+		return {
+			fallbackReason: null,
+			lspInspectors: inspectionResult.index?.lspInspectors ?? [],
+			strategy: 'inspection-aware',
+		};
 	}
 	return {
-		strategy: 'whole-file',
 		fallbackReason: inspectionResult?.fallbackReason || null,
+		lspInspectors: [],
+		strategy: 'whole-file',
 	};
 }

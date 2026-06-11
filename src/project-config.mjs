@@ -27,12 +27,22 @@ const KNOWN_KEYS = new Set([
 	'stream',
 	'heal',
 	'inspectContext',
+	'lsp',
 	'timeoutMs',
 	'maxTurns',
 	'maxRetries',
 	'maxTokens',
 	'maxCostUsd',
 	'protectExisting',
+]);
+
+// Known LSP server names from the default registry. Config may reference only
+// these names; command strings are rejected to prevent config-injection attacks.
+export const KNOWN_LSP_SERVERS = new Set([
+	'gopls',
+	'pyright',
+	'rust-analyzer',
+	'typescript-language-server',
 ]);
 
 // Returns the path where a project config should live, regardless of whether
@@ -139,6 +149,25 @@ function validateValue(key, value, configPath) {
 			if (typeof value !== 'boolean') fail('must be a boolean');
 			return value;
 
+		case 'lsp': {
+			// Accepts true (all servers) or an array of known server names.
+			// Rejects command strings and unknown names to prevent config injection.
+			if (value === true) return true;
+			if (Array.isArray(value)) {
+				for (const name of value) {
+					if (typeof name !== 'string') {
+						fail('server names must be strings');
+					}
+					if (!KNOWN_LSP_SERVERS.has(name)) {
+						fail(`unknown LSP server name "${name}"`);
+					}
+				}
+				return value;
+			}
+			fail('must be true or an array of known server names');
+			break;
+		}
+
 		case 'timeoutMs':
 			if (!Number.isInteger(value) || value < 100)
 				fail('must be an integer >= 100');
@@ -223,6 +252,8 @@ function shouldApply(key, options) {
 			return !options._healSet;
 		case 'inspectContext':
 			return !options._inspectContextSet;
+		case 'lsp':
+			return !options._lspSet;
 		case 'testCommand':
 			return !options._testCommandSet;
 		case 'testCwd':
@@ -251,6 +282,7 @@ export function renderShowConfig(options) {
 		['stream', String(options.stream ?? 'auto')],
 		['heal', String(options.heal ?? 'auto')],
 		['inspectContext', String(options.inspectContext ?? 'auto')],
+		['lsp', lspConfigDisplay(options.lsp)],
 		['testCommand', String(options.testCommand ?? '')],
 		['testCwd', String(options.testCwd ?? '')],
 		['timeoutMs', String(options.timeoutMs ?? '')],
@@ -269,4 +301,10 @@ export function renderShowConfig(options) {
 			})
 			.join('\n') + '\n'
 	);
+}
+
+function lspConfigDisplay(lsp) {
+	if (lsp === true) return 'true';
+	if (Array.isArray(lsp)) return lsp.join(',') || '[]';
+	return 'false';
 }

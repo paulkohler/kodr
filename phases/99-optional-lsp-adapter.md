@@ -182,26 +182,26 @@ phase 97 strategy field, so a replayed run shows what LSP contributed.
 
 ## Done Criteria
 
-- [ ] `src/lsp-client.mjs` implements framing, lifecycle with timeouts,
+- [x] `src/lsp-client.mjs` implements framing, lifecycle with timeouts,
       and the four operations using Node builtins only.
-- [ ] Registry entries rewritten to documented real invocations with
+- [x] Registry entries rewritten to documented real invocations with
       `protocol: 'lsp'`; no default `'cli'` entries remain.
-- [ ] LSP results normalize into the `InspectedFile` shape and merge
+- [x] LSP results normalize into the `InspectedFile` shape and merge
       through the existing registry path with artifacts recording the
       contribution.
-- [ ] Off by default with `--lsp` / config / `--no-lsp` resolution
+- [x] Off by default with `--lsp` / config / `--no-lsp` resolution
       visible in `--show-config` and `summary.json`; config cannot
       supply commands.
-- [ ] Every failure mode (missing server, handshake failure, timeout,
+- [x] Every failure mode (missing server, handshake failure, timeout,
       malformed frames) falls back to the built-in index with the reason
       recorded.
-- [ ] Fake LSP server fixture and tests per Test Requirements.
-- [ ] One real integration run against a locally installed server,
+- [x] Fake LSP server fixture and tests per Test Requirements.
+- [x] One real integration run against a locally installed server,
       recorded in `process/experiments.jsonl`, per the AGENTS.md
       security-boundary rule — or a documented note of which servers
       were unavailable and why fake-server coverage stands in.
-- [ ] usage.md documents the flag, the config key, and the
+- [x] usage.md documents the flag, the config key, and the
       repository-code-execution caveat.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.

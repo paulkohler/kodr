@@ -1,17 +1,31 @@
 import { spawn } from 'node:child_process';
 import { inspectWorkspace, rankSymbols } from './repomap/index.mjs';
+import { runLspInspector } from './lsp-client.mjs';
 
 const DEFAULT_TIMEOUT = 10000;
 
 /**
  * Registry entry shape:
+ *
+ * CLI entry:
  * {
+ *   protocol: 'cli',
  *   name: string,
  *   languages: string[],
  *   command: string,
  *   buildArgs: (files: string[], cwd: string) => string[],
  *   adapt: (stdout: string, files: string[]) => InspectedFile[],
- *   timeout: number,      // ms
+ *   timeout: number,
+ *   onFailure: 'skip' | 'throw',
+ * }
+ *
+ * LSP entry:
+ * {
+ *   protocol: 'lsp',
+ *   name: string,
+ *   languages: string[],
+ *   command: string,
+ *   args: string[],
  *   onFailure: 'skip' | 'throw',
  * }
  *
@@ -19,42 +33,40 @@ const DEFAULT_TIMEOUT = 10000;
  * { path, language, lineCount, imports, symbols }
  */
 
+// No default 'cli' entries — every CLI entry must document the interface its
+// tool actually supports. The tools below speak LSP over stdio.
 export const REGISTRY = [
 	{
-		adapt: adaptJsonOutput,
-		buildArgs: (files) => ['--json', ...files],
+		args: [],
 		command: 'gopls',
 		languages: ['go'],
 		name: 'gopls',
 		onFailure: 'skip',
-		timeout: DEFAULT_TIMEOUT,
+		protocol: 'lsp',
 	},
 	{
-		adapt: adaptJsonOutput,
-		buildArgs: (files) => ['--outputjson', ...files],
-		command: 'pyright',
+		args: ['--stdio'],
+		command: 'pyright-langserver',
 		languages: ['python'],
 		name: 'pyright',
 		onFailure: 'skip',
-		timeout: DEFAULT_TIMEOUT,
+		protocol: 'lsp',
 	},
 	{
-		adapt: adaptJsonOutput,
-		buildArgs: (files) => ['--json', ...files],
+		args: [],
 		command: 'rust-analyzer',
 		languages: ['rust'],
 		name: 'rust-analyzer',
 		onFailure: 'skip',
-		timeout: DEFAULT_TIMEOUT,
+		protocol: 'lsp',
 	},
 	{
-		adapt: adaptJsonOutput,
-		buildArgs: (files) => ['--json', ...files],
+		args: ['--stdio'],
 		command: 'typescript-language-server',
 		languages: ['javascript', 'typescript'],
 		name: 'typescript-language-server',
 		onFailure: 'skip',
-		timeout: DEFAULT_TIMEOUT,
+		protocol: 'lsp',
 	},
 ];
 
@@ -192,6 +204,11 @@ function mergeExternalFile(baseFile, externalFile) {
  * Inspect a workspace using the external inspector registry.
  * Falls back gracefully to the built-in inspector when no external tools are
  * available or when they fail.
+ *
+ * options.lsp — controls LSP enrichment:
+ *   false / undefined   → skip LSP (default, no spawning)
+ *   true                → run all available LSP entries
+ *   string[]            → run only named LSP entries
  */
 export async function inspectWithRegistry(
 	cwd,
@@ -201,35 +218,63 @@ export async function inspectWithRegistry(
 	const baseIndex = await inspectWorkspace(cwd, options);
 
 	const presentLanguages = Object.keys(baseIndex.languages);
-	const available = await discoverInspectors(presentLanguages, registry);
+
+	// Split registry by protocol; only run LSP entries when opt-in is set.
+	const cliRegistry = registry.filter((e) => (e.protocol ?? 'cli') === 'cli');
+	const lspEnabled = options.lsp;
+	const lspRegistry = lspEnabled
+		? registry.filter(
+				(e) => e.protocol === 'lsp' && lspEntryAllowed(e, lspEnabled),
+			)
+		: [];
+
+	const allRegistries = [...cliRegistry, ...lspRegistry];
+	const available = await discoverInspectors(presentLanguages, allRegistries);
 
 	if (available.length === 0) {
-		return { ...baseIndex, externalInspectors: [] };
+		return { ...baseIndex, externalInspectors: [], lspInspectors: [] };
 	}
 
 	const externalFiles = [];
 	const usedInspectors = [];
+	const usedLspInspectors = [];
 
 	for (const inspector of available) {
-		const files = baseIndex.files
-			.filter((f) => inspector.languages.includes(f.language))
-			.map((f) => f.path);
+		const matchingFiles = baseIndex.files.filter((f) =>
+			inspector.languages.includes(f.language),
+		);
 
-		if (files.length === 0) {
-			continue;
-		}
+		if (matchingFiles.length === 0) continue;
 
-		try {
-			const result = await runInspectorCommand(inspector, files, cwd);
-			if (result.timedOut || result.error || result.exitCode !== 0) {
-				continue;
+		if (inspector.protocol === 'lsp') {
+			try {
+				const adapted = await runLspInspector(inspector, matchingFiles, cwd, {
+					diagWindow: options.lspDiagWindow ?? 300,
+					initTimeout: options.lspInitTimeout ?? 15_000,
+					requestTimeout: options.lspRequestTimeout ?? 30_000,
+					runBudget: options.lspRunBudget ?? 60_000,
+				});
+				externalFiles.push(...adapted);
+				usedLspInspectors.push(inspector.name);
+			} catch {
+				if (inspector.onFailure === 'throw') {
+					throw new Error(`LSP inspector ${inspector.name} failed`);
+				}
 			}
-			const adapted = inspector.adapt(result.stdout, files);
-			externalFiles.push(...adapted);
-			usedInspectors.push(inspector.name);
-		} catch {
-			if (inspector.onFailure === 'throw') {
-				throw new Error(`Inspector ${inspector.name} failed`);
+		} else {
+			const files = matchingFiles.map((f) => f.path);
+			try {
+				const result = await runInspectorCommand(inspector, files, cwd);
+				if (result.timedOut || result.error || result.exitCode !== 0) {
+					continue;
+				}
+				const adapted = inspector.adapt(result.stdout, files);
+				externalFiles.push(...adapted);
+				usedInspectors.push(inspector.name);
+			} catch {
+				if (inspector.onFailure === 'throw') {
+					throw new Error(`Inspector ${inspector.name} failed`);
+				}
 			}
 		}
 	}
@@ -238,10 +283,17 @@ export async function inspectWithRegistry(
 	return {
 		...merged,
 		externalInspectors: usedInspectors,
+		lspInspectors: usedLspInspectors,
 		rankedSymbols: rankSymbols(merged, {
 			query: options.query || options.symbol || '',
 		}),
 	};
+}
+
+function lspEntryAllowed(entry, lspEnabled) {
+	if (lspEnabled === true) return true;
+	if (Array.isArray(lspEnabled)) return lspEnabled.includes(entry.name);
+	return false;
 }
 
 /**

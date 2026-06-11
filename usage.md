@@ -81,6 +81,7 @@ Config keys map 1-to-1 with the corresponding CLI flags:
 | `stream` | `--stream` / `--no-stream` | boolean (default `auto`: on for interactive TTY) |
 | `heal` | `--heal` / `--no-heal` | boolean (default `auto`: on when `--yes` and `--test` are both set) |
 | `inspectContext` | `--inspect-context` / `--no-inspect-context` | boolean (default `auto`: on, fallback gracefully) |
+| `lsp` | `--lsp` / `--no-lsp` | `true`, `false`, or array of server names (default `false`) |
 | `timeoutMs` | `--timeout-ms` | integer >= 100 |
 | `maxTurns` | `--max-turns` | integer >= 1 |
 | `maxRetries` | `--max-retries` | integer >= 0 |
@@ -716,6 +717,48 @@ Pack context around relevant symbols, references, imports, and related tests:
 ```sh
 ./kodr run -p "Change runPrompt validation" --inspect-context
 ```
+
+#### LSP-enriched inspection (opt-in)
+
+When a language server is installed (e.g. `gopls`, `typescript-language-server`,
+`pyright-langserver`, `rust-analyzer`), kodr can query it for real semantic
+symbols and diagnostics to enrich the built-in regex index:
+
+```sh
+./kodr run -p "Change runPrompt validation" --lsp
+./kodr run -p "Change runPrompt validation" --no-lsp   # explicit off
+```
+
+The `--lsp` flag speaks the Language Server Protocol (stdio JSON-RPC) with any
+server registered for the workspace's languages. Results merge into the base
+index: LSP-covered files get real symbols, the built-in index fills gaps.
+
+**Security caveat:** enabling LSP can execute repository code. `rust-analyzer`
+runs build scripts and proc-macros; `gopls` invokes the go toolchain. The
+default is off for this reason. Never enable it in untrusted repositories.
+
+Set a project default in `.kodr/config.json`:
+
+```json
+{
+  "lsp": true
+}
+```
+
+Or restrict to specific servers:
+
+```json
+{
+  "lsp": ["gopls"]
+}
+```
+
+Config accepts `true` (all available registered servers) or an array of known
+server names. Arbitrary command strings are rejected — a cloned repository's
+config must never choose what binary kodr executes.
+
+The `lsp` config key follows the same CLI/config/builtin precedence as all
+other keys and appears in `kodr run --show-config`.
 
 ### Continue A Session
 
