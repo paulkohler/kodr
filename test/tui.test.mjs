@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { describe, it } from 'node:test';
 import { main } from '../src/app.mjs';
 import { stripAnsi } from '../src/ansi.mjs';
-import { createTuiState, handleTuiLine, runTui } from '../src/tui.mjs';
+import {
+	createTuiState,
+	expandFileReferences,
+	handleTuiLine,
+	renderColoredDiff,
+	renderFooter,
+	runTui,
+} from '../src/tui.mjs';
 
 describe('terminal turn ui', () => {
 	it('routes normal input through the run-turn channel request', async () => {
@@ -644,9 +654,209 @@ describe('terminal turn ui', () => {
 			stdout,
 		});
 
-		assert.doesNotMatch(stdout.text, /\u001B\[/u);
+		assert.doesNotMatch(stdout.text, /\[/u);
+	});
+
+	it('renderColoredDiff colors diff lines by prefix', async () => {
+		const writes = [
+			{
+				diff: '--- a/src/foo.mjs\n+++ b/src/foo.mjs\n@@ -1,3 +1,3 @@\n context line\n-removed line\n+added line',
+				path: 'src/foo.mjs',
+				status: 'modify',
+			},
+		];
+		const { createTuiView } = await import('../src/tui.mjs');
+		const env = { FORCE_COLOR: '1' };
+		const stdout = captureStream();
+		const view = createTuiView({ env, stdout });
+		const output = renderColoredDiff(writes, view);
+
+		assert.match(output, /diff: src\/foo\.mjs/u);
+		assert.match(output, /\[1m---/u);
+		assert.match(output, /\[1m\+\+\+/u);
+		assert.match(output, /\[36m@@/u);
+		assert.match(output, /\[32m\+added line/u);
+		assert.match(output, /\[31m-removed line/u);
+		assert.match(output, /context line/u);
+	});
+
+	it('renderColoredDiff returns empty string when no diffs', () => {
+		const writes = [{ path: 'src/foo.mjs', status: 'create' }];
+		const output = renderColoredDiff(writes);
+		assert.equal(output, '');
+	});
+
+	it('expandFileReferences inlines existing files and skips missing ones', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'tui-test-'));
+		try {
+			await writeFile(join(dir, 'hello.js'), 'console.log("hi");');
+			const { expandedPrompt, files } = await expandFileReferences(
+				'fix @hello.js and @missing.txt please',
+				dir,
+			);
+			assert.equal(files.length, 1);
+			assert.equal(files[0].path, 'hello.js');
+			assert.equal(files[0].chars, 'console.log("hi");'.length);
+			assert.match(expandedPrompt, /## @hello\.js/u);
+			assert.match(expandedPrompt, /console\.log\("hi"\)/u);
+			assert.match(expandedPrompt, /fix @hello\.js and @missing\.txt please/u);
+			assert.doesNotMatch(expandedPrompt, /## @missing\.txt/u);
+		} finally {
+			await rm(dir, { recursive: true });
+		}
+	});
+
+	it('expandFileReferences returns original prompt when no @refs present', async () => {
+		const { expandedPrompt, files } = await expandFileReferences(
+			'no references here',
+			'/tmp',
+		);
+		assert.equal(expandedPrompt, 'no references here');
+		assert.deepEqual(files, []);
+	});
+
+	it('expandFileReferences deduplicates repeated @refs', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'tui-test-'));
+		try {
+			await writeFile(join(dir, 'a.js'), 'const x = 1;');
+			const { files } = await expandFileReferences(
+				'check @a.js and @a.js again',
+				dir,
+			);
+			assert.equal(files.length, 1);
+		} finally {
+			await rm(dir, { recursive: true });
+		}
+	});
+
+	it('renderFooter shows model, session, and review indicator', () => {
+		const state = createTuiState({ model: 'qwen-35b', sessionId: 'sess-abc' });
+		state.pendingReview = { options: {}, prompt: 'x', result: {} };
+		const output = renderFooter(state, null);
+		assert.match(output, /model=qwen-35b/u);
+		assert.match(output, /session=sess-abc/u);
+		assert.match(output, /\[review pending\]/u);
+	});
+
+	it('renderFooter shows token counts when result has usage', () => {
+		const state = createTuiState({ model: 'test-model', sessionId: 'sess-1' });
+		const result = {
+			usage: { completionTokens: 42, promptTokens: 100, tokens: 142 },
+		};
+		const output = renderFooter(state, result);
+		assert.match(output, /prompt=100/u);
+		assert.match(output, /completion=42/u);
+		assert.match(output, /total=142/u);
+	});
+
+	it('renderFooter omits token section when result has no usage', () => {
+		const state = createTuiState({ model: 'test-model', sessionId: 'sess-1' });
+		const output = renderFooter(state, { ok: true });
+		assert.doesNotMatch(output, /tokens/u);
+		assert.match(output, /model=test-model/u);
+	});
+
+	it('/retry re-runs the last prompt', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const calls = [];
+		const stdout = captureStream();
+
+		await handleTuiLine(state, 'write a parser', { stdout }, async (request) => {
+			calls.push(request);
+			return {
+				applied: false,
+				ok: true,
+				response: 'done',
+				runDir: '/tmp/r1',
+				sessionId: 's1',
+				writeResult: { writes: [] },
+			};
+		});
+
+		await handleTuiLine(state, '/retry', { stdout }, async (request) => {
+			calls.push(request);
+			return {
+				applied: false,
+				ok: true,
+				response: 'done again',
+				runDir: '/tmp/r2',
+				sessionId: 's2',
+				writeResult: { writes: [] },
+			};
+		});
+
+		assert.equal(calls.length, 2);
+		assert.equal(calls[0].options.prompt, 'write a parser');
+		assert.equal(calls[1].options.prompt, 'write a parser');
+		assert.match(stdout.text, /retrying: write a parser/u);
+	});
+
+	it('/retry warns when there is no previous prompt', async () => {
+		const state = createTuiState({ model: 'test-model' });
+		const stdout = captureStream();
+
+		const result = await handleTuiLine(state, '/retry', { stdout }, async () => {});
+
+		assert.equal(result.ok, false);
+		assert.match(stdout.text, /no previous prompt/u);
+	});
+
+	it('/retry --model uses a different model temporarily', async () => {
+		const state = createTuiState({ model: 'model-a' });
+		state.lastPrompt = 'do it';
+		const calls = [];
+		const stdout = captureStream();
+
+		await handleTuiLine(
+			state,
+			'/retry --model model-b',
+			{ stdout },
+			async (request) => {
+				calls.push(request);
+				return {
+					applied: false,
+					ok: true,
+					response: 'ok',
+					runDir: '/tmp/r',
+					sessionId: 's',
+					writeResult: { writes: [] },
+				};
+			},
+		);
+
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].options.model, 'model-b');
+		assert.equal(state.model, 'model-a');
+	});
+
+	it('shows attached file note when @refs are expanded', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'tui-test-'));
+		try {
+			await writeFile(join(dir, 'helper.js'), 'function help() {}');
+			const state = createTuiState({ model: 'test-model' });
+			const stdout = captureStream();
+
+			await handleTuiLine(
+				state,
+				'review @helper.js',
+				{ cwd: dir, stdout },
+				async () => ({
+					applied: false,
+					ok: true,
+					response: 'reviewed',
+					runDir: '/tmp/r',
+					sessionId: 's',
+					writeResult: { writes: [] },
+				}),
+			);
+
+			assert.match(stdout.text, /attached: helper\.js/u);
+		} finally {
+			await rm(dir, { recursive: true });
+		}
 	});
 });
+
 
 function proposalResult(options = {}) {
 	return {

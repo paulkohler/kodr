@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { createAnsi } from './ansi.mjs';
 import { renderInspection, renderReferences } from './inspection-output.mjs';
@@ -18,6 +20,7 @@ export function createTuiState(options = {}) {
 			showSkills: false,
 		},
 		continueNext: options.continueSession === true,
+		lastPrompt: '',
 		lastRunDir: '',
 		model: options.model || '',
 		pendingPermission: null,
@@ -86,6 +89,7 @@ export function createTuiView(io = {}) {
 
 	return {
 		brand: (text) => ansi.bold(text),
+		cyanText: (text) => ansi.cyan(text),
 		error: (text) => line(ansi.red, text),
 		errorText: (text) => ansi.red(text),
 		info: (text) => line(ansi.gray, text),
@@ -130,7 +134,14 @@ export async function handleTuiLine(state, line, io, channel) {
 		io.stdout.write(view.warning('replacing pending review with new turn'));
 		state.pendingReview = null;
 	}
-	const options = turnOptions(state, text, io);
+	const cwd = io.cwd || process.cwd();
+	const { expandedPrompt, files: attachedFiles } = await expandFileReferences(text, cwd);
+	if (attachedFiles.length > 0) {
+		const summary = attachedFiles.map((f) => `${f.path} (${f.chars} chars)`).join(', ');
+		io.stdout.write(view.info(`attached: ${summary}`));
+	}
+	const options = turnOptions(state, expandedPrompt, io);
+	state.lastPrompt = text;
 	const status = startTurnStatus(io, state, options);
 	let result;
 	try {
@@ -158,6 +169,7 @@ export async function handleTuiLine(state, line, io, channel) {
 		state.pendingPermission = result.permissionRequest;
 		io.stdout.write(renderPendingPermission(state.pendingPermission, view));
 	}
+	io.stdout.write(renderFooter(state, result, view));
 	return { ok: result.ok, result, type: 'turn' };
 }
 
@@ -178,6 +190,7 @@ async function handleSlashCommand(state, text, io, channel) {
 
 	if (command === '/status') {
 		io.stdout.write(renderStatus(state, view));
+		io.stdout.write(renderFooter(state, null, view));
 		return { ok: true, type: 'command' };
 	}
 
@@ -411,6 +424,25 @@ async function handleSlashCommand(state, text, io, channel) {
 		return { ok: true, type: 'command' };
 	}
 
+	if (command === '/retry') {
+		if (!state.lastPrompt) {
+			io.stdout.write(view.warning('no previous prompt to retry'));
+			return { ok: false, type: 'command' };
+		}
+		// Parse optional --model <id>
+		let retryModel = state.model;
+		const modelFlagMatch = /--model\s+(\S+)/u.exec(value);
+		if (modelFlagMatch) {
+			retryModel = modelFlagMatch[1];
+		}
+		const savedModel = state.model;
+		state.model = retryModel;
+		io.stdout.write(view.info(`retrying: ${state.lastPrompt}`));
+		const result = await handleTuiLine(state, state.lastPrompt, io, channel);
+		state.model = savedModel;
+		return result;
+	}
+
 	io.stdout.write(view.error(`unknown command: ${command}`));
 	return { ok: false, type: 'command' };
 }
@@ -496,6 +528,7 @@ function renderHelp(view = createTuiView()) {
 		'  /deny',
 		'  /test',
 		'  /undo',
+		'  /retry [--model <id>]',
 		'  /sessions',
 		'  /show <session-id>',
 		'  /inspect <symbol-or-file>',
@@ -604,6 +637,10 @@ function renderPendingReview(review, view = createTuiView()) {
 	for (const write of writes) {
 		lines.push(`  ${write.status || 'pending'} ${write.path}`);
 	}
+	const coloredDiff = renderColoredDiff(writes, view);
+	if (coloredDiff) {
+		lines.push(coloredDiff);
+	}
 	const messages = result.proposal?.messages || [];
 	for (const message of messages) {
 		lines.push(
@@ -676,6 +713,83 @@ function indent(text) {
 		.split('\n')
 		.map((line) => `  ${line}`)
 		.join('\n');
+}
+
+export function renderColoredDiff(writes, view = createTuiView()) {
+	const lines = [];
+	for (const write of writes) {
+		if (!write.diff) {
+			continue;
+		}
+		lines.push(view.subtleText(`--- diff: ${write.path} ---`));
+		for (const diffLine of write.diff.split('\n')) {
+			if (diffLine.startsWith('---') || diffLine.startsWith('+++')) {
+				lines.push(view.brand(diffLine));
+			} else if (diffLine.startsWith('@@')) {
+				lines.push(view.cyanText(diffLine));
+			} else if (diffLine.startsWith('+')) {
+				lines.push(view.successText(diffLine));
+			} else if (diffLine.startsWith('-')) {
+				lines.push(view.errorText(diffLine));
+			} else {
+				lines.push(diffLine);
+			}
+		}
+	}
+	return lines.length > 0 ? `${lines.join('\n')}\n` : '';
+}
+
+export async function expandFileReferences(text, cwd = process.cwd()) {
+	const pattern = /@([A-Za-z0-9._/-]+\.[A-Za-z0-9]+)/gu;
+	const matches = [...text.matchAll(pattern)];
+	if (matches.length === 0) {
+		return { expandedPrompt: text, files: [] };
+	}
+	const seen = new Set();
+	const files = [];
+	const contextParts = [];
+	for (const match of matches) {
+		const ref = match[1];
+		if (seen.has(ref)) {
+			continue;
+		}
+		seen.add(ref);
+		const filePath = join(cwd, ref);
+		let content;
+		try {
+			content = await readFile(filePath, 'utf8');
+		} catch {
+			continue;
+		}
+		files.push({ chars: content.length, path: ref });
+		contextParts.push(`## @${ref}\n\`\`\`\n${content}\n\`\`\`\n`);
+	}
+	if (contextParts.length === 0) {
+		return { expandedPrompt: text, files: [] };
+	}
+	const expandedPrompt = `${contextParts.join('\n')}\n${text}`;
+	return { expandedPrompt, files };
+}
+
+export function renderFooter(state, result, view = createTuiView()) {
+	const model = state.model || '-';
+	const session = state.sessionId || (state.continueNext ? 'latest' : 'new');
+	const review = state.pendingReview ? '[review pending]' : '';
+	const usage = result?.usage;
+	let tokens = '';
+	if (usage) {
+		const prompt = usage.promptTokens ?? 0;
+		const completion = usage.completionTokens ?? 0;
+		const total = usage.tokens ?? prompt + completion;
+		tokens = `[tokens prompt=${prompt} completion=${completion} total=${total}]`;
+	}
+	const parts = [
+		`[model=${model}]`,
+		`[session=${session}]`,
+		review,
+		tokens,
+	].filter(Boolean);
+	return `${view.subtleText(parts.join(' '))}\n`;
 }
 
 function renderProgressEvent(event, view = createTuiView()) {
