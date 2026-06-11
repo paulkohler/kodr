@@ -106,6 +106,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 104 Daily-Driver TUI Session
 - [x] 105 Measured Model Routing
 - [x] 106 Run Forensics As A Product Surface
+- [x] 107 Free-Token Background Loops
 
 ## Phase Contract
 

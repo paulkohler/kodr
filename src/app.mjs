@@ -886,6 +886,7 @@ Usage:
   kodr session show <sessionId> [--json]
   kodr session export <sessionId> --format markdown
   kodr replay <run-dir>
+  kodr watch --test "npm test"
 
 Project config:
   kodr init             Write a starter .kodr/config.json with the currently
@@ -992,6 +993,14 @@ Undo:
   kodr undo            Revert the last applied run using its write manifest and
                        safe-write backups. Refuses when applied files were edited
                        after the apply. Works in git and non-git workspaces.
+
+Watch mode:
+  kodr watch --test CMD
+                       Watch for file changes and run CMD on each change.
+                       On failure, propose a repair as a pending review —
+                       never auto-applies. --test accepts the same allowlisted
+                       commands as --heal (npm test, node --test, etc.).
+                       Ctrl+C or SIGTERM stops the loop.
 
 Web channel:
   kodr serve           Start a local-only JSON HTTP control plane.
@@ -1791,6 +1800,24 @@ export async function main(argv, io) {
 			io.stdout.write(renderForensicsCli(analysis, story));
 		}
 		return { command: 'why', ok: true, runDir, story };
+	}
+
+	if (options.command === 'watch') {
+		if (!options.testCommand) {
+			throw new CliError('kodr watch requires --test <command>');
+		}
+		const { runWatchLoop } = await import('./watcher.mjs');
+		const handle = await runWatchLoop(options, io, handleChannelRequest);
+		// Block until the process is interrupted
+		await new Promise((resolve) => {
+			const onSignal = () => {
+				handle.close();
+				resolve();
+			};
+			process.once('SIGINT', onSignal);
+			process.once('SIGTERM', onSignal);
+		});
+		return { ok: true, command: 'watch' };
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);
