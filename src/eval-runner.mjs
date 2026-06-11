@@ -233,6 +233,8 @@ export async function runWorkspaceCase(
 			proposalFound: runResult?.proposalFound ?? false,
 			finishReasons: runResult?.finishReasons ?? [],
 			repairCount: runResult?.healingResult?.repairCount ?? 0,
+			editFormat: caseOptions.editFormat ?? 'patch',
+			patchRetries: runResult?.writeResult?.patchRetries ?? null,
 		};
 		if (runError) result.runError = runError;
 
@@ -305,6 +307,8 @@ export async function recordResults(
 			reason: r.reason ?? undefined,
 			durationMs: r.durationMs,
 			promptId: promptIds?.get(r.id) ?? undefined,
+			editFormat: r.editFormat ?? undefined,
+			patchRetries: r.patchRetries ?? undefined,
 		})),
 	};
 

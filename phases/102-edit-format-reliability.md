@@ -66,15 +66,15 @@ format. `blocks` format downgrades `json_schema` response format to `json`
 
 ## Done criteria
 
-- [ ] `preparePatches` returns `failedPatches` instead of throwing on match failures
-- [ ] `closestRegion` finds nearest region for retry prompts
-- [ ] `healing.mjs:151` no longer crashes on patch failures
-- [ ] `src/edit-formats.mjs` created with block parser and format contracts
-- [ ] Patch retry loop wired in standard `runPrompt` path
-- [ ] `editFormat` field in model profiles with CLI flag and config support
-- [ ] Base contract parameterized by edit format
-- [ ] `blocks` format end-to-end: parse, extract, apply
-- [ ] `json_schema` → `json` downgrade for `blocks` format
-- [ ] Eval cases carry `editFormat` and retry stats
-- [ ] Tests for all new code paths
-- [ ] Blog post, process files updated
+- [x] `preparePatches` returns `failedPatches` instead of throwing on match failures
+- [x] `closestRegion` finds nearest region for retry prompts
+- [x] `healing.mjs:151` no longer crashes on patch failures
+- [x] `src/edit-formats.mjs` created with block parser and format contracts
+- [x] Patch retry loop wired in standard `runPrompt` path
+- [x] `editFormat` field in model profiles with CLI flag and config support
+- [x] Base contract parameterized by edit format
+- [x] `blocks` format end-to-end: parse, extract, apply
+- [x] `json_schema` → `json` downgrade for `blocks` format
+- [x] Eval cases carry `editFormat` and retry stats
+- [x] Tests for all new code paths
+- [x] Blog post, process files updated

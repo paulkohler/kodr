@@ -366,3 +366,99 @@ describe('mergeBlockPatches', () => {
 		assert.equal(result.patches[0].path, 'b.js');
 	});
 });
+
+// ---------------------------------------------------------------------------
+// blocks-in-app-flow integration: extractEditBlocks + mergeBlockPatches
+// ---------------------------------------------------------------------------
+
+describe('blocks-in-app-flow integration', () => {
+	it('proposal with empty patches + text with blocks → merged result has those patches', () => {
+		// Simulate what app.mjs does after extractProposal when editFormat==='blocks':
+		// the JSON envelope has empty patches, but the raw text contains SEARCH/REPLACE blocks.
+		const proposal = { status: 'OK', messages: [], files: [], patches: [], scratchpad: '' };
+		const rawText = [
+			JSON.stringify(proposal),
+			'',
+			'src/index.js',
+			'<<<<<<< SEARCH',
+			'const x = 1;',
+			'=======',
+			'const x = 2;',
+			'>>>>>>> REPLACE',
+		].join('\n');
+
+		const blocks = extractEditBlocks(rawText);
+		assert.equal(blocks.errors.length, 0);
+		assert.equal(blocks.patches.length, 1);
+
+		const merged = mergeBlockPatches(proposal, blocks);
+		assert.equal(merged.patches.length, 1);
+		assert.equal(merged.patches[0].path, 'src/index.js');
+		assert.equal(merged.patches[0].search, 'const x = 1;');
+		assert.equal(merged.patches[0].replace, 'const x = 2;');
+		// Original proposal was not mutated
+		assert.equal(proposal.patches.length, 0);
+	});
+
+	it('block errors are recorded in proposal._blockErrors', () => {
+		// Simulate a malformed block: missing ======= separator
+		const proposal = { status: 'OK', messages: [], files: [], patches: [], scratchpad: '' };
+		const rawText = [
+			JSON.stringify(proposal),
+			'',
+			'src/bad.js',
+			'<<<<<<< SEARCH',
+			'old line',
+			// intentionally missing ======= and >>>>>>> REPLACE
+		].join('\n');
+
+		const blocks = extractEditBlocks(rawText);
+		// Should have an error for the malformed block
+		assert.ok(blocks.errors.length > 0);
+		assert.equal(blocks.patches.length, 0);
+
+		// Simulate what app.mjs does: record errors in _blockErrors
+		const result = { ...proposal };
+		if (blocks.patches.length > 0) {
+			Object.assign(result, mergeBlockPatches(proposal, blocks));
+		}
+		if (blocks.errors.length > 0) {
+			result._blockErrors = blocks.errors;
+		}
+
+		assert.ok(Array.isArray(result._blockErrors));
+		assert.ok(result._blockErrors.length > 0);
+		// patches remain empty since no valid block was found
+		assert.equal(result.patches.length, 0);
+	});
+
+	it('multiple valid blocks → all appended to empty patches', () => {
+		const proposal = { status: 'OK', patches: [], files: [] };
+		const rawText = [
+			makeBlock('src/a.js', 'foo', 'bar'),
+			'',
+			makeBlock('src/b.js', 'baz', 'qux'),
+		].join('\n');
+
+		const blocks = extractEditBlocks(rawText);
+		assert.equal(blocks.errors.length, 0);
+		assert.equal(blocks.patches.length, 2);
+
+		const merged = mergeBlockPatches(proposal, blocks);
+		assert.equal(merged.patches.length, 2);
+		assert.equal(merged.patches[0].path, 'src/a.js');
+		assert.equal(merged.patches[1].path, 'src/b.js');
+	});
+
+	it('proposal already has patches → blocks are appended after existing patches', () => {
+		const existingPatch = { path: 'src/existing.js', search: 'old', replace: 'new' };
+		const proposal = { status: 'OK', patches: [existingPatch] };
+		const rawText = makeBlock('src/added.js', 'x', 'y');
+
+		const blocks = extractEditBlocks(rawText);
+		const merged = mergeBlockPatches(proposal, blocks);
+		assert.equal(merged.patches.length, 2);
+		assert.equal(merged.patches[0].path, 'src/existing.js');
+		assert.equal(merged.patches[1].path, 'src/added.js');
+	});
+});

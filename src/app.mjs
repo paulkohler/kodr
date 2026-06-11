@@ -58,7 +58,7 @@ import {
 	resolveAgentModels,
 	resolveModelOptions,
 } from './model-specs.mjs';
-import { normalizeEditFormat } from './edit-formats.mjs';
+import { normalizeEditFormat, extractEditBlocks, mergeBlockPatches } from './edit-formats.mjs';
 import { applyModelProfileDefaults } from './model-profiles.mjs';
 import {
 	applyProjectConfig,
@@ -2624,6 +2624,16 @@ export async function runPrompt(options, io) {
 			};
 		}
 
+		if (options.editFormat === 'blocks' && proposal) {
+			const blocks = extractEditBlocks(completion.text);
+			if (blocks.patches.length > 0) {
+				proposal = mergeBlockPatches(proposal, blocks);
+			}
+			if (blocks.errors.length > 0) {
+				proposal._blockErrors = blocks.errors;
+			}
+		}
+
 		if (proposalError) {
 			let taskPlan = inspectionPlan || createTaskPlan(prompt);
 			summary.applied = false;
@@ -2838,6 +2848,13 @@ export async function runPrompt(options, io) {
 
 					if (!retryProposal) {
 						break;
+					}
+
+					if (options.editFormat === 'blocks' && retryProposal) {
+						const retryBlocks = extractEditBlocks(retryCompletion.text);
+						if (retryBlocks.patches.length > 0) {
+							retryProposal = mergeBlockPatches(retryProposal, retryBlocks);
+						}
 					}
 
 					// Filter proposal to only the still-failing paths.
