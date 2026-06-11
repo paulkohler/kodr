@@ -18,6 +18,67 @@ const SNAPSHOT_EXCLUDE_DIRS = new Set([
 	'coverage',
 ]);
 
+// Patterns that indicate a test/verification failure line
+const FAIL_LINE_PATTERNS = [
+	/\bnot ok\b/u,
+	/\bFAIL(?:ED|URE)?\b/u,
+	/✗/u,
+	/\bfailing\b/u,
+	/\b\d+\s+fail(?:ing|ed)?\b/u,
+];
+
+export function extractFailCount(testResult) {
+	const text = `${testResult?.stdout || ''}\n${testResult?.stderr || ''}`;
+	let count = 0;
+	for (const line of text.split('\n')) {
+		for (const pattern of FAIL_LINE_PATTERNS) {
+			if (pattern.test(line)) {
+				count += 1;
+				break;
+			}
+		}
+	}
+	return count;
+}
+
+export function computeTestDelta(previousTest, currentTest) {
+	const before = extractFailCount(previousTest);
+	const after = extractFailCount(currentTest);
+	return {
+		before,
+		after,
+		improved: after < before,
+	};
+}
+
+export function renderEscalationPrompt(repairContext, { index, maxTurns }) {
+	const tests = JSON.stringify(repairContext.tests, null, 2);
+	const scratchpad = repairContext.scratchpad
+		? `\n\n## Prior scratchpad\n${repairContext.scratchpad}`
+		: '';
+	return `Repair turn ${index} of ${maxTurns} — ESCALATION.
+
+Your previous turn proposed no changes. The failing tests are still unresolved. Restate your repair plan and propose concrete patches or file writes.
+
+## Failing tests (still unresolved)
+\`\`\`json
+${tests}
+\`\`\`
+${scratchpad}
+
+Propose one small repair as JSON with optional files, patches, and scratchpad fields. You MUST write to the failing path.`;
+}
+
+export function renderWrongPathWarning(writes, failurePaths) {
+	const failureSet = new Set(failurePaths);
+	const writtenPaths = writes.map((w) => w.path);
+	const wrongPaths = writtenPaths.filter((p) => !failureSet.has(p));
+	if (wrongPaths.length === 0) return '';
+	const expected = failurePaths.join(', ') || '(unknown)';
+	const actual = wrongPaths.join(', ');
+	return `Warning: you wrote to [${actual}] but the failure is in [${expected}]. Fix the correct file.`;
+}
+
 export class HealingTimeoutError extends Error {
 	constructor(message) {
 		super(message);
@@ -82,6 +143,9 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 	let verification = failedTest;
 	let scratchpad = options.scratchpad || '';
 	let noProgressCount = 0;
+	let wrongPathCount = 0;
+	let wrongPathWarnings = 0;
+	let previousVerification = failedTest;
 	let stopReason = '';
 
 	await mkdir(artifactDir, { recursive: true });
@@ -95,10 +159,29 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			scratchpad,
 			diagnostics,
 		});
-		const prompt = renderLoopRepairPrompt(repairContext, {
-			index,
-			maxTurns,
-		});
+
+		// Build optional escalation / wrong-path-warning / test-delta extras
+		const escalation = noProgressCount === 1;
+		const wrongPathWarning =
+			wrongPathCount === 1
+				? renderWrongPathWarning(
+						repairs.at(-1)?.writes?.writes || [],
+						repairContext.failurePaths,
+					)
+				: '';
+		const testDelta =
+			previousVerification !== failedTest
+				? computeTestDelta(previousVerification, verification)
+				: null;
+
+		const prompt = escalation
+			? renderEscalationPrompt(repairContext, { index, maxTurns })
+			: renderLoopRepairPrompt(repairContext, {
+					index,
+					maxTurns,
+					wrongPathWarning,
+					testDelta,
+				});
 		await writeText(join(turnDir, 'prompt.md'), prompt);
 		await writeJson(join(turnDir, 'repair-context.json'), repairContext);
 
@@ -157,31 +240,66 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 
 		if (snapshotDiff.changed.length === 0) {
 			noProgressCount += 1;
+			if (noProgressCount >= 2) {
+				stopReason = 'no-progress-exhausted';
+				repairs.push({
+					index,
+					ok: false,
+					snapshotDiff,
+					stopReason,
+					writes,
+				});
+				break;
+			}
+			// First no-progress turn: escalate (loop continues, next turn uses escalation prompt)
 			repairs.push({
 				index,
 				ok: false,
 				snapshotDiff,
-				stopReason: noProgressCount >= 2 ? 'no_progress' : '',
+				stopReason: '',
 				writes,
 			});
-			if (noProgressCount >= 2) {
-				stopReason = 'no_progress';
-				break;
-			}
 			continue;
 		}
 
+		// Reset no-progress counter when the model makes actual changes
+		noProgressCount = 0;
+
 		if (!touchesFailurePath(writes.writes, repairContext.failurePaths)) {
-			stopReason = 'wrong_path';
+			wrongPathCount += 1;
+			if (wrongPathCount >= 2) {
+				stopReason = 'wrong_path_exhausted';
+				repairs.push({
+					index,
+					ok: false,
+					snapshotDiff,
+					stopReason,
+					wrongPathSiblings: writes.writes.map((w) => ({
+						expected: repairContext.failurePaths[0] || '',
+						actual: w.path,
+					})),
+					writes,
+				});
+				break;
+			}
+			// First wrong-path turn: warn (loop continues, next turn uses wrongPathWarning)
+			wrongPathWarnings += 1;
 			repairs.push({
 				index,
 				ok: false,
 				snapshotDiff,
-				stopReason,
+				stopReason: '',
+				wrongPathSiblings: writes.writes.map((w) => ({
+					expected: repairContext.failurePaths[0] || '',
+					actual: w.path,
+				})),
 				writes,
 			});
-			break;
+			continue;
 		}
+
+		// Successful path touch — reset wrong-path counter
+		wrongPathCount = 0;
 
 		// Re-run diagnostics on changed files if a provider was given
 		if (diagnosticsProvider) {
@@ -196,6 +314,7 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			}
 		}
 
+		previousVerification = verification;
 		verification = apply
 			? await runVerification(cwd, options.testCommand, {
 					runner: options.commandRunner || null,
@@ -204,10 +323,14 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			: verification;
 		await writeJson(join(turnDir, 'tests.json'), verification);
 
+		const turnTestDelta = computeTestDelta(previousVerification, verification);
+		await writeJson(join(turnDir, 'test-delta.json'), turnTestDelta);
+
 		repairs.push({
 			index,
 			ok: verification.ok,
 			snapshotDiff,
+			testDelta: turnTestDelta,
 			tests: verification,
 			writes,
 		});
@@ -216,7 +339,6 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			stopReason = 'healed';
 			break;
 		}
-		noProgressCount = 0;
 	}
 
 	if (!stopReason) {
@@ -228,6 +350,7 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 		healed: verification.ok,
 		repairs,
 		stopReason,
+		wrongPathWarnings,
 	};
 	await writeJson(join(artifactDir, 'repairs.json'), result);
 	return result;
@@ -264,7 +387,10 @@ The previous verification failed. Use this test output and propose exactly one r
 ${lastTest}`;
 }
 
-function renderLoopRepairPrompt(repairContext, { index, maxTurns }) {
+function renderLoopRepairPrompt(
+	repairContext,
+	{ index, maxTurns, wrongPathWarning = '', testDelta = null },
+) {
 	const files = repairContext.files
 		.map(
 			(file) => `## ${file.path}
@@ -281,11 +407,18 @@ ${file.content}
 	const diagnosticsSection = repairContext.diagnostics
 		? `\n\n## Diagnostics on changed files\n\n${renderDiagnosticsForModel(repairContext.diagnostics)}`
 		: '';
+	const wrongPathSection = wrongPathWarning
+		? `\n\n## Path warning\n${wrongPathWarning}`
+		: '';
+	const testDeltaSection =
+		testDelta && !testDelta.improved && testDelta.before > 0
+			? `\n\n## Test progress\nTests still failing with same count (${testDelta.after} failures). The previous repair did not address the root cause.`
+			: '';
 
 	return `Repair turn ${index} of ${maxTurns}.
 
 The previous verification failed. Propose one small repair as JSON with optional files, patches, and scratchpad fields. Prefer patches. Touch the failing path unless the stack trace clearly points elsewhere.
-${diagnosticsSection}
+${diagnosticsSection}${wrongPathSection}${testDeltaSection}
 ## tests.json
 \`\`\`json
 ${tests}

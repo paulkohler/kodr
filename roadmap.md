@@ -102,6 +102,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 100 Brownfield Edit Eval Suite
 - [x] 101 Harness Engineering — Opinionated Sensors
 - [x] 102 Edit-Format Reliability
+- [x] 103 Repair Pressure And No-Progress Detection
 
 ## Phase Contract
 

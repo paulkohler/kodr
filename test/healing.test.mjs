@@ -5,8 +5,12 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	buildRepairContext,
+	computeTestDelta,
+	extractFailCount,
 	HealingTimeoutError,
 	oneShotHeal,
+	renderEscalationPrompt,
+	renderWrongPathWarning,
 	runSelfHealingLoop,
 } from '../src/healing.mjs';
 import { runVerification } from '../src/verification-runner.mjs';
@@ -153,49 +157,71 @@ describe('one-shot healing', () => {
 		);
 	});
 
-	it('stops after repeated no-progress repair turns', async () => {
+	it('escalates on first no-progress turn then stops on second', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-no-progress-'));
 		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
 		const failed = await runVerification(cwd, 'node --check bad.mjs', {
 			timeoutMs: 1000,
 		});
 
+		const prompts = [];
 		const result = await runSelfHealingLoop(cwd, failed, {
 			apply: true,
 			maxTurns: 3,
-			repairTurn: async () => ({
-				text: JSON.stringify({
-					scratchpad: 'still thinking',
-				}),
-			}),
+			repairTurn: async ({ prompt }) => {
+				prompts.push(prompt);
+				return {
+					text: JSON.stringify({
+						scratchpad: 'still thinking',
+					}),
+				};
+			},
 			testCommand: 'node --check bad.mjs',
 			timeoutMs: 1000,
 		});
 
 		assert.equal(result.healed, false);
-		assert.equal(result.stopReason, 'no_progress');
+		assert.equal(result.stopReason, 'no-progress-exhausted');
+		// Turn 1 is normal, turn 2 gets escalation prompt, turn 2 also produces no changes → stop
 		assert.equal(result.repairs.length, 2);
+		// Turn 1 prompt is normal (no escalation)
+		assert.match(prompts[0], /Repair turn 1/u);
+		assert.doesNotMatch(prompts[0], /ESCALATION/u);
+		// Turn 2 prompt should be the escalation prompt
+		assert.match(prompts[1], /ESCALATION/u);
+		assert.match(prompts[1], /proposed no changes/u);
 	});
 
-	it('rejects repairs that avoid the failing path', async () => {
+	it('warns on first wrong-path turn then stops on second', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-wrong-path-'));
 		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
 		const failed = await runVerification(cwd, 'node --check bad.mjs', {
 			timeoutMs: 1000,
 		});
 
+		const prompts = [];
+		// Need a counter so each write is unique (otherwise snapshotDiff.changed is empty)
+		let counter = 0;
 		const result = await runSelfHealingLoop(cwd, failed, {
 			apply: true,
-			maxTurns: 2,
-			repairTurn: async () => ({
-				text: repairText('other.mjs'),
-			}),
+			maxTurns: 3,
+			repairTurn: async ({ prompt }) => {
+				prompts.push(prompt);
+				counter += 1;
+				return {
+					text: repairText(`other${counter}.mjs`),
+				};
+			},
 			testCommand: 'node --check bad.mjs',
 			timeoutMs: 1000,
 		});
 
-		assert.equal(result.stopReason, 'wrong_path');
+		assert.equal(result.stopReason, 'wrong_path_exhausted');
 		assert.equal(result.healed, false);
+		assert.equal(result.wrongPathWarnings, 1);
+		// Second prompt should contain the path warning
+		assert.match(prompts[1], /Path warning/u);
+		assert.match(prompts[1], /bad\.mjs/u);
 	});
 
 	it('artifacts hung repair turns as timeouts', async () => {
@@ -224,6 +250,114 @@ describe('one-shot healing', () => {
 			).name,
 			'HealingTimeoutError',
 		);
+	});
+});
+
+describe('extractFailCount', () => {
+	it('counts "not ok" lines', () => {
+		const result = { stdout: 'not ok 1 - test failed\nnot ok 2 - another\n', stderr: '' };
+		assert.equal(extractFailCount(result), 2);
+	});
+
+	it('counts FAIL lines', () => {
+		const result = { stdout: 'FAIL src/foo.mjs\nFAILED: 1 test\n', stderr: '' };
+		assert.equal(extractFailCount(result), 2);
+	});
+
+	it('counts ✗ lines', () => {
+		const result = { stdout: '✗ my test\n✗ another\n', stderr: '' };
+		assert.equal(extractFailCount(result), 2);
+	});
+
+	it('counts across stdout and stderr', () => {
+		const result = { stdout: 'not ok 1 - a\n', stderr: 'not ok 2 - b\n' };
+		assert.equal(extractFailCount(result), 2);
+	});
+
+	it('returns 0 for passing output', () => {
+		const result = { stdout: 'ok 1 - all good\nTests: 5 passed\n', stderr: '' };
+		assert.equal(extractFailCount(result), 0);
+	});
+
+	it('handles null/missing fields gracefully', () => {
+		assert.equal(extractFailCount({}), 0);
+		assert.equal(extractFailCount(null), 0);
+	});
+});
+
+describe('computeTestDelta', () => {
+	it('returns improved:true when failCount decreases', () => {
+		const before = { stdout: 'not ok 1\nnot ok 2\n', stderr: '' };
+		const after = { stdout: 'not ok 1\n', stderr: '' };
+		const delta = computeTestDelta(before, after);
+		assert.equal(delta.before, 2);
+		assert.equal(delta.after, 1);
+		assert.equal(delta.improved, true);
+	});
+
+	it('returns improved:false when failCount stays same', () => {
+		const before = { stdout: 'not ok 1\n', stderr: '' };
+		const after = { stdout: 'not ok 1\n', stderr: '' };
+		const delta = computeTestDelta(before, after);
+		assert.equal(delta.improved, false);
+	});
+
+	it('returns improved:false when failCount increases', () => {
+		const before = { stdout: 'not ok 1\n', stderr: '' };
+		const after = { stdout: 'not ok 1\nnot ok 2\n', stderr: '' };
+		const delta = computeTestDelta(before, after);
+		assert.equal(delta.improved, false);
+	});
+});
+
+describe('renderEscalationPrompt', () => {
+	it('includes ESCALATION marker', () => {
+		const repairContext = {
+			tests: { ok: false, stdout: 'not ok 1 - foo', stderr: '' },
+			scratchpad: 'thinking hard',
+			failurePaths: ['src/foo.mjs'],
+			files: [],
+			diagnostics: null,
+		};
+		const prompt = renderEscalationPrompt(repairContext, { index: 2, maxTurns: 3 });
+		assert.match(prompt, /ESCALATION/u);
+		assert.match(prompt, /proposed no changes/u);
+		assert.match(prompt, /thinking hard/u);
+		assert.match(prompt, /not ok 1/u);
+	});
+
+	it('omits scratchpad section when empty', () => {
+		const repairContext = {
+			tests: { ok: false, stdout: '', stderr: '' },
+			scratchpad: '',
+			failurePaths: [],
+			files: [],
+			diagnostics: null,
+		};
+		const prompt = renderEscalationPrompt(repairContext, { index: 2, maxTurns: 3 });
+		assert.doesNotMatch(prompt, /Prior scratchpad/u);
+	});
+});
+
+describe('renderWrongPathWarning', () => {
+	it('returns warning when writes miss failure paths', () => {
+		const writes = [{ path: 'src/other.mjs' }];
+		const failurePaths = ['src/foo.mjs'];
+		const warning = renderWrongPathWarning(writes, failurePaths);
+		assert.match(warning, /src\/other\.mjs/u);
+		assert.match(warning, /src\/foo\.mjs/u);
+	});
+
+	it('returns empty string when writes touch failure path', () => {
+		const writes = [{ path: 'src/foo.mjs' }];
+		const failurePaths = ['src/foo.mjs'];
+		const warning = renderWrongPathWarning(writes, failurePaths);
+		assert.equal(warning, '');
+	});
+
+	it('returns empty string when writes array is empty', () => {
+		const warning = renderWrongPathWarning([], ['src/foo.mjs']);
+		assert.equal(warning, '');
 	});
 });
 
