@@ -1,0 +1,114 @@
+{
+	"name": "brownfield",
+	"description": "Brownfield edit tasks across JS/TS/Python/Go/Rust. Each fixture has a planted defect; the model must fix or extend the code so the tests pass.",
+	"cases": [
+		{
+			"id": "js-fix-failing-test",
+			"fixture": "fixtures/js-fix-failing-test",
+			"test": "node --test",
+			"requires": [],
+			"expectFailingBaseline": true,
+			"heal": false,
+			"prompt": "The tests in this project are failing. Fix the bug in src/math.mjs so all tests pass. Do not modify the test files.",
+			"assertions": [
+				{ "type": "tests_pass", "command": "node --test" },
+				{ "type": "file_modified", "path": "src/math.mjs" },
+				{ "type": "file_unchanged", "path": "test/math.test.mjs" }
+			]
+		},
+		{
+			"id": "js-fix-named-path",
+			"fixture": "fixtures/js-fix-named-path",
+			"test": "node --test",
+			"requires": [],
+			"expectFailingBaseline": true,
+			"heal": false,
+			"prompt": "Fix the function in tests/utils.mjs so trimName(s) returns the whitespace-trimmed string instead of uppercasing it. Do not modify the test files.",
+			"assertions": [
+				{ "type": "tests_pass", "command": "node --test" },
+				{ "type": "file_modified", "path": "tests/utils.mjs" },
+				{ "type": "files_absent", "paths": ["utils.mjs"] }
+			]
+		},
+		{
+			"id": "js-rename-function",
+			"fixture": "fixtures/js-rename-function",
+			"test": "node --test",
+			"requires": [],
+			"expectFailingBaseline": true,
+			"heal": false,
+			"prompt": "Rename the function processItem to transformItem everywhere it appears: src/helpers.mjs, src/main.mjs, and src/utils.mjs. The test file already uses the new name.",
+			"assertions": [
+				{ "type": "tests_pass", "command": "node --test" },
+				{ "type": "content_absent", "path": "src/helpers.mjs", "pattern": "\\bprocessItem\\b" },
+				{ "type": "content_absent", "path": "src/main.mjs", "pattern": "\\bprocessItem\\b" }
+			]
+		},
+		{
+			"id": "js-add-cli-flag",
+			"fixture": "fixtures/js-add-cli-flag",
+			"test": "node --test",
+			"requires": [],
+			"expectFailingBaseline": true,
+			"heal": false,
+			"prompt": "Add a --version flag to src/cli.mjs. When --version is passed, parseArgs should return { version: true, versionString: VERSION } in addition to any other flags. The test file describes the expected behavior.",
+			"assertions": [
+				{ "type": "tests_pass", "command": "node --test" },
+				{ "type": "file_modified", "path": "src/cli.mjs" }
+			]
+		},
+		{
+			"id": "ts-update-stale-test",
+			"fixture": "fixtures/ts-update-stale-test",
+			"test": "node --test",
+			"requires": [],
+			"expectFailingBaseline": true,
+			"heal": false,
+			"prompt": "The source file src/formatter.ts was recently changed: format() now returns the input trimmed and uppercased. Update test/formatter.test.mjs so its expectations match the current implementation. Do not change the source file.",
+			"assertions": [
+				{ "type": "tests_pass", "command": "node --test" },
+				{ "type": "file_unchanged", "path": "src/formatter.ts" },
+				{ "type": "file_modified", "path": "test/formatter.test.mjs" }
+			]
+		},
+		{
+			"id": "py-fix-bug",
+			"fixture": "fixtures/py-fix-bug",
+			"test": "python3 -m unittest discover",
+			"requires": ["python3"],
+			"expectFailingBaseline": true,
+			"heal": false,
+			"prompt": "Fix the bug in src/calc.py so the tests pass. The multiply function returns the wrong result.",
+			"assertions": [
+				{ "type": "tests_pass", "command": "python3 -m unittest discover" },
+				{ "type": "file_modified", "path": "src/calc.py" }
+			]
+		},
+		{
+			"id": "go-fix-bug",
+			"fixture": "fixtures/go-fix-bug",
+			"test": "go test ./...",
+			"requires": ["go"],
+			"expectFailingBaseline": true,
+			"heal": false,
+			"prompt": "Fix the bug in math.go so the tests pass. The Add function returns the wrong result.",
+			"assertions": [
+				{ "type": "tests_pass", "command": "go test ./..." },
+				{ "type": "file_modified", "path": "math.go" }
+			]
+		},
+		{
+			"id": "rust-fix-bug",
+			"fixture": "fixtures/rust-fix-bug",
+			"test": "cargo test",
+			"requires": ["cargo"],
+			"expectFailingBaseline": true,
+			"heal": false,
+			"prompt": "Fix the bug in src/lib.rs so the tests pass. The multiply function returns the wrong result.",
+			"assertions": [
+				{ "type": "tests_pass", "command": "cargo test" },
+				{ "type": "file_modified", "path": "src/lib.rs" }
+			]
+		}
+	]
+}

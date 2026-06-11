@@ -149,6 +149,86 @@ The suite result adds `passCount` / `totalCount` across all cases.
 
 ---
 
+## Workspace cases (brownfield edit)
+
+Workspace cases run the full `kodr run` pipeline — tool calls, apply, verification, heal — against a staged copy of a committed fixture directory. They measure whether the model can **edit existing code**, not just generate it from scratch.
+
+A workspace case adds a `fixture` field to the case object. Its presence activates the workspace path.
+
+```json
+{
+  "id": "fix-failing-test",
+  "fixture": "fixtures/js-fix-failing-test",
+  "test": "node --test",
+  "requires": ["node"],
+  "expectFailingBaseline": true,
+  "heal": false,
+  "prompt": "The tests are failing. Fix the bug in src/math.mjs so all tests pass.",
+  "assertions": [
+    { "type": "tests_pass", "command": "node --test" },
+    { "type": "file_modified", "path": "src/math.mjs" },
+    { "type": "file_unchanged", "path": "test/math.test.mjs" }
+  ]
+}
+```
+
+### Workspace case fields
+
+| Field | Required | Notes |
+|---|---|---|
+| `fixture` | yes | Path to fixture dir, relative to the suite file |
+| `test` | yes | Verification command (same allowlist as `--test`) |
+| `requires` | no | Binaries that must be present; case is **skipped** if any are absent |
+| `expectFailingBaseline` | no | If `true`, the test must fail before the model runs; a passing baseline → `fixture-invalid` |
+| `heal` | no | Override `heal` for this case; `false` disables; `'inherit'` (default) uses the run's setting |
+
+### Workspace-only assertion types
+
+These assertion types check the **disk state** of the staged workspace after the pipeline finishes and are only valid in workspace cases.
+
+| Type | Required fields | Description |
+|---|---|---|
+| `file_modified` | `path` | File hash must differ from the baseline captured before the run |
+| `file_unchanged` | `path` | File hash must match the baseline |
+| `files_absent` | `paths` | None of the listed paths may exist in the workspace |
+| `content_absent` | `path`, `pattern` | File must not match the regex (pattern must not be present) |
+
+The existing `tests_pass`, `files_exist`, and `content_matches` types also work in workspace cases, but they evaluate against the **workspace** (not an isolated temp dir with proposal files only).
+
+### Skip and fixture-invalid statuses
+
+| Status | Cause | Counted in denominator? |
+|---|---|---|
+| `skipped` | A `requires` binary is absent | No |
+| `fixture-invalid` | `expectFailingBaseline` was set but the baseline test already passes | No |
+| `ran` | Case ran normally (pipeline + assertions) | Yes |
+
+### Recording results
+
+Pass `--record` to append a result entry to `evals/results/<suite-slug>/<model-slug>.jsonl`. The file is append-only; each run adds one JSON line.
+
+```sh
+kodr eval --suite evals/brownfield.json --record
+kodr eval --suite evals/brownfield.json --record --model openrouter:openai/gpt-4o-mini
+```
+
+Filter to a subset of cases:
+
+```sh
+kodr eval --suite evals/brownfield.json --cases js-fix-failing-test,py-fix-bug
+```
+
+### The bundled brownfield suite
+
+[`evals/brownfield.json`](./evals/brownfield.json) ships 8 workspace cases across JS, TypeScript, Python, Go, and Rust. Each fixture has a planted defect; the model must fix the code so the tests pass.
+
+```sh
+# Run against the default local model (skips Go/Rust/Python if binaries absent)
+kodr eval --suite evals/brownfield.json --record
+```
+
+---
+
 ## Output artifacts
 
 ```

@@ -99,7 +99,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 97 Usable Read Defaults
 - [x] 98 Interactive Apply Prompt
 - [x] 99 Optional LSP Adapter (renumbered from 75; kept last as a capability add, not a usability gap)
-- [ ] 100 Brownfield Edit Eval Suite
+- [x] 100 Brownfield Edit Eval Suite
 
 ## Phase Contract
 

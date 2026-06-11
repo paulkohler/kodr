@@ -1,4 +1,12 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { runVerification } from './verification-runner.mjs';
@@ -14,6 +22,18 @@ const ASSERTION_TYPES = new Set([
 	'files_exist',
 	'content_matches',
 	'tests_pass',
+]);
+
+const WORKSPACE_ONLY_ASSERTION_TYPES = new Set([
+	'file_modified',
+	'file_unchanged',
+	'files_absent',
+	'content_absent',
+]);
+
+const ALL_ASSERTION_TYPES = new Set([
+	...ASSERTION_TYPES,
+	...WORKSPACE_ONLY_ASSERTION_TYPES,
 ]);
 
 export function loadEvalSuite(text) {
@@ -43,6 +63,10 @@ export function loadEvalSuite(text) {
 	};
 }
 
+export function isWorkspaceCase(evalCase) {
+	return Boolean(evalCase.fixture);
+}
+
 function validateCase(c, index) {
 	if (!c || typeof c !== 'object' || Array.isArray(c)) {
 		throw new EvalError(`Case at index ${index} must be an object`);
@@ -58,23 +82,59 @@ function validateCase(c, index) {
 	if (!Array.isArray(c.assertions)) {
 		throw new EvalError(`Case "${c.id}" requires an "assertions" array`);
 	}
+
+	const isWorkspace = typeof c.fixture === 'string' && c.fixture.length > 0;
+
+	const assertions = c.assertions.map((a, i) =>
+		validateAssertion(a, c.id, i, isWorkspace),
+	);
+
+	if (!isWorkspace) {
+		return {
+			id: c.id,
+			model: typeof c.model === 'string' ? c.model : '',
+			prompt: c.prompt,
+			assertions,
+		};
+	}
+
+	if (typeof c.test !== 'string' || !c.test) {
+		throw new EvalError(
+			`Workspace case "${c.id}" requires a non-empty "test" string`,
+		);
+	}
+
+	const requires = Array.isArray(c.requires)
+		? c.requires.filter((r) => typeof r === 'string' && r.length > 0)
+		: [];
+
 	return {
 		id: c.id,
 		model: typeof c.model === 'string' ? c.model : '',
 		prompt: c.prompt,
-		assertions: c.assertions.map((a, i) => validateAssertion(a, c.id, i)),
+		assertions,
+		fixture: c.fixture,
+		test: c.test,
+		requires,
+		expectFailingBaseline: c.expectFailingBaseline === true,
+		heal: c.heal !== undefined ? c.heal : 'inherit',
 	};
 }
 
-function validateAssertion(a, caseId, index) {
+function validateAssertion(a, caseId, index, isWorkspaceCase = false) {
 	if (!a || typeof a !== 'object' || Array.isArray(a)) {
 		throw new EvalError(
 			`Assertion ${index} in case "${caseId}" must be an object`,
 		);
 	}
-	if (!ASSERTION_TYPES.has(a.type)) {
+	if (!ALL_ASSERTION_TYPES.has(a.type)) {
 		throw new EvalError(
-			`Assertion ${index} in case "${caseId}" has unknown type: ${a.type}. Valid: ${[...ASSERTION_TYPES].join(', ')}`,
+			`Assertion ${index} in case "${caseId}" has unknown type: ${a.type}. Valid: ${[...ALL_ASSERTION_TYPES].join(', ')}`,
+		);
+	}
+	if (!isWorkspaceCase && WORKSPACE_ONLY_ASSERTION_TYPES.has(a.type)) {
+		throw new EvalError(
+			`Assertion ${index} in case "${caseId}" uses workspace-only type "${a.type}" but case has no "fixture" field`,
 		);
 	}
 
@@ -101,13 +161,54 @@ function validateAssertion(a, caseId, index) {
 		return { type: 'content_matches', path: a.path, pattern: a.pattern };
 	}
 
-	// tests_pass
-	if (typeof a.command !== 'string' || !a.command) {
+	if (a.type === 'tests_pass') {
+		if (typeof a.command !== 'string' || !a.command) {
+			throw new EvalError(
+				`tests_pass in case "${caseId}" requires "command" string`,
+			);
+		}
+		return { type: 'tests_pass', command: a.command };
+	}
+
+	if (a.type === 'file_modified') {
+		if (typeof a.path !== 'string' || !a.path) {
+			throw new EvalError(
+				`file_modified in case "${caseId}" requires "path" string`,
+			);
+		}
+		return { type: 'file_modified', path: a.path };
+	}
+
+	if (a.type === 'file_unchanged') {
+		if (typeof a.path !== 'string' || !a.path) {
+			throw new EvalError(
+				`file_unchanged in case "${caseId}" requires "path" string`,
+			);
+		}
+		return { type: 'file_unchanged', path: a.path };
+	}
+
+	if (a.type === 'files_absent') {
+		if (!Array.isArray(a.paths) || a.paths.length === 0) {
+			throw new EvalError(
+				`files_absent in case "${caseId}" requires non-empty "paths" array`,
+			);
+		}
+		return { type: 'files_absent', paths: [...a.paths] };
+	}
+
+	// content_absent
+	if (typeof a.path !== 'string' || !a.path) {
 		throw new EvalError(
-			`tests_pass in case "${caseId}" requires "command" string`,
+			`content_absent in case "${caseId}" requires "path" string`,
 		);
 	}
-	return { type: 'tests_pass', command: a.command };
+	if (typeof a.pattern !== 'string' || !a.pattern) {
+		throw new EvalError(
+			`content_absent in case "${caseId}" requires "pattern" string`,
+		);
+	}
+	return { type: 'content_absent', path: a.path, pattern: a.pattern };
 }
 
 // Check a single assertion against a proposal object.
@@ -199,6 +300,225 @@ export async function scoreCase(evalCase, proposal, timeoutMs) {
 	const assertionResults = [];
 	for (const assertion of evalCase.assertions) {
 		assertionResults.push(await runAssertion(assertion, proposal, timeoutMs));
+	}
+	const passCount = assertionResults.filter((r) => r.ok).length;
+	const totalCount = assertionResults.length;
+	const score = totalCount > 0 ? passCount / totalCount : 1;
+	return {
+		assertions: assertionResults,
+		id: evalCase.id,
+		ok: passCount === totalCount,
+		passCount,
+		score,
+		totalCount,
+	};
+}
+
+// Hash a file's content for baseline tracking.
+export async function hashFile(filePath) {
+	try {
+		const content = await readFile(filePath);
+		return createHash('sha256').update(content).digest('hex');
+	} catch {
+		return null;
+	}
+}
+
+// Check a single workspace assertion against a staged directory on disk.
+// baselineHashes: Map<relativePath, sha256hex> captured before the run.
+export async function runWorkspaceAssertion(
+	assertion,
+	workspaceDir,
+	baselineHashes,
+	timeoutMs = 60000,
+) {
+	if (assertion.type === 'tests_pass') {
+		const result = await runVerification(workspaceDir, assertion.command, {
+			timeoutMs,
+		});
+		return {
+			type: assertion.type,
+			ok: result.ok,
+			detail: result.ok
+				? `tests passed (exit ${result.exitCode})`
+				: `tests failed (exit ${result.exitCode})`,
+			stdout: result.stdout.slice(0, 500),
+			stderr: result.stderr.slice(0, 200),
+		};
+	}
+
+	if (assertion.type === 'files_exist') {
+		const missing = [];
+		for (const p of assertion.paths) {
+			try {
+				await stat(join(workspaceDir, p));
+			} catch {
+				missing.push(p);
+			}
+		}
+		return {
+			type: assertion.type,
+			ok: missing.length === 0,
+			detail:
+				missing.length === 0
+					? 'all paths exist on disk'
+					: `missing from workspace: ${missing.join(', ')}`,
+		};
+	}
+
+	if (assertion.type === 'content_matches') {
+		let content;
+		try {
+			content = await readFile(join(workspaceDir, assertion.path), 'utf8');
+		} catch {
+			return {
+				type: assertion.type,
+				ok: false,
+				detail: `file not found: ${assertion.path}`,
+			};
+		}
+		let pattern;
+		try {
+			pattern = new RegExp(assertion.pattern, 'u');
+		} catch {
+			return {
+				type: assertion.type,
+				ok: false,
+				detail: `invalid regex pattern: ${assertion.pattern}`,
+			};
+		}
+		const matched = pattern.test(content);
+		return {
+			type: assertion.type,
+			ok: matched,
+			detail: matched
+				? `pattern matched in ${assertion.path}`
+				: `pattern not found in ${assertion.path}: ${assertion.pattern}`,
+		};
+	}
+
+	if (assertion.type === 'file_modified') {
+		const baseline = baselineHashes.get(assertion.path);
+		const current = await hashFile(join(workspaceDir, assertion.path));
+		if (current === null) {
+			return {
+				type: assertion.type,
+				ok: false,
+				detail: `file not found after run: ${assertion.path}`,
+			};
+		}
+		if (baseline === undefined) {
+			return {
+				type: assertion.type,
+				ok: false,
+				detail: `file was not in the staged baseline: ${assertion.path}`,
+			};
+		}
+		const changed = current !== baseline;
+		return {
+			type: assertion.type,
+			ok: changed,
+			detail: changed
+				? `file was modified: ${assertion.path}`
+				: `file was not modified: ${assertion.path}`,
+		};
+	}
+
+	if (assertion.type === 'file_unchanged') {
+		const baseline = baselineHashes.get(assertion.path);
+		const current = await hashFile(join(workspaceDir, assertion.path));
+		if (current === null) {
+			return {
+				type: assertion.type,
+				ok: false,
+				detail: `file not found after run: ${assertion.path}`,
+			};
+		}
+		if (baseline === undefined) {
+			return {
+				type: assertion.type,
+				ok: false,
+				detail: `file was not in the staged baseline: ${assertion.path}`,
+			};
+		}
+		const unchanged = current === baseline;
+		return {
+			type: assertion.type,
+			ok: unchanged,
+			detail: unchanged
+				? `file was not modified (as expected): ${assertion.path}`
+				: `file was unexpectedly modified: ${assertion.path}`,
+		};
+	}
+
+	if (assertion.type === 'files_absent') {
+		const present = [];
+		for (const p of assertion.paths) {
+			try {
+				await stat(join(workspaceDir, p));
+				present.push(p);
+			} catch {
+				// file absent — good
+			}
+		}
+		return {
+			type: assertion.type,
+			ok: present.length === 0,
+			detail:
+				present.length === 0
+					? 'all paths absent from workspace'
+					: `unexpectedly present in workspace: ${present.join(', ')}`,
+		};
+	}
+
+	// content_absent
+	let content;
+	try {
+		content = await readFile(join(workspaceDir, assertion.path), 'utf8');
+	} catch {
+		return {
+			type: assertion.type,
+			ok: true,
+			detail: `file not found (absent counts as pattern-absent): ${assertion.path}`,
+		};
+	}
+	let pattern;
+	try {
+		pattern = new RegExp(assertion.pattern, 'u');
+	} catch {
+		return {
+			type: assertion.type,
+			ok: false,
+			detail: `invalid regex pattern: ${assertion.pattern}`,
+		};
+	}
+	const matched = pattern.test(content);
+	return {
+		type: assertion.type,
+		ok: !matched,
+		detail: !matched
+			? `pattern absent from ${assertion.path}`
+			: `pattern still present in ${assertion.path}: ${assertion.pattern}`,
+	};
+}
+
+// Score a workspace case against a staged directory on disk.
+export async function scoreWorkspaceCase(
+	evalCase,
+	workspaceDir,
+	baselineHashes,
+	timeoutMs,
+) {
+	const assertionResults = [];
+	for (const assertion of evalCase.assertions) {
+		assertionResults.push(
+			await runWorkspaceAssertion(
+				assertion,
+				workspaceDir,
+				baselineHashes,
+				timeoutMs,
+			),
+		);
 	}
 	const passCount = assertionResults.filter((r) => r.ok).length;
 	const totalCount = assertionResults.length;

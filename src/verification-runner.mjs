@@ -62,6 +62,38 @@ export function parseVerificationCommand(command) {
 		};
 	}
 
+	if (
+		parts.length === 3 &&
+		parts[0] === 'python3' &&
+		parts[1] === '-m' &&
+		parts[2] === 'unittest'
+	) {
+		return { args: ['-m', 'unittest'], bin: 'python3' };
+	}
+
+	if (
+		parts.length === 4 &&
+		parts[0] === 'python3' &&
+		parts[1] === '-m' &&
+		parts[2] === 'unittest' &&
+		parts[3] === 'discover'
+	) {
+		return { args: ['-m', 'unittest', 'discover'], bin: 'python3' };
+	}
+
+	if (
+		parts.length === 3 &&
+		parts[0] === 'go' &&
+		parts[1] === 'test' &&
+		parts[2] === './...'
+	) {
+		return { args: ['test', './...'], bin: 'go' };
+	}
+
+	if (parts.length === 2 && parts[0] === 'cargo' && parts[1] === 'test') {
+		return { args: ['test'], bin: 'cargo' };
+	}
+
 	throw new VerificationError(`Command is not allowlisted: ${command}`);
 }
 

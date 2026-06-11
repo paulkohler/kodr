@@ -8,7 +8,7 @@ export const VERSION = roadmapVersion();
 
 export function roadmapVersion(root = ROOT) {
 	const roadmap = readFileSync(join(root, 'roadmap.md'), 'utf8');
-	const phases = [...roadmap.matchAll(/^- \[x\] (?<phase>\d{2}) /gmu)].map(
+	const phases = [...roadmap.matchAll(/^- \[x\] (?<phase>\d+) /gmu)].map(
 		(match) => Number(match.groups.phase),
 	);
 	const latest = Math.max(...phases);

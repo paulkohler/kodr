@@ -249,24 +249,24 @@ matter more than any one line.
 
 ## Done Criteria
 
-- [ ] Schema and loader extensions: `fixture`, `test`, `requires`,
+- [x] Schema and loader extensions: `fixture`, `test`, `requires`,
       `expectFailingBaseline`, `heal`, and the four new assertion types,
       validated loudly.
-- [ ] Workspace case execution through `runPrompt` with staged temp
+- [x] Workspace case execution through `runPrompt` with staged temp
       workspaces, baseline hashing, redirected per-case artifacts, and
       sequential runs.
-- [ ] Toolchain probing with recorded skips; baseline guard reporting
+- [x] Toolchain probing with recorded skips; baseline guard reporting
       `fixture-invalid`.
-- [ ] Eight fixtures committed under `evals/fixtures/` with per-fixture
+- [x] Eight fixtures committed under `evals/fixtures/` with per-fixture
       READMEs documenting task, planted defect, and assertions;
       `evals/brownfield.json` wires them up.
 - [ ] `--record` appending to `evals/results/<suite>/<model>.jsonl`; one
       real recorded run against the default local model committed as the
       first baseline.
-- [ ] Tests per Test Requirements.
-- [ ] evals.md and usage.md document workspace cases, new assertions,
+- [x] Tests per Test Requirements.
+- [x] evals.md and usage.md document workspace cases, new assertions,
       skips, and recording; decisions entry for the fixture-provenance
       distinction.
-- [ ] Record decisions and any failures.
-- [ ] Blog post.
-- [ ] Mark roadmap complete and commit.
+- [x] Record decisions and any failures.
+- [x] Blog post.
+- [x] Mark roadmap complete and commit.

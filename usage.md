@@ -857,11 +857,24 @@ Run a structured eval suite:
 ```sh
 ./kodr eval --suite evals/todo-cli.json
 ./kodr eval --suite evals/todo-cli.json --json
+
+# Brownfield (workspace) suite — runs the full pipeline against fixture repos
+./kodr eval --suite evals/brownfield.json
+./kodr eval --suite evals/brownfield.json --record            # append to evals/results/
+./kodr eval --suite evals/brownfield.json --cases js-fix-failing-test,py-fix-bug
 ```
 
-Eval suites define cases and assertions such as `files_exist`,
-`content_matches`, and `tests_pass`. See [evals.md](./evals.md) for suite
-format, scoring, examples, and current limitations.
+Eval suites define cases and assertions such as `files_exist`, `content_matches`,
+and `tests_pass`. Workspace cases (those with a `fixture` field) run the full
+`kodr run` pipeline against a staged fixture directory and support additional
+assertion types: `file_modified`, `file_unchanged`, `files_absent`, `content_absent`.
+
+Cases whose `requires` toolchain binaries are absent are reported as `skipped` and
+excluded from the score denominator. Pass `--record` to append results to
+`evals/results/<suite>/<model>.jsonl` for comparison across runs.
+
+See [evals.md](./evals.md) for suite format, scoring, workspace cases, recording,
+and current limitations.
 
 ### Cycle Review
 
