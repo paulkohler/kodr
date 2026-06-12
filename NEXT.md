@@ -22,16 +22,46 @@ These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
-### First-Token Timeout
+### Stream-First Transport (top round-3 candidate)
 
-Phase 112 validation hit two 600s zero-byte stalls in a row (LM Studio
-degraded after abandoned constrained-decode generations; the same body later
-streamed instantly via curl). kodr currently spends the entire `timeoutMs`
-budget waiting for a first byte. A separate, shorter time-to-first-token
-deadline (e.g. 60–120s) would fail fast on stalled servers and make a cheap
-retry viable — the third attempt succeeded immediately. Evidence:
-`~/src/kodr-testing/phase-112/gemma-smoke-3/`,
-`process/failures.jsonl` phase 112.
+Round 3 root-caused every zero-byte 600s stall: the identical request body
+streams first tokens instantly but hangs indefinitely non-streaming on LM
+Studio. kodr couples the wire protocol to display — `stream: 'auto'` resolves
+to `stdout.isTTY && !json` — so every redirected, piped, served, watched, or
+subagent-driven run sends the fragile non-streaming request. Fix: always
+stream on the wire (the SSE parser is already complete and requests
+include_usage); TTY decides only display rendering. Fold in the first-token
+deadline from phase 112's finding (fail fast at 60–120s of zero bytes; a
+cheap retry succeeded immediately every time). Evidence:
+`process/failures.jsonl` phases 112 and 113-dogfood.
+
+### Heal Task Anchoring (anti goal-substitution)
+
+Round 3's worst failure mode: a run reported ok/healed while the requested
+CLI was never written — extraction produced zero files, `node --test` found
+0 tests, and the heal loop (whose repair prompt carries no original task, no
+failurePaths, empty workspace) invented a trivial unrelated module with its
+own passing test. Ranked mitigations: repair context inherits the original
+user prompt; `writeCount: 0` + zero-tests-found routes to extraction
+retry/nudge, not heal; a repair that only creates paths never mentioned in
+the task or prior proposal is suspect, not healed. Evidence:
+`~/src/kodr-testing/phase-113/greenfield-logstats-1/`.
+
+### Structural Decode-Artifact Rules
+
+Phase 112's `<|"|>` → `"` rule is necessary but insufficient: gemma also
+collapses `"key":"` into `"key:<|"|>` (one per file block in the logstats
+response), and plain substitution leaves those blocks unparseable. Add the
+structural rule (`"<key>:<|"|>` → `"<key>":"`) ahead of the plain one, driven
+by the phase-113 fixture. Consider an artifact-density signal (N pseudo-tokens
+in one response) surfacing in run output/forensics.
+
+### Probe Reads The Management API
+
+LM Studio's management API (`GET /api/v1/models`) reports the *actual* loaded
+`context_length`/`parallel` per instance — the GUI had gemma at 8,192 while
+kodr's profile assumed 32,768. `kodr probe` could warn on the mismatch (and
+`load`/`unload` endpoints exist for future model-flipping in bench).
 
 ### Extraction Metadata Into Run Artifacts
 
