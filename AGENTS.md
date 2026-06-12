@@ -35,6 +35,8 @@ When using Kodr to make an example, NEVER fix the code yourself. Broken code is 
 
 Brainstorm future work in `NEXT.md`, not in phase files. `NEXT.md` holds the loose idea of a phase — the motivation, the rough shape, the open questions. A phase file is an implementation plan, and writing one is a commitment: create it as late as possible, only when that phase is actually next. Phase files written early get in each other's way — they demand renumbering and reordering every time priorities shift, and the planning detail goes stale before implementation starts. Ideas are cheap to hold loosely in `NEXT.md`; plans are expensive to keep current.
 
+`NEXT.md` rolls first-in-first-out: when an idea ships as a phase, delete its text from the file rather than marking it done. The history lives in the roadmap, phase files, and blog — `NEXT.md` only ever describes work that has not happened yet.
+
 ## Required Loop
 
 1. Read `roadmap.md`.

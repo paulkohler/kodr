@@ -20,21 +20,13 @@ local model.
 
 These are follow-ups the recent phases explicitly left open.
 
-### ~~109 Dogfood Burn-In~~ — done (shipped as Phase 109: Dogfood Harness Fixes)
+_(In flight: Phase 110 Repair-Loop Discipline — see phases/110-repair-loop-discipline.md. Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
-Round 1 ran a brownfield fix and a greenfield generation under
-`~/src/kodr-testing/phase-109/`, produced eleven findings, and the fixes
-shipped with the brownfield re-test passing end-to-end. A second round is
-worth queueing after 110/111: re-run the greenfield test (its repair-timeout
-failure mode is still open), a TUI daily-driver session, and a `kodr bench`
-run to populate routing scores.
+### Dogfooding Round 2
 
-### Selected as Phase 110: Repair-Loop Discipline (see phases/110-repair-loop-discipline.md)
-
-The 109 dogfooding evidence promoted the repair-loop open questions past the
-items below: every greenfield run lost its heal loop to a silent 600s repair
-timeout, and measurement showed prompt size is not the cause. Instrumentation,
-a capped visible timeout, and the wrong-path gating decision ship together.
+After Phase 110: re-run the greenfield wordfreq test, a TUI daily-driver
+session, and a `kodr bench` run to populate routing scores. Round 1 produced
+eleven findings; round 2 measures whether the fixes hold and what breaks next.
 
 ### Activate The Routing Table
 
@@ -111,15 +103,11 @@ inside the no-dependency constitution.
 
 ## Suggested order
 
-1. ~~Dogfood burn-in~~ — done (Phase 109).
-2. **Repair-loop discipline** — selected as Phase 110; the burn-in's biggest
-   unfixed failure mode.
-3. **Routing activation and watch-meets-TUI** — both convert existing
-   measurement into daily-driver behavior, continuing the 104 arc. Sequence
-   after 110 alongside dogfooding round 2 (greenfield re-run, TUI session,
-   bench).
-4. **Repomap sync check** when convenient; the publish itself stays deferred
+1. **Dogfooding round 2** alongside **routing activation and watch-meets-TUI**
+   — the latter two convert existing measurement into daily-driver behavior,
+   continuing the 104 arc.
+2. **Repomap sync check** when convenient; the publish itself stays deferred
    until testing has built confidence.
-5. Pick between themes B and C based on what dogfooding keeps showing: if runs
+3. Pick between themes B and C based on what dogfooding keeps showing: if runs
    are failing, the forensics/eval flywheel pays first; if runs are healthy,
    the web surface is the more interesting build.

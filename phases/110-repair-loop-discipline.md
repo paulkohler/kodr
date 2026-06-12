@@ -2,11 +2,17 @@
 
 ## Goal
 
-Make the healing loop survivable on a slow local model. In dogfooding round 1
-(phase 109), every greenfield run lost its repair loop to a silent 600s
-model-call timeout — healing is currently a feature that works in tests and
-dies in practice. This phase instruments repair turns, makes the timeout a
-visible, recoverable event, and settles the wrong-path-apply design question.
+Make the healing loop survivable on a slow local model — or conclude that it
+cannot be, and remove it. In dogfooding round 1 (phase 109), every greenfield
+run lost its repair loop to a silent 600s model-call timeout — healing is
+currently a feature that works in tests and dies in practice. This phase
+instruments repair turns, makes the timeout a visible, recoverable event,
+settles the wrong-path-apply design question, and then renders a verdict.
+
+**Fix-or-remove mandate (user decision, 2026-06-12):** if the repair loop and
+heal concepts are not really working after these fixes, remove them as
+features rather than carrying a broken capability. The dogfood re-run (D4) is
+the trial; D5 records the verdict.
 
 ## Evidence
 
@@ -64,6 +70,20 @@ with D1 instrumentation and the default LM Studio model. Record in
 structured-output constraint overhead, note it in the model profile docs; a
 fix may become its own phase.
 
+### D5 — Verdict: keep or remove healing (decision gate)
+
+After D1–D4, judge the feature on the dogfood evidence: does the heal loop
+produce a useful applied repair on a real local-model run within its budget?
+
+- **Keep**: record the verdict and supporting run dirs in
+  `process/decisions.jsonl`; healing stays.
+- **Remove**: record the verdict the same way, then strip the heal loop and
+  repair-pressure surface (`--heal`, `runSelfHealingLoop`, repair artifacts,
+  the watch loop's repair proposals — enumerate at removal time). If the
+  removal is too large to land safely in this phase, land the verdict +
+  deprecation (feature off by default with a clear notice) here and queue the
+  excision as the immediate next phase in `NEXT.md`.
+
 ## Out of scope
 
 - `/model auto` routing activation (NEXT.md).
@@ -78,6 +98,7 @@ fix may become its own phase.
 - [ ] D3: wrong-path proposals rejected-with-feedback once, loop ends on repeat
 - [ ] node:test coverage for D1–D3
 - [ ] D4: greenfield re-run under phase-110/ with findings recorded in `process/failures.jsonl`
+- [ ] D5: keep-or-remove verdict recorded in `process/decisions.jsonl` (and acted on)
 - [ ] `npm run format`, `npm test`, `npm run check` clean
 - [ ] Blog post
 - [ ] Roadmap + version bump
