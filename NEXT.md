@@ -22,6 +22,17 @@ These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
+### First-Token Timeout
+
+Phase 112 validation hit two 600s zero-byte stalls in a row (LM Studio
+degraded after abandoned constrained-decode generations; the same body later
+streamed instantly via curl). kodr currently spends the entire `timeoutMs`
+budget waiting for a first byte. A separate, shorter time-to-first-token
+deadline (e.g. 60–120s) would fail fast on stalled servers and make a cheap
+retry viable — the third attempt succeeded immediately. Evidence:
+`~/src/kodr-testing/phase-112/gemma-smoke-3/`,
+`process/failures.jsonl` phase 112.
+
 ### Extraction Metadata Into Run Artifacts
 
 Phase 111 attaches `_extractionMeta` (candidateCount, proposalCount, merged)
