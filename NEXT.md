@@ -65,6 +65,19 @@ LM Studio's management API (`GET /api/v1/models`) reports the *actual* loaded
 kodr's profile assumed 32,768. `kodr probe` could warn on the mismatch (and
 `load`/`unload` endpoints exist for future model-flipping in bench).
 
+Extension (2026-06-13): probe tool-call support empirically. LM Studio docs
+(/docs/developer/openai-compat/tools) distinguish "native" tool support (chat
+template formats the tools array; LM Studio parses the model's tool-call
+syntax into structured `tool_calls`) from a generic fallback — and the seam
+explains observed failures (leaked `<tool_call|>`/pseudo-token artifacts,
+devstral's `arguments:""` crash). Reliability is a property of the
+(model, server, template) triple, not the model. Probe: send a one-tool toy
+request, check whether the reply carries structured `tool_calls` or tool-call
+syntax in text, record `toolSupport: native|fallback` in the model profile.
+Same layer exists in Ollama (Modelfile templates) and vLLM (explicit
+`--tool-call-parser` flag), so the measurement transfers when other servers
+arrive.
+
 ### Extraction Metadata Into Run Artifacts
 
 Phase 111 attaches `_extractionMeta` (candidateCount, proposalCount, merged)
