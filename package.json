@@ -7,11 +7,11 @@
     "kodr": "./bin/kodr.mjs"
   },
   "scripts": {
-    "test": "find test examples -path '*/node_modules/*' -prune -o -path '*/.kodr*/*' -prune -o -name '*.test.mjs' -print0 | xargs -0 node --test",
-    "check": "node --check bin/*.mjs && node --check src/*.mjs && node --check test/*.mjs && node --check test-support/*.mjs && find examples \\( -path '*/node_modules/*' -o -path '*/.kodr*/*' \\) -prune -o -name '*.mjs' -print0 | xargs -0 -n1 node --check && npm run cversion && npm run build-skills -- --check",
+    "test": "node --test test/*.test.mjs packages/repomap/test/*.test.mjs",
+    "check": "node --check bin/*.mjs && node --check src/*.mjs && node --check test/*.mjs && node --check test-support/*.mjs && node --check packages/repomap/src/*.mjs && node --check packages/repomap/test/*.mjs && npm run cversion && npm run build-skills -- --check",
     "cversion": "node bin/cversion.mjs --check",
     "build-skills": "node bin/build-skills.mjs",
-    "format": "biome format --write --vcs-enabled=true --vcs-use-ignore-file=true bin src test test-support",
+    "format": "biome format --write --vcs-enabled=true --vcs-use-ignore-file=true bin src test test-support packages",
     "install-local": "node bin/install-local.mjs"
   },
   "engines": {

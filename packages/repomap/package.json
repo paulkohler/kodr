@@ -1,34 +1,34 @@
 {
-  "name": "@kodr/repomap",
-  "version": "0.1.0",
-  "description": "Zero-dependency Node.js library for workspace-level structural code analysis — walk, inspect, rank, and select byte-budgeted code chunks.",
-  "license": "MIT",
-  "type": "module",
-  "main": "src/index.mjs",
-  "exports": {
-    ".": "./src/index.mjs"
-  },
-  "engines": {
-    "node": ">=22"
-  },
-  "scripts": {
-    "test": "node --test test/repomap.test.mjs"
-  },
-  "keywords": [
-    "repomap",
-    "code-index",
-    "symbol-extraction",
-    "repo-map",
-    "context",
-    "llm"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/paulkohler/koder-by-codex"
-  },
-  "files": [
-    "src/",
-    "LICENSE",
-    "README.md"
-  ]
+	"name": "@kodr/repomap",
+	"version": "0.1.0",
+	"description": "Zero-dependency Node.js library for workspace-level structural code analysis — walk, inspect, rank, and select byte-budgeted code chunks.",
+	"license": "MIT",
+	"type": "module",
+	"main": "src/index.mjs",
+	"exports": {
+		".": "./src/index.mjs"
+	},
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"test": "node --test test/repomap.test.mjs"
+	},
+	"keywords": [
+		"repomap",
+		"code-index",
+		"symbol-extraction",
+		"repo-map",
+		"context",
+		"llm"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/paulkohler/koder-by-codex"
+	},
+	"files": [
+		"src/",
+		"LICENSE",
+		"README.md"
+	]
 }

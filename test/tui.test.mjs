@@ -594,18 +594,25 @@ describe('terminal turn ui', () => {
 		});
 		const stdout = captureStream();
 
-		await handleTuiLine(state, 'stream turn', { stdout }, async (request) => {
-			request.options.onStreamContent('chunk-a');
-			request.options.onStreamContent(' chunk-b');
-			return {
-				applied: false,
-				ok: true,
-				response: 'chunk-a chunk-b',
-				runDir: '/tmp/run-stream',
-				sessionId: 'run-stream',
-				writeResult: { writes: [] },
-			};
-		});
+		// Pin env so ambient FORCE_COLOR cannot enable ANSI codes, which would
+		// break the label-spanning regex assertions below.
+		await handleTuiLine(
+			state,
+			'stream turn',
+			{ env: {}, stdout },
+			async (request) => {
+				request.options.onStreamContent('chunk-a');
+				request.options.onStreamContent(' chunk-b');
+				return {
+					applied: false,
+					ok: true,
+					response: 'chunk-a chunk-b',
+					runDir: '/tmp/run-stream',
+					sessionId: 'run-stream',
+					writeResult: { writes: [] },
+				};
+			},
+		);
 
 		assert.match(stdout.text, /assistant> stream:/u);
 		assert.match(stdout.text, /chunk-a chunk-b/u);

@@ -246,7 +246,10 @@ describe('inspectWorkspace', () => {
 				Array.isArray(file.contentLines),
 				`${file.path} has contentLines`,
 			);
-			assert.ok(file.contentLines.length > 0, `${file.path} contentLines non-empty`);
+			assert.ok(
+				file.contentLines.length > 0,
+				`${file.path} contentLines non-empty`,
+			);
 		}
 	});
 
@@ -273,7 +276,11 @@ describe('inspectWorkspace', () => {
 		const index = await inspectWorkspace(cwd, { query: 'parseInput' });
 		assert.ok(Array.isArray(index.rankedSymbols), 'rankedSymbols is array');
 		assert.ok(index.rankedSymbols.length > 0, 'rankedSymbols non-empty');
-		assert.equal(index.rankedSymbols[0].name, 'parseInput', 'top rank is parseInput');
+		assert.equal(
+			index.rankedSymbols[0].name,
+			'parseInput',
+			'top rank is parseInput',
+		);
 	});
 });
 
@@ -302,7 +309,9 @@ describe('findReferences', () => {
 		const refs = findReferences(index, 'parseInput');
 		assert.ok(refs.length >= 1, 'found at least one reference');
 		assert.ok(
-			refs.every((r) => typeof r.path === 'string' && typeof r.line === 'number'),
+			refs.every(
+				(r) => typeof r.path === 'string' && typeof r.line === 'number',
+			),
 			'refs have path and line',
 		);
 	});
@@ -375,7 +384,10 @@ describe('queryTokens', () => {
 
 	it('produces :exact: terms for camelCase identifiers', () => {
 		const tokens = queryTokens('parseInput');
-		assert.ok(tokens.some((t) => t.includes(':exact:')), 'has exact term');
+		assert.ok(
+			tokens.some((t) => t.includes(':exact:')),
+			'has exact term',
+		);
 	});
 });
 
@@ -478,8 +490,14 @@ describe('selectInspectionChunks', () => {
 		assert.ok(Array.isArray(result.chunks), 'result.chunks is array');
 		assert.ok(result.chunks.length >= 1, 'at least one chunk selected');
 		assert.ok(result.usedChars <= budget, 'usedChars within budget');
-		assert.ok(typeof result.droppedChunks === 'number', 'droppedChunks is number');
-		assert.ok(typeof result.droppedChars === 'number', 'droppedChars is number');
+		assert.ok(
+			typeof result.droppedChunks === 'number',
+			'droppedChunks is number',
+		);
+		assert.ok(
+			typeof result.droppedChars === 'number',
+			'droppedChars is number',
+		);
 	});
 
 	it('truncates rather than dropping when budget smaller than first chunk', () => {
@@ -574,11 +592,7 @@ describe('buildFileSummaries', () => {
 describe('renderInspectionSummary', () => {
 	it('produces a Markdown section', async () => {
 		const cwd = await tempDir();
-		await fixture(
-			cwd,
-			'src/app.mjs',
-			'export function app() {}',
-		);
+		await fixture(cwd, 'src/app.mjs', 'export function app() {}');
 
 		const index = await inspectWorkspace(cwd, { query: 'app' });
 		const ranked = rankSymbols(index, { query: 'app' });
@@ -671,7 +685,10 @@ describe('round-trip: walk → inspect → rank → select → render', () => {
 		// step 5: render
 		const fileMap = await buildFileMap(cwd, files);
 		const fileMapText = renderFileMapText(fileMap);
-		assert.ok(fileMapText.includes('src/parser.mjs'), 'file map includes parser');
+		assert.ok(
+			fileMapText.includes('src/parser.mjs'),
+			'file map includes parser',
+		);
 
 		const summaries = buildFileSummaries(index.files);
 		const md = renderInspectionSummary({
