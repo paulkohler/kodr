@@ -23,6 +23,18 @@ This repo is built as a learning tool. Preserve the process, not just the code.
 - Route new user-facing surfaces through shared channel/request handling instead of duplicating CLI execution paths.
 - Security-boundary features must be checked against the real external tool's documented semantics and, when available, a real integration run before the phase is marked complete.
 
+## Testing
+
+You can use the `~/src/kodr-testing` directory for testing kodr runs. This keeps them out of this repo's context. When running a test, use the phase number and a slug to help identify the test in the scheme of the development lifecycle, e.g.: `~/src/kodr-testing/phase-109/repomap-test-1`
+
+The logs produced are feeds for development and fixes of Kodr itself.
+
+When using Kodr to make an example, NEVER fix the code yourself. Broken code is an artefact of the process.
+
+## Future Work
+
+Brainstorm future work in `NEXT.md`, not in phase files. `NEXT.md` holds the loose idea of a phase — the motivation, the rough shape, the open questions. A phase file is an implementation plan, and writing one is a commitment: create it as late as possible, only when that phase is actually next. Phase files written early get in each other's way — they demand renumbering and reordering every time priorities shift, and the planning detail goes stale before implementation starts. Ideas are cheap to hold loosely in `NEXT.md`; plans are expensive to keep current.
+
 ## Required Loop
 
 1. Read `roadmap.md`.
