@@ -294,6 +294,7 @@ export async function runPlannerAgent(
 		'planner',
 		workspaceContext,
 		registry,
+		activeOptions,
 	);
 	const userPrompt = renderAgentUserPrompt('planner', prompt, [
 		'## Workspace context',
@@ -372,6 +373,7 @@ export async function runImplementerAgent(
 		'implementer',
 		workspaceContext,
 		registry,
+		activeOptions,
 	);
 
 	const manifest = extractPlanManifest(plan);
@@ -738,6 +740,7 @@ export async function runFileAuthorAgent(
 		'file-author',
 		workspaceContext,
 		registry,
+		activeOptions,
 	);
 
 	let existingContent = null;
@@ -868,6 +871,7 @@ export async function runReviewerAgent(
 		'reviewer',
 		reviewContext?.workspaceContext || agentOptions.workspaceContext || null,
 		registry,
+		activeOptions,
 	);
 	const userPrompt = renderAgentUserPrompt('reviewer', prompt, [
 		'## Plan',
@@ -1036,16 +1040,28 @@ function optionsForAgent(options, agentName) {
 	};
 }
 
-async function buildAgentSystemPrompt(agentName, workspaceContext, registry) {
+async function buildAgentSystemPrompt(
+	agentName,
+	workspaceContext,
+	registry,
+	options = {},
+) {
 	let prompt;
-	try {
-		prompt = getBuiltinSkill(`role:${agentName}`).body;
-	} catch {
-		// Fall back to prompt file for roles not yet in the bundle.
-		prompt = await readFile(
-			new URL(`../prompts/orchestration-${agentName}.md`, import.meta.url),
-			'utf8',
-		);
+	// K2: discovered agent file can override the builtin role skill when the
+	// agent name matches an orchestration role (planner, implementer, etc.).
+	const roleOverride = options.agentRoleOverrides?.[agentName];
+	if (roleOverride) {
+		prompt = roleOverride;
+	} else {
+		try {
+			prompt = getBuiltinSkill(`role:${agentName}`).body;
+		} catch {
+			// Fall back to prompt file for roles not yet in the bundle.
+			prompt = await readFile(
+				new URL(`../prompts/orchestration-${agentName}.md`, import.meta.url),
+				'utf8',
+			);
+		}
 	}
 	const core = renderKodrCorePrompt(workspaceContext || {}, {
 		includeMemoryContent: false,

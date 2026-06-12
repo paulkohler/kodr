@@ -36,6 +36,8 @@ const KNOWN_KEYS = new Set([
 	'maxTokens',
 	'maxCostUsd',
 	'protectExisting',
+	'skillsDirs',
+	'agentsDirs',
 ]);
 
 // Known LSP server names from the default registry. Config may reference only
@@ -202,6 +204,17 @@ function validateValue(key, value, configPath) {
 				fail('must be a non-negative number');
 			return value;
 
+		case 'skillsDirs':
+		case 'agentsDirs': {
+			if (!Array.isArray(value)) fail('must be an array of strings');
+			for (const entry of value) {
+				if (typeof entry !== 'string') {
+					fail(`entries must be strings; got ${typeof entry}`);
+				}
+			}
+			return value;
+		}
+
 		default:
 			return value;
 	}
@@ -229,7 +242,18 @@ export function applyProjectConfig(options, loadedConfig) {
 
 	for (const [key, value] of Object.entries(config)) {
 		if (shouldApply(key, options)) {
-			options[key] = value;
+			// K3: array dir keys merge — CLI values come first (higher precedence),
+			// then config values, all prepended to the default tiers.
+			if (
+				(key === 'skillsDirs' || key === 'agentsDirs') &&
+				Array.isArray(options[key]) &&
+				options[key].length > 0
+			) {
+				// CLI already has values; append config values after them (CLI wins).
+				options[key] = [...options[key], ...value];
+			} else {
+				options[key] = value;
+			}
 			// Raise the corresponding sentinel so downstream resolution steps
 			// (applyModelProfileDefaults) honour this config-supplied value.
 			const sentinel = CONFIG_SENTINELS[key];
@@ -275,6 +299,12 @@ function shouldApply(key, options) {
 			return !options._maxCostUsdSet;
 		case 'protectExisting':
 			return !options._protectExistingSet;
+		// K3: skillsDirs and agentsDirs always merge (prepend config to defaults).
+		// We use a special key here to prevent shouldApply from blocking the config
+		// value — merging is handled at the call site.
+		case 'skillsDirs':
+		case 'agentsDirs':
+			return true;
 		default:
 			return false;
 	}

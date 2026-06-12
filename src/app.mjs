@@ -25,7 +25,19 @@ import {
 	gitTreeState,
 } from './git-workspace.mjs';
 import { undoLastApply } from './undo.mjs';
-import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
+import {
+	discoverSkills,
+	discoverSkillsTiered,
+	loadSkills,
+	renderSkillIndex,
+} from './skills.mjs';
+import {
+	AgentError,
+	discoverAgents,
+	findAgent,
+	isOrchestrationRole,
+	parseAgentMarkdown,
+} from './agents.mjs';
 import { createCycleReviewRequest, runSubagent } from './subagents.mjs';
 import {
 	createInspectionTaskPlan,
@@ -205,10 +217,13 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		protectExisting: false,
 		provider: 'local',
 		replayDir: '',
+		agent: '',
+		agentsDirs: [],
 		showConfig: false,
 		showContext: false,
 		showFiles: false,
 		showSkills: false,
+		skillsDirs: [],
 		skills: [],
 		stream: 'auto',
 		wireNoStream: false,
@@ -271,6 +286,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		_testCwdSet: false,
 		_timeoutSet: false,
 		_toolsSet: false,
+		_skillsDirsSet: false,
+		_agentsDirsSet: false,
 	};
 
 	const positionals = [];
@@ -515,6 +532,22 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			continue;
 		}
 
+		if (arg === '--skills-dir' || arg === '--agents-dir') {
+			if (index + 1 >= argv.length) {
+				throw new CliError(`${arg} requires a value`);
+			}
+			const value = argv[index + 1];
+			index += 1;
+			if (arg === '--skills-dir') {
+				options.skillsDirs.push(value);
+				options._skillsDirsSet = true;
+			} else {
+				options.agentsDirs.push(value);
+				options._agentsDirsSet = true;
+			}
+			continue;
+		}
+
 		if (
 			arg === '--base-url' ||
 			arg === '--completion-reserve' ||
@@ -528,6 +561,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			arg === '--prompt-file' ||
 			arg === '--prompt-cache' ||
 			arg === '--prompt-id' ||
+			arg === '--agent' ||
 			arg === '--skill' ||
 			arg === '--suite' ||
 			arg === '--test' ||
@@ -704,6 +738,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 	}
 	options.configSources = configSources;
 
+	// Preserve a non-sentinel flag so runPrompt can tell if the user explicitly
+	// set --model (agent model spec only applies when model was not explicitly set).
+	options.modelExplicit = Boolean(
+		configSources.model === 'flag' || configSources.model === 'env',
+	);
+
 	delete options._apiKeySet;
 	delete options._baseUrlEnvSet;
 	delete options._baseUrlSet;
@@ -725,6 +765,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 	delete options._testCwdSet;
 	delete options._timeoutSet;
 	delete options._toolsSet;
+	delete options._skillsDirsSet;
+	delete options._agentsDirsSet;
 
 	if (options.dockerSandbox) {
 		Object.assign(options, dockerDefaults(options));
@@ -1204,6 +1246,54 @@ export async function main(argv, io) {
 	if (options.help || options.command === 'help') {
 		io.stdout.write(usage());
 		return { ok: true, command: 'help' };
+	}
+
+	if (options.command === 'skills') {
+		const { skills, shadows } = await discoverSkillsTiered(io.cwd, {
+			skillsDirs: resolvedSkillsDirs(options, io.cwd),
+		});
+		const { agents, shadows: agentShadows } = await discoverAgents(io.cwd, {
+			agentsDirs: resolvedAgentsDirs(options, io.cwd),
+		});
+		if (options.json) {
+			io.stdout.write(
+				`${JSON.stringify(
+					{
+						skills: skills.map((s) => ({
+							name: s.name,
+							description: s.description,
+							path: s.path,
+							tier: s.tier,
+							absoluteRoot: s.absoluteRoot,
+						})),
+						agents: agents.map((a) => ({
+							name: a.name,
+							description: a.description,
+							sourcePath: a.sourcePath,
+							tier: a.tier,
+							modelSpec: a.modelSpec,
+							modelAlias: a.modelAlias,
+						})),
+						shadows,
+						agentShadows,
+					},
+					null,
+					2,
+				)}\n`,
+			);
+		} else {
+			io.stdout.write(
+				renderSkillsListing({ skills, shadows, agents, agentShadows }),
+			);
+		}
+		return {
+			ok: true,
+			command: 'skills',
+			skills,
+			agents,
+			shadows,
+			agentShadows,
+		};
 	}
 
 	if (options.command === 'probe') {
@@ -2074,6 +2164,65 @@ function fencedMarkdown(text) {
 	return `${fence}\n${text}\n${fence}`;
 }
 
+export function renderSkillsListing({ skills, shadows, agents, agentShadows }) {
+	const lines = [];
+
+	if (skills.length > 0) {
+		lines.push('Skills:');
+		for (const skill of skills) {
+			const desc = skill.description
+				? ` — ${skill.description.slice(0, 60)}${skill.description.length > 60 ? '…' : ''}`
+				: '';
+			lines.push(`  [${skill.tier}] ${skill.name}${desc}`);
+			lines.push(`         ${skill.path}`);
+		}
+	} else {
+		lines.push('Skills: (none)');
+	}
+
+	if (shadows.length > 0) {
+		lines.push('');
+		lines.push('Shadowed skills (lower-tier duplicates):');
+		for (const s of shadows) {
+			lines.push(`  ${s.name}: ${s.winnerTier} wins over ${s.shadowTier}`);
+			lines.push(`    winner:  ${s.winnerPath}`);
+			lines.push(`    shadow:  ${s.shadowPath}`);
+		}
+	}
+
+	if (agents.length > 0) {
+		lines.push('');
+		lines.push('Agents:');
+		for (const agent of agents) {
+			const desc = agent.description
+				? ` — ${agent.description.slice(0, 60)}${agent.description.length > 60 ? '…' : ''}`
+				: '';
+			const modelNote = agent.modelSpec
+				? ` (model: ${agent.modelSpec})`
+				: agent.modelAlias
+					? ` (alias: ${agent.modelAlias})`
+					: '';
+			lines.push(`  [${agent.tier}] ${agent.name}${modelNote}${desc}`);
+			lines.push(`         ${agent.sourcePath}`);
+		}
+	} else {
+		lines.push('');
+		lines.push('Agents: (none)');
+	}
+
+	if (agentShadows?.length > 0) {
+		lines.push('');
+		lines.push('Shadowed agents (lower-tier duplicates):');
+		for (const s of agentShadows) {
+			lines.push(`  ${s.name}: ${s.winnerTier} wins over ${s.shadowTier}`);
+			lines.push(`    winner:  ${s.winnerPath}`);
+			lines.push(`    shadow:  ${s.shadowPath}`);
+		}
+	}
+
+	return `${lines.join('\n')}\n`;
+}
+
 function assignValue(options, flag, value) {
 	if (flag === '--base-url') {
 		options.baseUrl = value.replace(/\/+$/u, '');
@@ -2116,6 +2265,8 @@ function assignValue(options, flag, value) {
 	} else if (flag === '--session-context-chars') {
 		options.sessionContextChars = Number(value);
 		options._sessionContextSet = true;
+	} else if (flag === '--agent') {
+		options.agent = value;
 	} else if (flag === '--skill') {
 		options.skills.push(value);
 	} else if (flag === '--suite') {
@@ -2363,6 +2514,35 @@ export async function runPrompt(options, io) {
 		let sessionCompaction = null;
 		let contextPackingResult = null;
 
+		// K2: resolve --agent persona before building context.
+		let agentPersona = null;
+		if (options.agent) {
+			const { agents } = await discoverAgents(io.cwd, {
+				agentsDirs: resolvedAgentsDirs(options, io.cwd),
+			});
+			let agentSpec;
+			try {
+				agentSpec = findAgent(agents, options.agent);
+			} catch (err) {
+				if (err instanceof AgentError) {
+					throw new CliError(err.message);
+				}
+				throw err;
+			}
+			agentPersona = agentSpec;
+			// If the agent declares a model alias (not a valid kodr spec), warn once.
+			if (agentSpec.modelAlias && !agentSpec.modelSpec) {
+				io.stderr?.write?.(
+					`info: agent "${agentSpec.name}" model "${agentSpec.modelAlias}" is not a kodr model spec; using run default\n`,
+				);
+			}
+			// If the agent has a valid model spec AND --model was not set by the
+			// user (flag or env), apply it as the model default for this run.
+			if (agentSpec.modelSpec && !options.modelExplicit) {
+				options.model = agentSpec.modelSpec;
+			}
+		}
+
 		if (parent) {
 			// Continuation: freeze the system prompt from the parent transcript.
 			// The parent raw conversation ends with the model's last reply. Append the
@@ -2382,7 +2562,9 @@ export async function runPrompt(options, io) {
 			initialMessages = sessionCompaction.messages;
 			// Build a minimal context for artifacts (context.md, workspaceFileCount).
 			memory = await loadMemory(io.cwd);
-			skills = await loadSkills(io.cwd, options.skills);
+			skills = await loadSkills(io.cwd, options.skills, {
+				skillsDirs: resolvedSkillsDirs(options, io.cwd),
+			});
 			contextPackingResult = await createInspectionContext(
 				io.cwd,
 				options,
@@ -2398,6 +2580,7 @@ export async function runPrompt(options, io) {
 				}
 			}
 			context = await buildWorkspaceContext(io.cwd, {
+				agentPersona,
 				environmentFacts,
 				inspection,
 				memory,
@@ -2406,7 +2589,9 @@ export async function runPrompt(options, io) {
 				...workspaceContextOptions(options),
 			});
 		} else {
-			skills = await loadSkills(io.cwd, options.skills);
+			skills = await loadSkills(io.cwd, options.skills, {
+				skillsDirs: resolvedSkillsDirs(options, io.cwd),
+			});
 			memory = await loadMemory(io.cwd);
 			contextPackingResult = await createInspectionContext(
 				io.cwd,
@@ -2426,6 +2611,7 @@ export async function runPrompt(options, io) {
 				? `${renderInspectionTaskPlan(inspectionPlan)}\n\n${prompt}`
 				: prompt;
 			context = await buildWorkspaceContext(io.cwd, {
+				agentPersona,
 				environmentFacts,
 				inspection,
 				memory,
@@ -2446,6 +2632,7 @@ export async function runPrompt(options, io) {
 					hooks: configuredHooks.hooks,
 					runDir,
 					skillExecutor: activeExecutor,
+					skillsDirs: resolvedSkillsDirs(options, io.cwd),
 					timeoutMs: options.timeoutMs,
 				})
 			: null;
@@ -2506,12 +2693,18 @@ export async function runPrompt(options, io) {
 			await writeJson(join(runDir, 'raw-request.json'), rawRequest);
 
 			if (options.subagentStages && !parent) {
+				// K2: if --agent names an orchestration role, pass it as a role override.
+				const agentRoleOverrides =
+					agentPersona && isOrchestrationRole(agentPersona.name)
+						? { [agentPersona.name]: agentPersona.body }
+						: {};
 				const orchestrationResult = await runSubagentStages(
 					io.cwd,
 					runDir,
 					prompt,
 					{
 						...runOptions,
+						agentRoleOverrides,
 						commandRunner,
 						protectedPaths: protectedWritePaths(options),
 						reviewTimeoutMs: resolveReviewTimeoutMs(options),
@@ -3733,6 +3926,20 @@ function workspaceContextOptions(options) {
 			? { totalBytes: options.contextBudgetChars }
 			: {}),
 	};
+}
+
+// K3: resolve skills-dir overrides, converting relative paths to absolute.
+function resolvedSkillsDirs(options, cwd) {
+	return (options.skillsDirs || []).map((dir) =>
+		dir.startsWith('/') ? dir : join(cwd, dir),
+	);
+}
+
+// K3: resolve agents-dir overrides, converting relative paths to absolute.
+function resolvedAgentsDirs(options, cwd) {
+	return (options.agentsDirs || []).map((dir) =>
+		dir.startsWith('/') ? dir : join(cwd, dir),
+	);
 }
 
 async function runHealingIfNeeded({

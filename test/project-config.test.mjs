@@ -539,3 +539,55 @@ describe('channel inheritance', () => {
 		assert.equal(opts.maxTurns, 5);
 	});
 });
+
+// ── Phase 116: skillsDirs and agentsDirs config keys ────────────────────────
+
+describe('skillsDirs and agentsDirs config keys', () => {
+	it('accepts valid skillsDirs array in config', async () => {
+		const cwd = await setup({ skillsDirs: ['/a', '/b'] });
+		const loaded = loadProjectConfig(cwd, {});
+		assert.deepEqual(loaded.config.skillsDirs, ['/a', '/b']);
+	});
+
+	it('accepts valid agentsDirs array in config', async () => {
+		const cwd = await setup({ agentsDirs: ['/x'] });
+		const loaded = loadProjectConfig(cwd, {});
+		assert.deepEqual(loaded.config.agentsDirs, ['/x']);
+	});
+
+	it('rejects non-array skillsDirs', async () => {
+		const cwd = await setup({ skillsDirs: '/bad-not-array' });
+		assert.throws(
+			() => loadProjectConfig(cwd, {}),
+			(err) => {
+				assert.ok(err instanceof ProjectConfigError);
+				assert.match(err.message, /skillsDirs/u);
+				return true;
+			},
+		);
+	});
+
+	it('rejects array with non-string entries', async () => {
+		const cwd = await setup({ skillsDirs: ['/ok', 42] });
+		assert.throws(
+			() => loadProjectConfig(cwd, {}),
+			(err) => {
+				assert.ok(err instanceof ProjectConfigError);
+				return true;
+			},
+		);
+	});
+
+	it('parseArgs merges config skillsDirs after CLI flags (CLI first)', async () => {
+		const cwd = await setup({ skillsDirs: ['/from-config'] });
+		const opts = parseArgs(['--skills-dir', '/from-cli'], {}, cwd);
+		// CLI value comes first (higher precedence), then config value
+		assert.deepEqual(opts.skillsDirs, ['/from-cli', '/from-config']);
+	});
+
+	it('config skillsDirs applied when no CLI flags', async () => {
+		const cwd = await setup({ skillsDirs: ['/config-only'] });
+		const opts = parseArgs([], {}, cwd);
+		assert.deepEqual(opts.skillsDirs, ['/config-only']);
+	});
+});

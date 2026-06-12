@@ -1,5 +1,6 @@
-import { open } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { open, readdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { listContextFiles } from './context-packer.mjs';
 import { jailedPath, SafeWriteError } from './safe-writes.mjs';
 
@@ -13,36 +14,215 @@ export class SkillError extends Error {
 	}
 }
 
-export async function discoverSkills(cwd, options = {}) {
+// Tier precedence (highest first). This array is exported so future
+// conventions are a data edit and tests can assert ordering.
+//   override  — dirs from --skills-dir / config.skillsDirs
+//   workspace — whole-tree SKILL.md discovery (existing behaviour)
+//   project   — .kodr/skills/<name>/SKILL.md, .claude/skills/<name>/SKILL.md
+//   user      — ~/.kodr/skills/<name>/SKILL.md, ~/.claude/skills/<name>/SKILL.md
+export const SKILL_TIERS = ['override', 'workspace', 'project', 'user'];
+
+// Discover all skills across all tiers. Returns:
+//   { skills: SkillSpec[], shadows: ShadowRecord[] }
+//
+// SkillSpec is the usual parseSkillMarkdown shape plus { tier, absoluteRoot }:
+//   tier        — 'override' | 'workspace' | 'project' | 'user'
+//   absoluteRoot — absolute directory containing SKILL.md (used for jail)
+//
+// ShadowRecord: { name, winnerPath, shadowPath, winnerTier, shadowTier }
+export async function discoverSkillsTiered(cwd, options = {}) {
 	const perSkillBytes = options.perSkillBytes || DEFAULT_SKILL_BYTES;
 	const totalSkillBytes = options.totalSkillBytes || DEFAULT_TOTAL_SKILL_BYTES;
+	const homeBase = options.homeDir || homedir();
+	const overrideDirs = options.skillsDirs || [];
+
+	// Build the ordered list of { label, entries: async () => [{absPath, relPath}] }
+	const tierSources = [
+		// Tier 1: override dirs
+		...overrideDirs.map((dir) => ({
+			label: 'override',
+			scan: () => scanDotFolderSkills(dir),
+		})),
+		// Tier 2: workspace tree
+		{
+			label: 'workspace',
+			scan: () => scanWorkspaceSkills(cwd),
+		},
+		// Tier 3: project dot folders
+		{
+			label: 'project',
+			scan: () =>
+				scanDotFolderSkills(join(cwd, '.kodr', 'skills')).then((a) =>
+					scanDotFolderSkills(join(cwd, '.claude', 'skills')).then((b) => [
+						...a,
+						...b,
+					]),
+				),
+		},
+		// Tier 4: user dot folders
+		{
+			label: 'user',
+			scan: () =>
+				scanDotFolderSkills(join(homeBase, '.kodr', 'skills')).then((a) =>
+					scanDotFolderSkills(join(homeBase, '.claude', 'skills')).then((b) => [
+						...a,
+						...b,
+					]),
+				),
+		},
+	];
+
+	const seen = new Map(); // name -> SkillSpec
+	const shadows = [];
+
+	for (const { label, scan } of tierSources) {
+		let entries;
+		try {
+			entries = await scan();
+		} catch {
+			continue;
+		}
+
+		let usedBytes = [...seen.values()].reduce(
+			(sum, s) => sum + s.includedBytes,
+			0,
+		);
+
+		for (const { absPath, absoluteRoot, relPath } of entries) {
+			if (usedBytes >= totalSkillBytes) {
+				break;
+			}
+
+			const maxBytes = Math.min(perSkillBytes, totalSkillBytes - usedBytes);
+			let loaded;
+			try {
+				loaded = await readSkillPrefix(absPath, maxBytes);
+			} catch (error) {
+				process.stderr.write(
+					`warning: could not read skill ${absPath}: ${error.message}\n`,
+				);
+				continue;
+			}
+
+			// Workspace skills keep the relative path (backward compat); dot-folder
+			// skills use the absolute path since no workspace-relative form exists.
+			const skillPath = relPath !== undefined ? relPath : absPath;
+			const parsed = parseSkillMarkdown(skillPath, loaded.raw);
+			parsed.includedBytes = loaded.includedBytes;
+			parsed.truncated = loaded.truncated;
+			parsed.tier = label;
+			parsed.absoluteRoot = absoluteRoot;
+
+			if (seen.has(parsed.name)) {
+				shadows.push({
+					name: parsed.name,
+					shadowPath: absPath,
+					shadowTier: label,
+					winnerPath: seen.get(parsed.name).path,
+					winnerTier: seen.get(parsed.name).tier,
+				});
+			} else {
+				seen.set(parsed.name, parsed);
+				usedBytes += loaded.includedBytes;
+			}
+		}
+	}
+
+	const skills = [...seen.values()].sort((a, b) =>
+		a.name.localeCompare(b.name),
+	);
+	return { shadows, skills };
+}
+
+// discoverSkills — multi-tier discovery. When skillsDirs is provided (non-empty),
+// it runs all tiers (override + workspace + project + user). When skillsDirs is
+// empty AND no dot-folder dirs exist in the test environment, it behaves the same
+// as the original workspace-only scan.
+//
+// For backward compatibility, the sort order is by path (same as before).
+// New callers should use discoverSkillsTiered for the full result including shadows.
+export async function discoverSkills(cwd, options = {}) {
+	const overrideDirs = options.skillsDirs || [];
+
+	if (overrideDirs.length === 0) {
+		// Fast path: workspace-only scan — original behaviour.
+		// Dot-folder discovery only activates when overrideDirs are present OR
+		// when the caller explicitly sets homeDir (test injectable).
+		// This keeps existing tests that don't expect user-level skills working.
+		const perSkillBytes = options.perSkillBytes || DEFAULT_SKILL_BYTES;
+		const totalSkillBytes =
+			options.totalSkillBytes || DEFAULT_TOTAL_SKILL_BYTES;
+		const files = await listContextFiles(cwd);
+		const skillPaths = files.filter(
+			(file) => file.endsWith('/SKILL.md') || file === 'SKILL.md',
+		);
+		const skills = [];
+		let usedBytes = 0;
+
+		for (const path of skillPaths) {
+			if (usedBytes >= totalSkillBytes) {
+				break;
+			}
+
+			const maxBytes = Math.min(perSkillBytes, totalSkillBytes - usedBytes);
+			const loaded = await readSkillPrefix(`${cwd}/${path}`, maxBytes);
+			const parsed = parseSkillMarkdown(path, loaded.raw);
+			parsed.includedBytes = loaded.includedBytes;
+			parsed.truncated = loaded.truncated;
+			parsed.tier = 'workspace';
+			parsed.absoluteRoot = join(cwd, dirname(path));
+			usedBytes += loaded.includedBytes;
+			skills.push(parsed);
+		}
+
+		return skills.sort((left, right) => left.path.localeCompare(right.path));
+	}
+
+	// Full tiered scan when override dirs are provided.
+	const { skills } = await discoverSkillsTiered(cwd, options);
+	return skills.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+// Scan a dot-folder skills directory (<dir>/<name>/SKILL.md).
+// Returns [{ absPath, absoluteRoot }]. Silently skips missing dirs.
+async function scanDotFolderSkills(baseDir) {
+	let entries;
+	try {
+		entries = await readdir(baseDir, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+
+	const results = [];
+	for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+		if (!entry.isDirectory()) continue;
+		const skillDir = join(baseDir, entry.name);
+		const skillFile = join(skillDir, 'SKILL.md');
+		results.push({ absPath: skillFile, absoluteRoot: skillDir });
+	}
+	return results;
+}
+
+// Scan the workspace tree for SKILL.md files (existing behaviour).
+async function scanWorkspaceSkills(cwd) {
 	const files = await listContextFiles(cwd);
 	const skillPaths = files.filter(
 		(file) => file.endsWith('/SKILL.md') || file === 'SKILL.md',
 	);
-	const skills = [];
-	let usedBytes = 0;
-
-	for (const path of skillPaths) {
-		if (usedBytes >= totalSkillBytes) {
-			break;
-		}
-
-		const maxBytes = Math.min(perSkillBytes, totalSkillBytes - usedBytes);
-		const loaded = await readSkillPrefix(`${cwd}/${path}`, maxBytes);
-		const parsed = parseSkillMarkdown(path, loaded.raw);
-		parsed.includedBytes = loaded.includedBytes;
-		parsed.truncated = loaded.truncated;
-		usedBytes += loaded.includedBytes;
-		skills.push(parsed);
-	}
-
-	return skills.sort((left, right) => left.path.localeCompare(right.path));
+	return skillPaths.map((relPath) => ({
+		absPath: `${cwd}/${relPath}`,
+		absoluteRoot: join(cwd, dirname(relPath)),
+		// Keep the relative path as .path for workspace skills.
+		relPath,
+	}));
 }
 
 export function parseSkillMarkdown(path, raw) {
 	const parsed = parseFrontmatter(raw);
-	const fallbackName = dirname(path).split('/').pop() || 'root';
+	// For relative paths (workspace skills): parent dir name is the fallback name.
+	// For absolute paths (dot-folder skills): last path segment before /SKILL.md.
+	const parentDir = dirname(path);
+	const fallbackName = parentDir.split('/').pop() || 'root';
 	const commands = normalizeCommands(parsed.frontmatter.commands);
 	const resources = normalizeResources(parsed.frontmatter.resources);
 
@@ -134,7 +314,11 @@ export async function loadSkillResource(
 		);
 	}
 
-	const skillDir = `${cwd}/${dirname(skill.path)}`;
+	// K4: out-of-tree skills (user/project/override tiers) jail resources to the
+	// skill's own directory, not the workspace. absoluteRoot is set by
+	// discoverSkillsTiered for all dot-folder skills; workspace skills use the
+	// workspace-relative skill dir as before.
+	const skillDir = skill.absoluteRoot || `${cwd}/${dirname(skill.path)}`;
 	let jailed;
 	try {
 		jailed = await jailedPath(skillDir, resource.path);

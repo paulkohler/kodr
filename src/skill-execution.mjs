@@ -17,14 +17,16 @@ export async function runSkillCommand(cwd, request, options = {}) {
 			'Skill code execution requires an active sandbox executor; use --docker-sandbox or --openshell-sandbox.',
 		);
 	}
-	const skill = await findSkill(cwd, request.skill);
+	const skill = await findSkill(cwd, request.skill, options);
 	const command = skill.commands.find((item) => item.name === request.command);
 	if (!command) {
 		throw new SkillExecutionError(
 			`Skill command not declared: ${skill.name}/${request.command}`,
 		);
 	}
-	const skillDir = join(cwd, dirname(skill.path));
+	// K4: out-of-tree skills use their own absoluteRoot as the command working
+	// directory so jailedPath resolves scripts relative to the skill root.
+	const skillDir = skill.absoluteRoot || join(cwd, dirname(skill.path));
 	const script = await jailedPath(skillDir, command.path);
 	const parsed = commandInvocation(command, script.path);
 	const approval = createSkillCommandApproval(skill, command, parsed, options);
@@ -77,6 +79,9 @@ function createSkillCommandApproval(skill, command, parsed, options) {
 			backend: options.executor?.backend || '',
 			command: command.name,
 			skill: skill.name,
+			// K4: show skill origin so the user can see where the command came from.
+			skillSourcePath: skill.path,
+			skillTier: skill.tier || 'workspace',
 		},
 		reason: `Execute declared skill command ${skill.name}/${command.name}`,
 		sandbox: options.executor?.backend || '',
@@ -84,10 +89,10 @@ function createSkillCommandApproval(skill, command, parsed, options) {
 	};
 }
 
-async function findSkill(cwd, request) {
-	const matches = (await discoverSkills(cwd)).filter(
-		(skill) => skill.name === request || skill.path === request,
-	);
+async function findSkill(cwd, request, options = {}) {
+	const matches = (
+		await discoverSkills(cwd, { skillsDirs: options.skillsDirs || [] })
+	).filter((skill) => skill.name === request || skill.path === request);
 	if (matches.length === 0) {
 		throw new SkillError(`No SKILL.md matched: ${request}`);
 	}

@@ -115,6 +115,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 113 Stream-First Transport
 - [x] 114 Environment-Aware System Prompt
 - [x] 115 Structural Decode-Artifact Rules
+- [ ] 116 Dot-Folder Skill And Agent Discovery
 
 ## Phase Contract
 

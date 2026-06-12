@@ -9,6 +9,7 @@ import {
 	handleChannelRequest,
 	main,
 	parseArgs,
+	renderSkillsListing,
 	usage,
 	VERSION,
 } from '../src/app.mjs';
@@ -5132,3 +5133,201 @@ function proposalResponseText(content) {
 function commandResult(exitCode, stdout = '', stderr = '') {
 	return { exitCode, stderr, stdout, timedOut: false };
 }
+
+// ── Phase 116: dot-folder skill and agent discovery ──────────────────────────
+
+describe('parseArgs K3 -- skills-dir and --agents-dir flags', () => {
+	it('parses repeatable --skills-dir flags', () => {
+		const options = parseArgs(['--skills-dir', '/a', '--skills-dir', '/b'], {});
+		assert.deepEqual(options.skillsDirs, ['/a', '/b']);
+	});
+
+	it('parses repeatable --agents-dir flags', () => {
+		const options = parseArgs(['--agents-dir', '/x', '--agents-dir', '/y'], {});
+		assert.deepEqual(options.agentsDirs, ['/x', '/y']);
+	});
+
+	it('defaults skillsDirs and agentsDirs to empty arrays', () => {
+		const options = parseArgs([], {});
+		assert.deepEqual(options.skillsDirs, []);
+		assert.deepEqual(options.agentsDirs, []);
+	});
+
+	it('parses --agent flag', () => {
+		const options = parseArgs(['--agent', 'my-agent'], {});
+		assert.equal(options.agent, 'my-agent');
+	});
+
+	it('modelExplicit is false when --model not set', () => {
+		const options = parseArgs([], {});
+		assert.equal(options.modelExplicit, false);
+	});
+
+	it('modelExplicit is true when --model is set', () => {
+		const options = parseArgs(['--model', 'some-model'], {});
+		assert.equal(options.modelExplicit, true);
+	});
+
+	it('modelExplicit is true when MODEL_ID env is set', () => {
+		const options = parseArgs([], { MODEL_ID: 'some-model' });
+		assert.equal(options.modelExplicit, true);
+	});
+});
+
+describe('renderSkillsListing', () => {
+	it('renders empty skills and agents sections', () => {
+		const output = renderSkillsListing({
+			skills: [],
+			shadows: [],
+			agents: [],
+			agentShadows: [],
+		});
+		assert.match(output, /Skills: \(none\)/u);
+		assert.match(output, /Agents: \(none\)/u);
+	});
+
+	it('renders skills with tier, name, description', () => {
+		const output = renderSkillsListing({
+			skills: [
+				{
+					name: 'myfoo',
+					description: 'A useful skill',
+					path: '/some/path/SKILL.md',
+					tier: 'project',
+				},
+			],
+			shadows: [],
+			agents: [],
+			agentShadows: [],
+		});
+		assert.match(output, /\[project\] myfoo/u);
+		assert.match(output, /A useful skill/u);
+	});
+
+	it('renders agent with model info', () => {
+		const output = renderSkillsListing({
+			skills: [],
+			shadows: [],
+			agents: [
+				{
+					name: 'my-agent',
+					description: 'An agent',
+					sourcePath: '/agents/my-agent.md',
+					tier: 'project',
+					modelSpec: 'lmstudio/qwen/qwen3',
+					modelAlias: '',
+				},
+			],
+			agentShadows: [],
+		});
+		assert.match(output, /\[project\] my-agent/u);
+		assert.match(output, /model: lmstudio\/qwen\/qwen3/u);
+	});
+
+	it('renders shadow records for skills', () => {
+		const output = renderSkillsListing({
+			skills: [
+				{
+					name: 'shared',
+					description: '',
+					path: '/w/SKILL.md',
+					tier: 'workspace',
+				},
+			],
+			shadows: [
+				{
+					name: 'shared',
+					winnerTier: 'workspace',
+					winnerPath: '/w/SKILL.md',
+					shadowTier: 'user',
+					shadowPath: '/home/.claude/skills/shared/SKILL.md',
+				},
+			],
+			agents: [],
+			agentShadows: [],
+		});
+		assert.match(output, /Shadowed skills/u);
+		assert.match(output, /workspace wins over user/u);
+	});
+});
+
+describe('kodr skills command', () => {
+	it('lists skills and agents in JSON mode', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-skills-cmd-'));
+		const skillsDir = join(cwd, '.claude', 'skills', 'myskill');
+		await mkdir(skillsDir, { recursive: true });
+		await writeFile(
+			join(skillsDir, 'SKILL.md'),
+			'---\nname: myskill\ndescription: My skill\n---\nBody',
+			'utf8',
+		);
+
+		const agentsDir = join(cwd, '.claude', 'agents');
+		await mkdir(agentsDir, { recursive: true });
+		await writeFile(
+			join(agentsDir, 'myagent.md'),
+			'---\nname: myagent\ndescription: My agent\n---\nAgent body',
+			'utf8',
+		);
+
+		let output = '';
+		const io = {
+			cwd,
+			env: {},
+			stderr: { write: () => {} },
+			stdout: {
+				write: (chunk) => {
+					output += chunk;
+				},
+			},
+		};
+
+		const result = await main(['skills', '--json'], io);
+
+		assert.equal(result.command, 'skills');
+		assert.equal(result.ok, true);
+
+		const parsed = JSON.parse(output);
+		// skills from .claude/skills — found via workspace scan since .claude is in cwd
+		const skill = parsed.skills.find((s) => s.name === 'myskill');
+		assert.ok(skill, 'myskill in JSON output');
+		// .claude/skills/ within the workspace will be discovered as workspace tier
+		// (workspace scan precedes project dot-folder scan; first hit wins)
+		assert.ok(
+			skill.tier === 'workspace' || skill.tier === 'project',
+			`expected workspace or project tier, got ${skill.tier}`,
+		);
+		// agents from .claude/agents
+		const agent = parsed.agents.find((a) => a.name === 'myagent');
+		assert.ok(agent, 'myagent in JSON output');
+		assert.equal(agent.tier, 'project');
+	});
+
+	it('lists skills in human mode', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-skills-human-'));
+		const skillsDir = join(cwd, '.kodr', 'skills', 'fooskill');
+		await mkdir(skillsDir, { recursive: true });
+		await writeFile(
+			join(skillsDir, 'SKILL.md'),
+			'---\nname: fooskill\ndescription: Foo description\n---\nBody',
+			'utf8',
+		);
+
+		let output = '';
+		const io = {
+			cwd,
+			env: {},
+			stderr: { write: () => {} },
+			stdout: {
+				write: (chunk) => {
+					output += chunk;
+				},
+			},
+		};
+
+		await main(['skills'], io);
+
+		assert.match(output, /fooskill/u);
+		assert.match(output, /\[project\]/u);
+	});
+});

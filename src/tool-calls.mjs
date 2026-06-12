@@ -572,6 +572,7 @@ export function createBuiltinRegistry(cwd, options = {}) {
 		handler: async ({ resource, skill }) =>
 			loadSkillResource(cwd, skill, resource, {
 				maxBytes: options.skillResourceBytes,
+				skillsDirs: options.skillsDirs || [],
 			}),
 	});
 
@@ -601,6 +602,7 @@ export function createBuiltinRegistry(cwd, options = {}) {
 					executor: options.skillExecutor || null,
 					permissionApprover: options.permissionApprover || null,
 					runDir: options.runDir || '',
+					skillsDirs: options.skillsDirs || [],
 					timeoutMs: options.timeoutMs,
 				},
 			),
