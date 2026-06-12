@@ -16,7 +16,39 @@ export async function startFakeModelServer(options = {}) {
 		const fakeResponse =
 			queuedResponse || defaultResponse(request.method, request.url, modelId);
 
-		writeFakeResponse(response, fakeResponse);
+		// stall: the response sends headers (so the client enters SSE reading)
+		// but then never sends any data. Used to test the first-token deadline
+		// without requiring real clock time.
+		if (fakeResponse.stall) {
+			recordings.push({
+				startedAt,
+				durationMs: 0,
+				method: request.method,
+				url: request.url,
+				requestHeaders: redactHeaders(request.headers),
+				requestBody,
+				responseStatus: 200,
+				responseBody: null,
+				stalled: true,
+			});
+			// Send headers so the client receives the HTTP 200 and enters the SSE
+			// reader, then hold the connection open without sending any SSE events.
+			// flushHeaders() sends the headers immediately without waiting for body.
+			response.writeHead(200, { 'content-type': 'text/event-stream' });
+			response.flushHeaders();
+			// Keep the socket alive until the client closes it.
+			request.socket.on('close', () => {});
+			return;
+		}
+
+		// Auto-convert JSON chat completion responses to SSE when the client
+		// requests streaming (stream: true in the request body). This lets
+		// existing tests that provide plain JSON bodies work transparently after
+		// the phase-113 always-stream wire change. Tests that already supply a
+		// text/event-stream response are served as-is.
+		const effectiveResponse = maybeConvertToSse(fakeResponse, requestBody);
+
+		writeFakeResponse(response, effectiveResponse);
 
 		recordings.push({
 			startedAt,
@@ -25,8 +57,13 @@ export async function startFakeModelServer(options = {}) {
 			url: request.url,
 			requestHeaders: redactHeaders(request.headers),
 			requestBody,
-			responseStatus: fakeResponse.status || 200,
-			responseBody: fakeResponse.body,
+			responseStatus: effectiveResponse.status || 200,
+			// Record the original (pre-SSE-conversion) body so test assertions can
+			// inspect the structured response regardless of wire format.
+			responseBody:
+				effectiveResponse.originalBody !== undefined
+					? effectiveResponse.originalBody
+					: fakeResponse.body,
 		});
 	});
 
@@ -38,6 +75,80 @@ export async function startFakeModelServer(options = {}) {
 			return close(server);
 		},
 		recordings,
+	};
+}
+
+// Convert a plain chat.completion JSON response to SSE format when the
+// request body includes stream: true and the queued response does not
+// already carry text/event-stream headers. Only chat/completions POST
+// bodies are converted; other endpoints (e.g. /models GET) are left alone.
+function maybeConvertToSse(fakeResponse, requestBody) {
+	// Already streaming content — leave it alone.
+	if (
+		fakeResponse.headers?.['content-type']?.includes('text/event-stream') ||
+		typeof fakeResponse.body === 'string'
+	) {
+		return fakeResponse;
+	}
+
+	// Only auto-convert when the request body asked for streaming.
+	if (!requestBody || requestBody.stream !== true) {
+		return fakeResponse;
+	}
+
+	const body = fakeResponse.body;
+	// Only convert objects that look like a chat.completion response.
+	if (
+		typeof body !== 'object' ||
+		body === null ||
+		!Array.isArray(body.choices)
+	) {
+		return fakeResponse;
+	}
+
+	// Build SSE events from the choices array.
+	const events = [];
+	const id = body.id || 'chatcmpl_fake';
+	const usage = body.usage || null;
+
+	for (const choice of body.choices) {
+		const delta = {};
+		const msg = choice.message || {};
+		if (msg.content != null) {
+			delta.content = msg.content;
+		}
+		if (Array.isArray(msg.tool_calls)) {
+			delta.tool_calls = msg.tool_calls.map((tc, index) => ({
+				...tc,
+				index,
+			}));
+		}
+		const chunk = {
+			id,
+			choices: [
+				{
+					delta,
+					finish_reason: choice.finish_reason || null,
+				},
+			],
+			object: 'chat.completion.chunk',
+		};
+		events.push(`data: ${JSON.stringify(chunk)}`);
+	}
+
+	// Append usage chunk if present.
+	if (usage) {
+		events.push(`data: ${JSON.stringify({ choices: [], usage })}`);
+	}
+
+	events.push('data: [DONE]');
+	const sseBody = `${events.join('\n\n')}\n\n`;
+
+	return {
+		body: sseBody,
+		headers: { 'content-type': 'text/event-stream' },
+		originalBody: body,
+		status: fakeResponse.status || 200,
 	};
 }
 
@@ -96,6 +207,9 @@ function takeQueuedResponse(responseQueue, request) {
 	}
 
 	const [entry] = responseQueue.splice(index, 1);
+	if (entry.stall) {
+		return { stall: true };
+	}
 	return {
 		body: entry.body,
 		headers: entry.headers,

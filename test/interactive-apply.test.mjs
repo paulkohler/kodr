@@ -59,9 +59,10 @@ function singleFileProposal() {
 	});
 }
 
-// Base args used in all TTY run tests. --no-stream avoids SSE which the fake
-// model server does not speak; the TTY flags on io are what trigger the prompt.
-const BASE_ARGS = ['--timeout-ms', '5000', '--no-stream'];
+// Base args used in all TTY run tests. --wire-no-stream makes the fake model
+// server respond with plain JSON (no SSE); --no-stream suppresses display
+// rendering. The TTY flags on io are what trigger the interactive apply prompt.
+const BASE_ARGS = ['--timeout-ms', '5000', '--wire-no-stream', '--no-stream'];
 
 describe('interactive apply prompt', () => {
 	it('_dryRunSet is false by default and true only with --dry-run', () => {

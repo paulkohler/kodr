@@ -3,6 +3,7 @@ import {
 	createChatCompletion,
 	firstAssistantMessage,
 	firstFinishReason,
+	summarizeTransportFacts,
 } from './model-client.mjs';
 import { applyResponseFormat } from './structured-output.mjs';
 import { renderHookStopFeedback } from './command-hooks.mjs';
@@ -42,6 +43,8 @@ export async function completeWithContinuations(
 				{ content: prompt, role: 'user' },
 			];
 
+	const transportFacts = [];
+
 	while (true) {
 		budget.beforeTurn();
 		const chatResponse = await createChatCompletion(
@@ -55,6 +58,9 @@ export async function completeWithContinuations(
 				options,
 			),
 		);
+		if (chatResponse.transport) {
+			transportFacts.push(chatResponse.transport);
+		}
 		budget.recordUsage(
 			normalizeModelUsage(options.provider, chatResponse.body?.usage, {
 				maxCostUsd: options.maxCostUsd,
@@ -104,6 +110,7 @@ export async function completeWithContinuations(
 				messages,
 				responses,
 				text,
+				transport: summarizeTransportFacts(transportFacts),
 			};
 		}
 

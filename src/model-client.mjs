@@ -10,6 +10,38 @@ export class ModelClientError extends Error {
 	}
 }
 
+// Thrown when no SSE data arrives within firstTokenTimeoutMs. Callers may
+// catch this specifically to retry exactly once (T3).
+export class FirstTokenTimeoutError extends Error {
+	constructor(timeoutMs) {
+		const secs = Math.round(timeoutMs / 1000);
+		super(
+			`no first token after ${secs}s (server stalled?) — ` +
+				`retry will follow; use --first-token-timeout-ms to adjust`,
+		);
+		this.name = 'FirstTokenTimeoutError';
+		this.timeoutMs = timeoutMs;
+	}
+}
+
+// Default first-token deadline. Overridden via model profile or CLI flag.
+export const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 120000;
+
+// Aggregate per-turn transport facts into a run-level summary.
+// facts: Array<{ wire, timeToFirstTokenMs, firstTokenRetries }>
+export function summarizeTransportFacts(facts) {
+	if (!Array.isArray(facts) || facts.length === 0) {
+		return null;
+	}
+	const ttfts = facts.map((f) => f.timeToFirstTokenMs).filter((v) => v != null);
+	const retries = facts.reduce((sum, f) => sum + (f.firstTokenRetries || 0), 0);
+	return {
+		firstTokenRetries: retries,
+		timeToFirstTokenMs: ttfts.length > 0 ? ttfts : null,
+		wire: facts[0]?.wire || 'unknown',
+	};
+}
+
 export async function listModels(options) {
 	return requestJson(`${options.baseUrl}/models`, {
 		apiKey: options.apiKey,
@@ -19,32 +51,72 @@ export async function listModels(options) {
 	});
 }
 
+// createChatCompletion always uses the SSE streaming wire format so the
+// request returns a first token quickly (LM Studio non-streaming hangs).
+// options.stream / options.wireNoStream control:
+//   - options.wireNoStream === true  → non-streaming wire (escape hatch for
+//     debugging servers that can't stream; never chosen automatically)
+//   - options.stream (true/false/'auto') → display rendering only; does not
+//     affect the wire protocol
+// Returns { body, status, url, transport } where transport carries TTFT facts.
 export async function createChatCompletion(options, body) {
 	const requestBody = buildChatRequestBody(options, body);
-	if (options.stream) {
-		return requestStreamJson(`${options.baseUrl}/chat/completions`, {
+
+	// Explicit escape hatch for debugging: --wire-no-stream flag only.
+	if (options.wireNoStream) {
+		return requestJson(`${options.baseUrl}/chat/completions`, {
 			apiKey: options.apiKey,
-			body: {
-				...requestBody,
-				stream: true,
-				// Ask the server to emit a final usage chunk so streamed runs can
-				// still enforce token and cost budgets.
-				stream_options: { include_usage: true },
-			},
+			body: requestBody,
 			extraHeaders: options.extraHeaders,
 			method: 'POST',
-			onStreamContent: options.onStreamContent,
 			timeoutMs: options.timeoutMs,
 		});
 	}
 
-	return requestJson(`${options.baseUrl}/chat/completions`, {
+	const firstTokenTimeoutMs =
+		options.firstTokenTimeoutMs != null && options.firstTokenTimeoutMs !== ''
+			? Number(options.firstTokenTimeoutMs)
+			: DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
+
+	const url = `${options.baseUrl}/chat/completions`;
+	const streamOpts = {
 		apiKey: options.apiKey,
-		body: requestBody,
+		body: {
+			...requestBody,
+			stream: true,
+			// Ask the server to emit a final usage chunk so streamed runs can
+			// still enforce token and cost budgets.
+			stream_options: { include_usage: true },
+		},
 		extraHeaders: options.extraHeaders,
+		firstTokenTimeoutMs,
 		method: 'POST',
+		onStreamContent: options.onStreamContent,
 		timeoutMs: options.timeoutMs,
-	});
+	};
+
+	let result;
+	try {
+		result = await requestStreamJson(url, streamOpts);
+	} catch (error) {
+		if (error instanceof FirstTokenTimeoutError) {
+			// T3: exactly one automatic retry on first-token timeout.
+			if (options.onFirstTokenRetry) {
+				options.onFirstTokenRetry(error);
+			}
+			const retryResult = await requestStreamJson(url, streamOpts);
+			return {
+				...retryResult,
+				transport: {
+					...(retryResult.transport || {}),
+					firstTokenRetries: 1,
+				},
+			};
+		}
+		throw error;
+	}
+
+	return result;
 }
 
 export function buildChatRequestBody(options, body) {
@@ -112,11 +184,15 @@ export function isLocalCostFreeModel(options = {}, model = '') {
 
 async function requestStreamJson(url, options) {
 	const response = await requestRaw(url, options);
+	const startedAt = Date.now();
 	const content = await readServerSentEvents(
 		response,
 		`${options.method} ${url}`,
 		options.onStreamContent,
+		options.firstTokenTimeoutMs,
 	);
+
+	const timeToFirstTokenMs = content.timeToFirstTokenMs;
 
 	const message = {
 		content: content.text,
@@ -147,6 +223,11 @@ async function requestStreamJson(url, options) {
 	return {
 		body,
 		status: response.status,
+		transport: {
+			firstTokenRetries: 0,
+			timeToFirstTokenMs: timeToFirstTokenMs ?? null,
+			wire: 'stream',
+		},
 		url,
 	};
 }
@@ -209,6 +290,7 @@ async function requestJson(url, options) {
 			url,
 		}),
 		status: response.status,
+		transport: { firstTokenRetries: 0, timeToFirstTokenMs: null, wire: 'none' },
 		url,
 	};
 }
@@ -370,7 +452,15 @@ function parseJson(text, label, details = {}) {
 	}
 }
 
-async function readServerSentEvents(response, label, onStreamContent) {
+// readServerSentEvents reads an SSE response stream, optionally applying a
+// first-token deadline. If firstTokenTimeoutMs is set and no data chunk
+// arrives within that time, throws FirstTokenTimeoutError.
+async function readServerSentEvents(
+	response,
+	label,
+	onStreamContent,
+	firstTokenTimeoutMs,
+) {
 	const reader = response.body?.getReader();
 	if (!reader) {
 		throw new ModelClientError(`${label} returned no stream body`);
@@ -386,6 +476,9 @@ async function readServerSentEvents(response, label, onStreamContent) {
 		usage: null,
 	};
 	let buffer = '';
+	let firstTokenMs = null; // ms since readServerSentEvents was called
+	const readStart = Date.now();
+	let firstChunkSeen = false;
 
 	const consume = (event) => {
 		const dataLines = event
@@ -400,21 +493,77 @@ async function readServerSentEvents(response, label, onStreamContent) {
 		}
 	};
 
+	// Deadline tracking: we only consider the first-token deadline satisfied when
+	// a chunk with actual bytes arrives (or the stream ends). Empty zero-byte
+	// reads can arrive as a side-effect of header flushing on some Node.js
+	// versions and must not suppress the deadline.
+	const firstTokenDeadlineMs =
+		firstTokenTimeoutMs != null ? Date.now() + firstTokenTimeoutMs : null;
+
 	while (true) {
 		let done;
 		let value;
-		try {
-			({ done, value } = await reader.read());
-		} catch (error) {
-			throw new ModelClientError(
-				`${label} stream read failed: ${error.message}`,
-				{
-					cause: error,
-					phase: 'stream-read',
-					status: response.status,
-				},
-			);
+
+		if (!firstChunkSeen && firstTokenDeadlineMs !== null) {
+			// Apply first-token deadline as a race between the next read and a
+			// timeout measured from the deadline established before the loop.
+			const remaining = firstTokenDeadlineMs - Date.now();
+			if (remaining <= 0) {
+				reader.cancel().catch(() => {});
+				throw new FirstTokenTimeoutError(firstTokenTimeoutMs);
+			}
+			let timeoutId;
+			const readPromise = reader.read();
+			const timeoutPromise = new Promise((_resolve, reject) => {
+				timeoutId = setTimeout(() => {
+					reject(new FirstTokenTimeoutError(firstTokenTimeoutMs));
+				}, remaining);
+				// Do not unref this timer — it must fire even if I/O is the only
+				// other pending work (test environments with a stalled server).
+			});
+			let chunk;
+			try {
+				chunk = await Promise.race([readPromise, timeoutPromise]);
+			} catch (error) {
+				if (error instanceof FirstTokenTimeoutError) {
+					reader.cancel().catch(() => {});
+					throw error;
+				}
+				throw new ModelClientError(
+					`${label} stream read failed: ${error.message}`,
+					{
+						cause: error,
+						phase: 'stream-read',
+						status: response.status,
+					},
+				);
+			} finally {
+				clearTimeout(timeoutId);
+			}
+			done = chunk.done;
+			value = chunk.value;
+		} else {
+			try {
+				({ done, value } = await reader.read());
+			} catch (error) {
+				throw new ModelClientError(
+					`${label} stream read failed: ${error.message}`,
+					{
+						cause: error,
+						phase: 'stream-read',
+						status: response.status,
+					},
+				);
+			}
 		}
+
+		// Only count non-empty chunks as "first token" — empty reads can occur
+		// as a side-effect of header flushing and must not suppress the deadline.
+		if (!firstChunkSeen && (done || (value && value.length > 0))) {
+			firstChunkSeen = true;
+			firstTokenMs = Date.now() - readStart;
+		}
+
 		buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
 		const events = buffer.split('\n\n');
 		buffer = events.pop() || '';
@@ -427,7 +576,10 @@ async function readServerSentEvents(response, label, onStreamContent) {
 			if (buffer.trim()) {
 				consume(buffer);
 			}
-			return finalizeStreamState(state);
+			return {
+				...finalizeStreamState(state),
+				timeToFirstTokenMs: firstTokenMs,
+			};
 		}
 	}
 }

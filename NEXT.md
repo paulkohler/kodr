@@ -22,19 +22,6 @@ These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
-### Stream-First Transport (top round-3 candidate)
-
-Round 3 root-caused every zero-byte 600s stall: the identical request body
-streams first tokens instantly but hangs indefinitely non-streaming on LM
-Studio. kodr couples the wire protocol to display — `stream: 'auto'` resolves
-to `stdout.isTTY && !json` — so every redirected, piped, served, watched, or
-subagent-driven run sends the fragile non-streaming request. Fix: always
-stream on the wire (the SSE parser is already complete and requests
-include_usage); TTY decides only display rendering. Fold in the first-token
-deadline from phase 112's finding (fail fast at 60–120s of zero bytes; a
-cheap retry succeeded immediately every time). Evidence:
-`process/failures.jsonl` phases 112 and 113-dogfood.
-
 ### Heal Task Anchoring (anti goal-substitution)
 
 Round 3's worst failure mode: a run reported ok/healed while the requested

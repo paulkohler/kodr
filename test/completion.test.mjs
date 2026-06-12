@@ -4,41 +4,52 @@ import { completeWithContinuations } from '../src/completion.mjs';
 import { createHooks } from '../src/hooks.mjs';
 import { startFakeModelServer } from '../test-support/fake-model-server.mjs';
 
+// Build a Server-Sent Events body from a list of chunk objects.
+function sse(chunks) {
+	const events = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}`);
+	events.push('data: [DONE]');
+	return `${events.join('\n\n')}\n\n`;
+}
+
+function streamResponse(body) {
+	return {
+		method: 'POST',
+		url: '/v1/chat/completions',
+		status: 200,
+		headers: { 'content-type': 'text/event-stream' },
+		body,
+	};
+}
+
 describe('completeWithContinuations', () => {
 	it('replaces blocked stop responses instead of concatenating them', async () => {
 		let stopCalls = 0;
 		const server = await startFakeModelServer({
 			responses: [
-				{
-					body: {
-						choices: [
-							{
-								finish_reason: 'stop',
-								message: { content: 'Blocked answer.', role: 'assistant' },
-							},
-						],
-						id: 'chatcmpl_blocked',
-						object: 'chat.completion',
-					},
-					method: 'POST',
-					status: 200,
-					url: '/v1/chat/completions',
-				},
-				{
-					body: {
-						choices: [
-							{
-								finish_reason: 'stop',
-								message: { content: 'Corrected answer.', role: 'assistant' },
-							},
-						],
-						id: 'chatcmpl_corrected',
-						object: 'chat.completion',
-					},
-					method: 'POST',
-					status: 200,
-					url: '/v1/chat/completions',
-				},
+				streamResponse(
+					sse([
+						{
+							choices: [
+								{
+									delta: { content: 'Blocked answer.' },
+									finish_reason: 'stop',
+								},
+							],
+						},
+					]),
+				),
+				streamResponse(
+					sse([
+						{
+							choices: [
+								{
+									delta: { content: 'Corrected answer.' },
+									finish_reason: 'stop',
+								},
+							],
+						},
+					]),
+				),
 			],
 		});
 
@@ -61,7 +72,6 @@ describe('completeWithContinuations', () => {
 					maxRetries: 7,
 					maxTokens: '',
 					maxTurns: 8,
-					stream: false,
 					timeoutMs: 5000,
 				},
 				'test-model',

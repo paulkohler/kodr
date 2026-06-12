@@ -8,6 +8,7 @@ import { loadRoutingTableSync } from './bench.mjs';
 export const DEFAULT_CONTEXT_WINDOW = 32768;
 export const DEFAULT_COMPLETION_RESERVE = 4096;
 export const DEFAULT_TIMEOUT_MS = 600000;
+export const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 120000;
 
 // Valid structuredOutput modes. 'json_object' is excluded for LM Studio profiles
 // (the server returns HTTP 400 — only 'json_schema' or 'text' are accepted).
@@ -27,6 +28,7 @@ const DEFAULT_PROFILES = [
 		baseUrl: LMSTUDIO_BASE_URL,
 		completionReserve: 4096,
 		contextWindow: 32768,
+		firstTokenTimeoutMs: 120000,
 		id: 'qwen/qwen3.6-35b-a3b',
 		nativeToolCalls: true,
 		provider: 'local',
@@ -38,6 +40,7 @@ const DEFAULT_PROFILES = [
 		baseUrl: LMSTUDIO_BASE_URL,
 		completionReserve: 4096,
 		contextWindow: 32768,
+		firstTokenTimeoutMs: 120000,
 		id: 'qwen/qwen3.6-35b-a3b',
 		nativeToolCalls: true,
 		provider: 'lmstudio',
@@ -49,6 +52,7 @@ const DEFAULT_PROFILES = [
 		baseUrl: LMSTUDIO_BASE_URL,
 		completionReserve: 4096,
 		contextWindow: 65536,
+		firstTokenTimeoutMs: 120000,
 		id: 'nvidia/nemotron-3-nano-omni',
 		nativeToolCalls: true,
 		provider: 'local',
@@ -60,6 +64,7 @@ const DEFAULT_PROFILES = [
 		baseUrl: LMSTUDIO_BASE_URL,
 		completionReserve: 4096,
 		contextWindow: 65536,
+		firstTokenTimeoutMs: 120000,
 		id: 'nvidia/nemotron-3-nano-omni',
 		nativeToolCalls: true,
 		provider: 'lmstudio',
@@ -71,6 +76,7 @@ const DEFAULT_PROFILES = [
 		baseUrl: OLLAMA_BASE_URL,
 		completionReserve: 2048,
 		contextWindow: 32768,
+		firstTokenTimeoutMs: 120000,
 		id: '*',
 		nativeToolCalls: true,
 		provider: 'ollama',
@@ -82,6 +88,7 @@ const DEFAULT_PROFILES = [
 		baseUrl: OPENROUTER_BASE_URL,
 		completionReserve: 8192,
 		contextWindow: 128000,
+		firstTokenTimeoutMs: 120000,
 		id: '*',
 		nativeToolCalls: true,
 		provider: 'openrouter',
@@ -159,6 +166,9 @@ export function applyModelProfileDefaults(
 	if (!options._timeoutSet) {
 		next.timeoutMs = profile.timeoutMs;
 	}
+	if (!options._firstTokenTimeoutSet) {
+		next.firstTokenTimeoutMs = profile.firstTokenTimeoutMs;
+	}
 	if (!options._editFormatSet) {
 		next.editFormat = profile.editFormat;
 	}
@@ -217,6 +227,10 @@ function normalizeProfile(profile, source) {
 			DEFAULT_CONTEXT_WINDOW,
 		),
 		editFormat: normalizeEditFormat(profile.editFormat),
+		firstTokenTimeoutMs: positiveInteger(
+			profile.firstTokenTimeoutMs,
+			DEFAULT_FIRST_TOKEN_TIMEOUT_MS,
+		),
 		id,
 		nativeToolCalls: profile.nativeToolCalls !== false,
 		provider,
@@ -306,6 +320,7 @@ function serializeProfile(profile) {
 		configPath: profile.configPath,
 		contextWindow: profile.contextWindow,
 		editFormat: profile.editFormat,
+		firstTokenTimeoutMs: profile.firstTokenTimeoutMs,
 		id: profile.id,
 		key: profile.key,
 		matched: profile.matched,

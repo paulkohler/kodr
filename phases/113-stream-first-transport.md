@@ -90,15 +90,15 @@ timeout.
 
 ## Done criteria
 
-- [ ] T1: wire always streams; TTY/`--json` affect display only;
+- [x] T1: wire always streams; TTY/`--json` affect display only;
       `--wire-no-stream` is the only path to a non-streaming request.
-- [ ] T2: first-token deadline with profile/flag override and distinct error.
-- [ ] T3: exactly one automatic retry on first-token timeout, recorded.
-- [ ] T4: TTFT + retry count in summary and `kodr why`.
-- [ ] Fake-server stall tests pass; wire-protocol assertions pass.
-- [ ] `process/failures.jsonl` / `process/decisions.jsonl` updated.
-- [ ] Blog post `blog/113-stream-first-transport.md`.
-- [ ] NEXT.md entries shipped by this phase deleted (FIFO).
-- [ ] Version bumped to 0.0.113; suite green; committed.
+- [x] T2: first-token deadline with profile/flag override and distinct error.
+- [x] T3: exactly one automatic retry on first-token timeout, recorded.
+- [x] T4: TTFT + retry count in summary and `kodr why`.
+- [x] Fake-server stall tests pass; wire-protocol assertions pass.
+- [x] `process/failures.jsonl` / `process/decisions.jsonl` updated.
+- [x] Blog post `blog/113-stream-first-transport.md`.
+- [x] NEXT.md entries shipped by this phase deleted (FIFO).
+- [x] Version bumped to 0.0.113; suite green; committed.
 - [ ] Live two-model validation green (run after the phase commit; findings
       recorded).

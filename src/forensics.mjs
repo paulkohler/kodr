@@ -126,11 +126,28 @@ export function buildCausalStory(analysis) {
 			summary.ok === false && (summary.responseCount ?? 0) === 0;
 		const modelCallFailed = isModelLoopError || noResponses;
 
+		const transport = summary.transport || null;
+		const ttftParts = [];
+		if (transport) {
+			const ttfts = transport.timeToFirstTokenMs;
+			if (Array.isArray(ttfts) && ttfts.length > 0) {
+				const avg = Math.round(ttfts.reduce((s, v) => s + v, 0) / ttfts.length);
+				ttftParts.push(`first token after ${(avg / 1000).toFixed(1)}s`);
+			}
+			if (transport.firstTokenRetries > 0) {
+				ttftParts.push(
+					`${transport.firstTokenRetries} stall retr${transport.firstTokenRetries === 1 ? 'y' : 'ies'}`,
+				);
+			}
+		}
+		const transportSuffix =
+			ttftParts.length > 0 ? ` (${ttftParts.join('; ')})` : '';
+
 		steps.push({
 			artifactPath: join(runDir, 'summary.json'),
 			detail: modelCallFailed
 				? `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} error=${errorJson?.message || 'no responses recorded'}`
-				: `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} finishReasons=[${finishReasons}]`,
+				: `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} finishReasons=[${finishReasons}]${transportSuffix}`,
 			phase: 'Model Call',
 			status: modelCallFailed ? 'fail' : 'ok',
 		});

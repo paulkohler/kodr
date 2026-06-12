@@ -3,6 +3,7 @@ import { inspectWorkspace, findReferences } from './repomap/index.mjs';
 import {
 	createChatCompletion,
 	firstAssistantMessage,
+	summarizeTransportFacts,
 } from './model-client.mjs';
 import { HookBlockedError } from './hooks.mjs';
 import { createLoopBudget, LoopBudgetError } from './loop-budgets.mjs';
@@ -138,6 +139,7 @@ export async function completeWithToolCalls(
 	const apiTools = registry.toApiTools();
 	const responses = [];
 	const finishReasons = [];
+	const transportFacts = [];
 	const messages = initialMessages
 		? [...initialMessages]
 		: [
@@ -163,7 +165,14 @@ export async function completeWithToolCalls(
 			if (error instanceof LoopBudgetError) {
 				const lastText = lastAssistantText(messages);
 				budget.stop('turn_budget_exhausted');
-				return result(finishReasons, budget, responses, messages, lastText);
+				return result(
+					finishReasons,
+					budget,
+					responses,
+					messages,
+					lastText,
+					transportFacts,
+				);
 			}
 			throw error;
 		}
@@ -194,6 +203,9 @@ export async function completeWithToolCalls(
 		);
 
 		const chatResponse = await createChatCompletion(options, requestBody);
+		if (chatResponse.transport) {
+			transportFacts.push(chatResponse.transport);
+		}
 		budget.recordUsage(
 			normalizeModelUsage(options.provider, chatResponse.body?.usage, {
 				maxCostUsd: options.maxCostUsd,
@@ -220,7 +232,14 @@ export async function completeWithToolCalls(
 			if (toolCalls.length === 0) {
 				// Model signalled tool_calls but provided none — treat as stop.
 				budget.stop('finish_no_tool_calls');
-				return result(finishReasons, budget, responses, messages, '');
+				return result(
+					finishReasons,
+					budget,
+					responses,
+					messages,
+					'',
+					transportFacts,
+				);
 			}
 
 			// Dispatch each call and append a tool result message.
@@ -378,7 +397,14 @@ export async function completeWithToolCalls(
 			throw error;
 		}
 		budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
-		return result(finishReasons, budget, responses, messages, text);
+		return result(
+			finishReasons,
+			budget,
+			responses,
+			messages,
+			text,
+			transportFacts,
+		);
 	}
 }
 
@@ -624,12 +650,20 @@ export async function safeCompleteWithToolCalls(...args) {
 	}
 }
 
-function result(finishReasons, budget, responses, messages, text) {
+function result(
+	finishReasons,
+	budget,
+	responses,
+	messages,
+	text,
+	transportFacts = [],
+) {
 	return {
 		finishReasons,
 		loopBudget: budget.snapshot(),
 		messages,
 		responses,
 		text,
+		transport: summarizeTransportFacts(transportFacts),
 	};
 }

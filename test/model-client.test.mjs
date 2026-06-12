@@ -5,6 +5,7 @@ import {
 	buildChatRequestBody,
 	createChatCompletion,
 	firstAssistantMessage,
+	FirstTokenTimeoutError,
 	isOllamaCloudModel,
 	ModelClientError,
 	shouldUseAnthropicRootCacheControl,
@@ -137,23 +138,14 @@ describe('prompt cache request shaping', () => {
 
 describe('createChatCompletion streaming', () => {
 	it('passes opt-in thinking-token caps through request bodies', async () => {
+		// Wire always uses SSE now; provide an SSE response.
 		const server = await startFakeModelServer({
 			responses: [
-				{
-					method: 'POST',
-					url: '/v1/chat/completions',
-					status: 200,
-					body: {
-						choices: [
-							{
-								message: { content: 'ok', role: 'assistant' },
-								finish_reason: 'stop',
-							},
-						],
-						id: 'chatcmpl_thinking',
-						object: 'chat.completion',
-					},
-				},
+				streamResponse(
+					sse([
+						{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] },
+					]),
+				),
 			],
 		});
 
@@ -178,23 +170,14 @@ describe('createChatCompletion streaming', () => {
 	});
 
 	it('sends root cache control on Anthropic remote requests', async () => {
+		// Wire always uses SSE now; provide an SSE response.
 		const server = await startFakeModelServer({
 			responses: [
-				{
-					method: 'POST',
-					url: '/v1/chat/completions',
-					status: 200,
-					body: {
-						choices: [
-							{
-								message: { content: 'ok', role: 'assistant' },
-								finish_reason: 'stop',
-							},
-						],
-						id: 'chatcmpl_cache',
-						object: 'chat.completion',
-					},
-				},
+				streamResponse(
+					sse([
+						{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] },
+					]),
+				),
 			],
 		});
 
@@ -385,13 +368,13 @@ describe('createChatCompletion errors', () => {
 			server.close((error) => (error ? reject(error) : resolve()));
 		});
 
+		// Connection fails before any data is sent — works regardless of wire mode.
 		await assert.rejects(
 			() =>
 				createChatCompletion(
 					{
 						baseUrl: `http://127.0.0.1:${port}/v1`,
 						extraHeaders: {},
-						stream: false,
 						timeoutMs: 1000,
 					},
 					{
@@ -411,7 +394,8 @@ describe('createChatCompletion errors', () => {
 		);
 	});
 
-	it('waits for slow response headers within the configured timeout', async () => {
+	it('waits for slow response headers within the configured timeout (wireNoStream)', async () => {
+		// This test exercises the --wire-no-stream escape hatch with a non-SSE server.
 		const server = createServer((request, response) => {
 			request.resume();
 			setTimeout(() => {
@@ -436,7 +420,7 @@ describe('createChatCompletion errors', () => {
 				{
 					baseUrl: `http://127.0.0.1:${port}/v1`,
 					extraHeaders: {},
-					stream: false,
+					wireNoStream: true,
 					timeoutMs: 1000,
 				},
 				{
@@ -454,6 +438,9 @@ describe('createChatCompletion errors', () => {
 	});
 
 	it('enforces the configured request timeout while waiting for headers', async () => {
+		// Server holds connection open — overall timeoutMs fires regardless of
+		// wire mode. The first-token deadline fires first if set lower; use a
+		// large firstTokenTimeoutMs so the overall timeout fires instead.
 		const server = createServer((request) => {
 			request.resume();
 		});
@@ -467,7 +454,7 @@ describe('createChatCompletion errors', () => {
 						{
 							baseUrl: `http://127.0.0.1:${port}/v1`,
 							extraHeaders: {},
-							stream: false,
+							firstTokenTimeoutMs: 5000,
 							timeoutMs: 25,
 						},
 						{
@@ -486,6 +473,232 @@ describe('createChatCompletion errors', () => {
 			await new Promise((resolve, reject) => {
 				server.close((error) => (error ? reject(error) : resolve()));
 			});
+		}
+	});
+});
+
+// T1: wire always streams
+describe('stream-first transport (T1)', () => {
+	it('always sends stream:true on the wire regardless of options.stream', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				streamResponse(
+					sse([
+						{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] },
+					]),
+				),
+			],
+		});
+
+		try {
+			await createChatCompletion(
+				{
+					baseUrl: server.baseUrl,
+					extraHeaders: {},
+					// stream controls display only; wire must still be stream:true
+					stream: false,
+					timeoutMs: 5000,
+				},
+				{
+					messages: [{ role: 'user', content: 'hi' }],
+					model: 'test-model',
+				},
+			);
+
+			assert.equal(server.recordings[0].requestBody.stream, true);
+			assert.deepEqual(server.recordings[0].requestBody.stream_options, {
+				include_usage: true,
+			});
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('sends stream:false only with wireNoStream flag', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					status: 200,
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'ok', role: 'assistant' },
+							},
+						],
+					},
+				},
+			],
+		});
+
+		try {
+			await createChatCompletion(
+				{
+					baseUrl: server.baseUrl,
+					extraHeaders: {},
+					wireNoStream: true,
+					timeoutMs: 5000,
+				},
+				{
+					messages: [{ role: 'user', content: 'hi' }],
+					model: 'test-model',
+				},
+			);
+
+			// wireNoStream path does not inject stream: true
+			assert.equal(server.recordings[0].requestBody.stream, undefined);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('returns transport metadata with wire:stream', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				streamResponse(
+					sse([
+						{ choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }] },
+					]),
+				),
+			],
+		});
+
+		try {
+			const response = await createChatCompletion(
+				{ baseUrl: server.baseUrl, extraHeaders: {}, timeoutMs: 5000 },
+				{ messages: [{ role: 'user', content: 'hi' }], model: 'test-model' },
+			);
+
+			assert.equal(response.transport.wire, 'stream');
+			assert.equal(typeof response.transport.timeToFirstTokenMs, 'number');
+			assert.equal(response.transport.firstTokenRetries, 0);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+// T2: first-token deadline
+describe('first-token deadline (T2)', () => {
+	// Two consecutive stalls: first triggers retry, second fails the run.
+	it('throws FirstTokenTimeoutError after two consecutive stalls', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{ method: 'POST', url: '/v1/chat/completions', stall: true },
+				{ method: 'POST', url: '/v1/chat/completions', stall: true },
+			],
+		});
+
+		try {
+			await assert.rejects(
+				() =>
+					createChatCompletion(
+						{
+							baseUrl: server.baseUrl,
+							extraHeaders: {},
+							firstTokenTimeoutMs: 40,
+							timeoutMs: 5000,
+						},
+						{
+							messages: [{ role: 'user', content: 'hi' }],
+							model: 'test-model',
+						},
+					),
+				(error) => {
+					assert.equal(error instanceof FirstTokenTimeoutError, true);
+					assert.equal(error.timeoutMs, 40);
+					assert.match(error.message, /no first token after/u);
+					return true;
+				},
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+// T3: automatic single retry
+describe('first-token retry (T3)', () => {
+	it('retries exactly once on stall then succeeds', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				// First request stalls
+				{ method: 'POST', url: '/v1/chat/completions', stall: true },
+				// Retry succeeds
+				streamResponse(
+					sse([
+						{
+							choices: [
+								{ delta: { content: 'retry ok' }, finish_reason: 'stop' },
+							],
+						},
+					]),
+				),
+			],
+		});
+
+		const retries = [];
+		try {
+			const response = await createChatCompletion(
+				{
+					baseUrl: server.baseUrl,
+					extraHeaders: {},
+					firstTokenTimeoutMs: 40,
+					timeoutMs: 5000,
+					onFirstTokenRetry(error) {
+						retries.push(error.timeoutMs);
+					},
+				},
+				{
+					messages: [{ role: 'user', content: 'hi' }],
+					model: 'test-model',
+				},
+			);
+
+			assert.equal(response.body.choices[0].message.content, 'retry ok');
+			assert.equal(retries.length, 1);
+			assert.equal(response.transport.firstTokenRetries, 1);
+			// Two recordings: stall + successful retry
+			assert.equal(server.recordings.length, 2);
+			assert.equal(server.recordings[0].stalled, true);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('fails with FirstTokenTimeoutError on second stall', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{ method: 'POST', url: '/v1/chat/completions', stall: true },
+				{ method: 'POST', url: '/v1/chat/completions', stall: true },
+			],
+		});
+
+		try {
+			await assert.rejects(
+				() =>
+					createChatCompletion(
+						{
+							baseUrl: server.baseUrl,
+							extraHeaders: {},
+							firstTokenTimeoutMs: 40,
+							timeoutMs: 5000,
+						},
+						{
+							messages: [{ role: 'user', content: 'hi' }],
+							model: 'test-model',
+						},
+					),
+				(error) => {
+					// The second stall also throws FirstTokenTimeoutError
+					assert.equal(error instanceof FirstTokenTimeoutError, true);
+					return true;
+				},
+			);
+		} finally {
+			await server.close();
 		}
 	});
 });

@@ -3022,27 +3022,9 @@ describe('run', () => {
 		}
 	});
 
-	// Phase 97: stream auto-resolution
-	it('stream is off for non-TTY runs (default auto)', async () => {
-		const server = await startFakeModelServer({
-			responses: [
-				{
-					body: {
-						choices: [
-							{
-								finish_reason: 'stop',
-								message: { content: 'answer', role: 'assistant' },
-							},
-						],
-						id: 'chatcmpl_nostream',
-						object: 'chat.completion',
-					},
-					method: 'POST',
-					status: 200,
-					url: '/v1/chat/completions',
-				},
-			],
-		});
+	// Phase 97: stream auto-resolution; Phase 113: wire always streams
+	it('wire always sends stream:true regardless of TTY/--no-stream (phase 113)', async () => {
+		const server = await startFakeModelServer();
 
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'kodr-nostream-'));
@@ -3059,33 +3041,15 @@ describe('run', () => {
 				],
 				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
 			);
-			// non-TTY stdout → stream should be false → no SSE request
-			assert.equal(server.recordings[0].requestBody.stream, undefined);
+			// Phase 113: wire always streams; stream:true regardless of TTY state
+			assert.equal(server.recordings[0].requestBody.stream, true);
 		} finally {
 			await server.close();
 		}
 	});
 
-	it('--no-stream forces streaming off', async () => {
-		const server = await startFakeModelServer({
-			responses: [
-				{
-					body: {
-						choices: [
-							{
-								finish_reason: 'stop',
-								message: { content: 'answer', role: 'assistant' },
-							},
-						],
-						id: 'chatcmpl_forcenostream',
-						object: 'chat.completion',
-					},
-					method: 'POST',
-					status: 200,
-					url: '/v1/chat/completions',
-				},
-			],
-		});
+	it('--no-stream affects display only; wire still sends stream:true', async () => {
+		const server = await startFakeModelServer();
 
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'kodr-forcenostream-'));
@@ -3103,6 +3067,33 @@ describe('run', () => {
 				],
 				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
 			);
+			// --no-stream is display-only; wire still uses stream:true
+			assert.equal(server.recordings[0].requestBody.stream, true);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('--wire-no-stream sends stream:false on the wire', async () => {
+		const server = await startFakeModelServer();
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-wirenostream-'));
+			await main(
+				[
+					'run',
+					'-p',
+					'task',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--no-tools',
+					'--wire-no-stream',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+			// --wire-no-stream explicitly disables SSE on the wire
 			assert.equal(server.recordings[0].requestBody.stream, undefined);
 		} finally {
 			await server.close();

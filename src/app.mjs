@@ -210,6 +210,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		showSkills: false,
 		skills: [],
 		stream: 'auto',
+		wireNoStream: false,
+		firstTokenTimeoutMs: '',
 		suitePath: '',
 		record: false,
 		evalCases: [],
@@ -262,6 +264,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		_modelEnvSet: Boolean(env.MODEL_ID),
 		_protectExistingSet: false,
 		_sessionContextSet: false,
+		_firstTokenTimeoutSet: false,
 		_streamSet: false,
 		_testCommandSet: false,
 		_testCwdSet: false,
@@ -365,6 +368,17 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		if (arg === '--no-stream') {
 			options.stream = false;
 			options._streamSet = true;
+			continue;
+		}
+
+		if (arg === '--wire-no-stream') {
+			options.wireNoStream = true;
+			continue;
+		}
+
+		if (arg === '--first-token-timeout-ms') {
+			options.firstTokenTimeoutMs = Number(argv[++index]);
+			options._firstTokenTimeoutSet = true;
 			continue;
 		}
 
@@ -869,7 +883,7 @@ Usage:
   kodr run -p "task" --yes --docker-sandbox [--docker-keep] [--test "npm test"]
   kodr run -p "task" --yes --openshell-sandbox [--openshell-keep] [--test "npm test"]
   kodr run --prompt-file prompt.md --openshell-worker --yes [--install] [--test "npm test"]
-  kodr run -p "task" [--no-tools] [--no-stream] [--no-heal] [--no-inspect-context]
+  kodr run -p "task" [--no-tools] [--no-stream] [--wire-no-stream] [--no-heal] [--no-inspect-context]
   kodr run -p "task" --tools --hooks [--hooks-config .kodr/hooks.json]
   kodr run -p "task" --yes --protect-existing
   kodr run -p "task" --tools --yes --staged
@@ -968,6 +982,12 @@ OpenRouter:
   --no-staged          Disable automatic staged execution.
   --subagent-stages    Run planner, implementer, and reviewer as isolated tool agents.
   --no-review          Skip the advisory reviewer stage in --subagent-stages runs.
+  --wire-no-stream     Disable SSE streaming on the wire (debug only — servers that
+                       cannot stream). Never chosen automatically; use --no-stream
+                       to suppress display rendering instead.
+  --first-token-timeout-ms N
+                       Abort and retry if no first SSE chunk arrives within N ms.
+                       Default: 120000 (120s). Also configurable per model profile.
   --repair-timeout-ms N  Per-turn repair model timeout. Default: min(--timeout-ms, 240000).
   --review-timeout-ms N  Reviewer model timeout. Default: min(--timeout-ms, ${DEFAULT_REVIEW_TIMEOUT_MS}).
   --install            Run controlled dependency install after applied writes.
@@ -1164,7 +1184,10 @@ function makeCliApplyApprover(io) {
 export async function main(argv, io) {
 	const options = parseArgs(argv, io.env, io.cwd || process.cwd());
 
-	// Resolve 'auto' stream: on for interactive TTY non-json runs, off otherwise.
+	// Resolve 'auto' stream: display rendering only — on for interactive TTY
+	// non-json runs, off otherwise. This does NOT affect the wire protocol;
+	// createChatCompletion always streams on the wire unless --wire-no-stream
+	// is passed explicitly.
 	if (options.stream === 'auto') {
 		options.stream = io.stdout.isTTY === true && !options.json;
 		if (options.configSources) {
@@ -2785,6 +2808,9 @@ export async function runPrompt(options, io) {
 			usage: usageFromBudget(completion.loopBudget),
 			workspaceFileCount: contextFileCount(context),
 		};
+		if (completion.transport) {
+			summary.transport = completion.transport;
+		}
 		if (inspectionPlan) {
 			summary.inspectionPlan = inspectionPlan.inspection;
 		}
@@ -3573,6 +3599,9 @@ async function runStagedPrompt({
 		workspaceFileCount: contextFileCount(context),
 		writeCount: writeResult.writes.length,
 	};
+	if (completion.transport) {
+		summary.transport = completion.transport;
+	}
 	if (writeError) {
 		summary.writeError = writeError;
 	}
