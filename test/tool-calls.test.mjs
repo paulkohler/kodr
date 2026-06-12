@@ -768,6 +768,343 @@ describe('completeWithToolCalls', () => {
 		}
 	});
 
+	// F1 tests
+	it('F1 steering: appends hint when run_command rejects non-allowlisted command', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-steering-'));
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_sed',
+											type: 'function',
+											function: {
+												name: 'run_command',
+												arguments: '{"command":"sed -i s/a/b/ file.js"}',
+											},
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: '{"files":[]}', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_2',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Fix the bug.',
+				'You are helpful.',
+				registry,
+			);
+
+			const toolMsg = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_sed',
+			);
+			assert.ok(toolMsg, 'tool result message should exist');
+			const parsed = JSON.parse(toolMsg.content);
+			assert.ok(
+				typeof parsed.hint === 'string' && parsed.hint.includes('files array'),
+				'hint should mention files array',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('F1 repeat-call: skips execution and returns synthetic result on duplicate call', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-repeat-'));
+		await writeFile(join(cwd, 'a.txt'), 'content', 'utf8');
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1: list_files
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_1',
+											type: 'function',
+											function: { name: 'list_files', arguments: '{}' },
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// Turn 2: same list_files again (repeat)
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_2',
+											type: 'function',
+											function: { name: 'list_files', arguments: '{}' },
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_2',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// Turn 3: final answer
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: '{"files":[]}', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_3',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'List files.',
+				'You are helpful.',
+				registry,
+			);
+
+			const repeatMsg = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_2',
+			);
+			assert.ok(repeatMsg, 'tool result for repeat call should exist');
+			const parsed = JSON.parse(repeatMsg.content);
+			assert.equal(parsed.repeat, true, 'repeat field should be true');
+			assert.ok(
+				typeof parsed.message === 'string',
+				'synthetic message should be present',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('F1 final-turn forcing: last turn omits tools and adds user message', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-final-turn-'));
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1 (final): model returns stop without tools
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: '{"files":[]}', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 1,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Do the work.',
+				'You are helpful.',
+				registry,
+			);
+
+			assert.equal(completion.text, '{"files":[]}');
+			// The request sent to the server must not include a tools array
+			const request = server.recordings[0].requestBody;
+			assert.equal(
+				Object.hasOwn(request, 'tools'),
+				false,
+				'final-turn request must not have tools',
+			);
+			// And the appended user message should mention the budget
+			const userMsg = request.messages.at(-1);
+			assert.equal(userMsg.role, 'user');
+			assert.ok(
+				userMsg.content.toLowerCase().includes('budget') ||
+					userMsg.content.toLowerCase().includes('exhausted'),
+				'user message should mention budget exhaustion',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// F2 test
+	it('F2 salvage: returns accumulated responses on LoopBudgetError instead of throwing', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-budget-'));
+		await writeFile(join(cwd, 'x.txt'), 'x', 'utf8');
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1: tool call
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_1',
+											type: 'function',
+											function: { name: 'list_files', arguments: '{}' },
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// Turn 2: another tool call (budget exhausted after this — maxTurns=2
+				// but we need maxTurns=1 with a tool call on turn 1 to exhaust it
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 1,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			// With maxTurns=1, the final-turn forcing kicks in for turn 1, so we
+			// need maxTurns=0 to trigger the beforeTurn LoopBudgetError path.
+			// Use maxTurns=0 which hits budget immediately.
+			const opts0 = { ...options, maxTurns: 0 };
+			const completion = await completeWithToolCalls(
+				opts0,
+				'test-model',
+				'Do work.',
+				'You are helpful.',
+				registry,
+			);
+
+			// Should return a result shape, not throw
+			assert.ok(completion, 'should return completion object');
+			assert.ok(Array.isArray(completion.responses));
+			assert.ok(Array.isArray(completion.finishReasons));
+			assert.ok(Array.isArray(completion.messages));
+			assert.ok(completion.loopBudget);
+			assert.equal(typeof completion.text, 'string');
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('feeds stop hook block reasons back into the model loop', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-stop-hook-'));
 		let stopCalls = 0;

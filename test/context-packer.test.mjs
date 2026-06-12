@@ -180,6 +180,24 @@ describe('context packing', () => {
 		assert.doesNotMatch(context.systemPrompt, /lockfileVersion/u);
 	});
 
+	it('F7: fileMap.total reflects the workspace file count in tools mode', async () => {
+		const cwd = await mkWorkspace({
+			'a.mjs': 'export const a = 1;',
+			'b.mjs': 'export const b = 2;',
+			'src/c.mjs': 'export const c = 3;',
+		});
+
+		const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+
+		// In tools mode, files is empty but fileMap.total holds the count.
+		assert.deepEqual(context.files, []);
+		assert.equal(
+			context.fileMap.total,
+			3,
+			'fileMap.total should count all workspace files',
+		);
+	});
+
 	it('renders memory scopes without listing private memory as a workspace file', async () => {
 		const cwd = await mkWorkspace({
 			'.kodr/memory/user.md': 'Use concise replies.',

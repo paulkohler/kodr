@@ -2,7 +2,7 @@
 // Reads run artifacts and builds a causal story for `kodr why`.
 
 import { readFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Artifact loading
@@ -33,7 +33,7 @@ async function tryReadText(filePath) {
  * @returns {Promise<RunAnalysis>}
  */
 export async function loadRunAnalysis(runDir) {
-	const [summary, writes, tests, contextMd, promptMd, responseMd] =
+	const [summary, writes, tests, contextMd, promptMd, responseMd, errorJson] =
 		await Promise.all([
 			tryReadJson(join(runDir, 'summary.json')),
 			tryReadJson(join(runDir, 'writes.json')),
@@ -41,6 +41,7 @@ export async function loadRunAnalysis(runDir) {
 			tryReadText(join(runDir, 'context.md')),
 			tryReadText(join(runDir, 'prompt.md')),
 			tryReadText(join(runDir, 'response.md')),
+			tryReadJson(join(runDir, 'error.json')),
 		]);
 
 	// Healing artifacts live in a repairs/ sub-directory written by healing.mjs.
@@ -48,6 +49,7 @@ export async function loadRunAnalysis(runDir) {
 
 	return {
 		contextMd,
+		errorJson,
 		promptMd,
 		repairs,
 		responseMd,
@@ -74,7 +76,7 @@ export async function loadRunAnalysis(runDir) {
  * @returns {StoryStep[]}
  */
 export function buildCausalStory(analysis) {
-	const { summary, writes, tests, repairs, runDir } = analysis;
+	const { summary, writes, tests, repairs, runDir, errorJson } = analysis;
 	const steps = [];
 
 	// ------------------------------------------------------------------
@@ -109,11 +111,28 @@ export function buildCausalStory(analysis) {
 		const turns = lb.turns ?? '?';
 		const model = summary.model || '?';
 		const baseUrl = summary.baseUrl || '?';
+
+		// F4: classify the Model Call step as fail when the run failed at the
+		// model-loop level — either no responses were recorded, or error.json
+		// holds a LoopBudgetError / completeWithToolCalls error.
+		const isModelLoopError =
+			errorJson !== null &&
+			errorJson !== undefined &&
+			(errorJson.name === 'LoopBudgetError' ||
+				(typeof errorJson.stack === 'string' &&
+					(errorJson.stack.includes('completeWithToolCalls') ||
+						errorJson.stack.includes('completeWithContinuations'))));
+		const noResponses =
+			summary.ok === false && (summary.responseCount ?? 0) === 0;
+		const modelCallFailed = isModelLoopError || noResponses;
+
 		steps.push({
 			artifactPath: join(runDir, 'summary.json'),
-			detail: `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} finishReasons=[${finishReasons}]`,
+			detail: modelCallFailed
+				? `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} error=${errorJson?.message || 'no responses recorded'}`
+				: `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} finishReasons=[${finishReasons}]`,
 			phase: 'Model Call',
-			status: 'ok',
+			status: modelCallFailed ? 'fail' : 'ok',
 		});
 	} else {
 		steps.push({
@@ -474,10 +493,34 @@ export async function resolveRunDir(cwd, runIdOrPath) {
 
 	// Absolute path given directly
 	if (arg.startsWith('/')) {
+		await assertRunDir(arg);
 		return arg;
 	}
 
-	// Bare ID / relative — look under .kodr/runs/
+	// F5: an argument containing a path separator is treated as a path and
+	// resolved against cwd, not joined under .kodr/runs/.
+	if (arg.includes(sep) || arg.includes('/')) {
+		const resolved = resolve(cwd, arg);
+		await assertRunDir(resolved);
+		return resolved;
+	}
+
+	// Bare ID — look under .kodr/runs/
 	const candidate = join(cwd, '.kodr', 'runs', arg);
 	return candidate;
+}
+
+// Throw a clear error when a resolved directory has none of the known run
+// artifacts, so `kodr why` surfaces the problem instead of an all-skip story.
+async function assertRunDir(dir) {
+	const KNOWN_ARTIFACTS = ['summary.json', 'error.json', 'prompt.md'];
+	for (const name of KNOWN_ARTIFACTS) {
+		try {
+			await readFile(join(dir, name), 'utf8');
+			return; // at least one artifact present — looks like a run dir
+		} catch {
+			// not found, try the next
+		}
+	}
+	throw new Error(`not a kodr run directory: ${dir}`);
 }

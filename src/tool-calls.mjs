@@ -141,21 +141,49 @@ export async function completeWithToolCalls(
 				{ role: 'user', content: prompt },
 			];
 
-	while (true) {
-		budget.beforeTurn();
+	// Track tool calls seen this run to short-circuit exact repeats.
+	const seenToolCalls = new Map();
 
-		const chatResponse = await createChatCompletion(
+	while (true) {
+		// F2: catch LoopBudgetError from beforeTurn and return salvaged completion
+		// rather than propagating, so accumulated messages/responses are not lost.
+		try {
+			budget.beforeTurn();
+		} catch (error) {
+			if (error instanceof LoopBudgetError) {
+				const lastText = lastAssistantText(messages);
+				budget.stop('turn_budget_exhausted');
+				return result(finishReasons, budget, responses, messages, lastText);
+			}
+			throw error;
+		}
+
+		// F1 final-turn forcing: when exactly one turn remains, send the request
+		// without tools so the model must return a final text answer.
+		const isFinalTurn =
+			Number.isFinite(budget.state.maxTurns) &&
+			budget.state.turns === budget.state.maxTurns;
+
+		const requestBody = applyResponseFormat(
+			{
+				messages: isFinalTurn
+					? [
+							...messages,
+							{
+								content:
+									'Turn budget exhausted. Return the final JSON proposal now — do not call any tools.',
+								role: 'user',
+							},
+						]
+					: messages,
+				model,
+				temperature: 0,
+				...(isFinalTurn ? {} : { tools: apiTools }),
+			},
 			options,
-			applyResponseFormat(
-				{
-					messages,
-					model,
-					temperature: 0,
-					tools: apiTools,
-				},
-				options,
-			),
 		);
+
+		const chatResponse = await createChatCompletion(options, requestBody);
 		budget.recordUsage(
 			normalizeModelUsage(options.provider, chatResponse.body?.usage, {
 				maxCostUsd: options.maxCostUsd,
@@ -168,7 +196,7 @@ export async function completeWithToolCalls(
 		responses.push(chatResponse.body);
 		finishReasons.push(finishReason);
 
-		if (finishReason === 'tool_calls') {
+		if (!isFinalTurn && finishReason === 'tool_calls') {
 			const toolCalls = choice?.message?.tool_calls || [];
 
 			// Append the full assistant message (tool_calls array must be preserved
@@ -191,14 +219,53 @@ export async function completeWithToolCalls(
 			for (const toolCall of toolCalls) {
 				const toolName = toolCall.function?.name || '';
 				const toolArgs = toolCall.function?.arguments || '{}';
+				// F1 repeat-call short-circuit: key on name + exact args string.
+				const callKey = `${toolName}\0${toolArgs}`;
 
 				let content;
-				try {
-					const raw = await registry.dispatch(toolName, toolArgs);
-					content =
-						typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
-				} catch (error) {
-					content = JSON.stringify({ error: error.message });
+				if (seenToolCalls.has(callKey)) {
+					// Identical repeat — skip execution and steer the model back to a proposal.
+					content = JSON.stringify({
+						repeat: true,
+						message:
+							'This exact tool call was already made. Stop calling tools and return the final JSON proposal now.',
+					});
+				} else {
+					seenToolCalls.set(callKey, true);
+					try {
+						const raw = await registry.dispatch(toolName, toolArgs);
+						content =
+							typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
+						// F1 steering: when run_command rejects a non-allowlisted command,
+						// append a note reminding the model that file changes go in the
+						// proposal's files array, not via shell commands.
+						if (
+							toolName === 'run_command' &&
+							typeof raw === 'object' &&
+							raw !== null &&
+							typeof raw.error === 'string' &&
+							raw.error.startsWith('Command is not allowlisted:')
+						) {
+							content = JSON.stringify({
+								...raw,
+								hint: 'The harness has no write tool. Return file changes in the final JSON proposal (files array), not via shell commands.',
+							});
+						}
+					} catch (error) {
+						content = JSON.stringify({ error: error.message });
+						// F1 steering: propagate the write-via-proposal hint when an allowlist
+						// rejection occurs (VerificationError thrown from runVerification).
+						if (
+							toolName === 'run_command' &&
+							typeof error.message === 'string' &&
+							error.message.startsWith('Command is not allowlisted:')
+						) {
+							content = JSON.stringify({
+								error: error.message,
+								hint: 'The harness has no write tool. Return file changes in the final JSON proposal (files array), not via shell commands.',
+							});
+						}
+					}
 				}
 
 				messages.push({
@@ -233,6 +300,17 @@ export async function completeWithToolCalls(
 		budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
 		return result(finishReasons, budget, responses, messages, text);
 	}
+}
+
+// Return the content of the last assistant message in the conversation, or ''
+// if none exists. Used to salvage the last partial answer on budget exhaustion.
+function lastAssistantText(messages) {
+	for (let i = messages.length - 1; i >= 0; i -= 1) {
+		if (messages[i].role === 'assistant' && messages[i].content) {
+			return messages[i].content;
+		}
+	}
+	return '';
 }
 
 // Create a registry pre-loaded with workspace-scoped built-in tools.

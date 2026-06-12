@@ -2550,7 +2550,7 @@ export async function runPrompt(options, io) {
 					timestamp: new Date().toISOString(),
 					usage: usageFromBudget(orchestrationResult.loopBudget),
 					verification: orchestrationResult.verification,
-					workspaceFileCount: context.files.length,
+					workspaceFileCount: contextFileCount(context),
 					writeCount: orchestrationResult.writeCount,
 				};
 				if (inspectionPlan) {
@@ -2695,6 +2695,7 @@ export async function runPrompt(options, io) {
 			await writeRunFailure(runDir, {
 				baseUrl: options.baseUrl,
 				context,
+				cwd: io.cwd,
 				error,
 				initialMessages,
 				model: model || options.model || '',
@@ -2763,7 +2764,7 @@ export async function runPrompt(options, io) {
 			sessionId,
 			timestamp: new Date().toISOString(),
 			usage: usageFromBudget(completion.loopBudget),
-			workspaceFileCount: context.files.length,
+			workspaceFileCount: contextFileCount(context),
 		};
 		if (inspectionPlan) {
 			summary.inspectionPlan = inspectionPlan.inspection;
@@ -3550,7 +3551,7 @@ async function runStagedPrompt({
 		tested: testResult !== null,
 		timestamp: new Date().toISOString(),
 		usage: usageFromBudget(loopBudget),
-		workspaceFileCount: context.files.length,
+		workspaceFileCount: contextFileCount(context),
 		writeCount: writeResult.writes.length,
 	};
 	if (writeError) {
@@ -3855,7 +3856,7 @@ async function writeRunFailure(runDir, details) {
 		taskCounts: taskCounts(taskPlan),
 		timestamp: new Date().toISOString(),
 		usage: null,
-		workspaceFileCount: details.context.files.length,
+		workspaceFileCount: contextFileCount(details.context),
 	};
 
 	await writeText(details.responsePath, '');
@@ -3874,6 +3875,11 @@ async function writeRunFailure(runDir, details) {
 		applied: false,
 		writes: [],
 	});
+	// F3: write last-run on the failure path so `kodr why` (no arg) works
+	// immediately after a failed run — exactly when forensics is most needed.
+	if (details.cwd) {
+		await writeLastRun(details.cwd, runDir);
+	}
 }
 
 function serializeRunError(error) {
@@ -4300,14 +4306,21 @@ async function loadPriorScratchpad(pathOrAlias, cwd) {
 	return content;
 }
 
-// Write the path of the most recent successful run dir to .kodr/last-run so
-// that --continue can find it without the user having to name the session.
-// Only called on successful completion; failed runs (writeRunFailure) do not
-// update the pointer so that --continue always resumes a usable transcript.
+// Write the path of the most recent run dir to .kodr/last-run so that
+// --continue and `kodr why` can find it without the user naming the session.
+// Called on both success and failure (writeRunFailure also calls it when cwd
+// is available) so forensics work immediately after a failed run.
 async function writeLastRun(cwd, runDir) {
 	const kodrDir = join(cwd, '.kodr');
 	await mkdir(kodrDir, { recursive: true });
 	await writeFile(join(kodrDir, 'last-run'), `${runDir}\n`, 'utf8');
+}
+
+// F7: in tools mode the packed files array is empty and the listing lives in
+// context.fileMap. Fall back to fileMap.total so the count is never 0.
+function contextFileCount(context) {
+	if (context.files.length > 0) return context.files.length;
+	return context.fileMap?.total ?? 0;
 }
 
 // Extract a structured usage object from a loop-budget snapshot. Returns null

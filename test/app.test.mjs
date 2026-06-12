@@ -4128,8 +4128,9 @@ describe('conversation transcripts', () => {
 		}
 	});
 
-	it('does not update .kodr/last-run when the model call fails', async () => {
-		// Queue an HTTP 500 so the run throws before writing last-run.
+	it('F3: updates .kodr/last-run to the failed run dir when the model call fails', async () => {
+		// F3: last-run should be updated even on failure so `kodr why` works
+		// immediately after a failed run (when forensics is most needed).
 		const server = await startFakeModelServer({
 			responses: [
 				{
@@ -4143,13 +4144,6 @@ describe('conversation transcripts', () => {
 
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'kodr-conv-fail-'));
-			// Write a sentinel last-run value to verify it is not overwritten.
-			await mkdir(join(cwd, '.kodr'), { recursive: true });
-			await writeFile(
-				join(cwd, '.kodr', 'last-run'),
-				'/previous/run\n',
-				'utf8',
-			);
 
 			await assert.rejects(
 				() =>
@@ -4168,10 +4162,14 @@ describe('conversation transcripts', () => {
 				/Model run failed/u,
 			);
 
+			// last-run must point to the failed run directory (which exists)
 			const lastRun = (
 				await readFile(join(cwd, '.kodr', 'last-run'), 'utf8')
 			).trim();
-			assert.equal(lastRun, '/previous/run');
+			assert.ok(
+				lastRun.includes('.kodr/runs/'),
+				`last-run should point to a run dir, got: ${lastRun}`,
+			);
 		} finally {
 			await server.close();
 		}

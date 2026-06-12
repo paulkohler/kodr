@@ -404,8 +404,19 @@ export async function runLspInspector(
 	const client = new LspClient(proc, { requestTimeout });
 	const rootUri = pathToFileURL(cwd).href;
 
-	// Initialize with a separate timeout
-	await withTimeout(client.initialize(rootUri), initTimeout, 'LSP initialize');
+	// Initialize with a separate timeout. Kill the spawned server before
+	// rethrowing — a server that hangs on initialize would otherwise survive as
+	// an orphan child and keep the parent process's event loop alive.
+	try {
+		await withTimeout(
+			client.initialize(rootUri),
+			initTimeout,
+			'LSP initialize',
+		);
+	} catch (error) {
+		client.kill();
+		throw error;
+	}
 
 	const inspectedFiles = [];
 

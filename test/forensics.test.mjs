@@ -446,4 +446,112 @@ describe('resolveRunDir', () => {
 		await mkdir(noKodr, { recursive: true });
 		await assert.rejects(() => resolveRunDir(noKodr, ''), /last-run not found/);
 	});
+
+	// F5 tests
+	it('F5: relative path with separator resolves against cwd', async () => {
+		const runDir = await makeRunDir(tmp, 'run-rel-sep', {
+			'summary.json': SUMMARY_OK,
+		});
+		// Pass a path relative to tmp that contains '/'
+		const rel = `run-rel-sep`;
+		// The path includes tmp as cwd — so join is just the dir name but we
+		// use a path with a '.' prefix to trigger the path-separator branch.
+		const result = await resolveRunDir(tmp, `./${rel}`);
+		assert.equal(result, runDir);
+	});
+
+	it('F5: path-like arg pointing to non-run directory throws clear error', async () => {
+		const notARunDir = join(tmp, 'not-a-run-dir');
+		await mkdir(notARunDir, { recursive: true });
+		// Pass a relative path that exists but has no run artifacts
+		await assert.rejects(
+			() => resolveRunDir(tmp, './not-a-run-dir'),
+			/not a kodr run directory/,
+		);
+	});
+
+	it('F5: absolute path to non-run directory throws clear error', async () => {
+		const notARunDir = join(tmp, 'not-a-run-dir-abs');
+		await mkdir(notARunDir, { recursive: true });
+		await assert.rejects(
+			() => resolveRunDir(tmp, notARunDir),
+			/not a kodr run directory/,
+		);
+	});
+
+	it('F5: kodr-runs double-prefix scenario: relative kodr path throws instead of all-skip', async () => {
+		// Simulates the failure: user types `.kodr/runs/<id>` which previously
+		// double-prefixed to .kodr/runs/.kodr/runs/<id>
+		const kodrRunsDir = join(tmp, '.kodr', 'runs', 'run-for-rel');
+		await mkdir(kodrRunsDir, { recursive: true });
+		await writeFile(
+			join(kodrRunsDir, 'summary.json'),
+			JSON.stringify(SUMMARY_OK),
+		);
+		// Pass the relative path as the user would — contains sep, so resolves vs cwd
+		const result = await resolveRunDir(tmp, '.kodr/runs/run-for-rel');
+		assert.equal(result, kodrRunsDir);
+	});
+});
+
+// F4 tests
+describe('buildCausalStory — F4 Model Call honest failure', () => {
+	let tmp4;
+	before(async () => {
+		tmp4 = join(tmpdir(), `forensics-f4-${Date.now()}`);
+		await mkdir(tmp4, { recursive: true });
+	});
+	after(async () => {
+		await rm(tmp4, { recursive: true, force: true });
+	});
+
+	it('F4: Model Call is fail when summary.ok=false and responseCount=0', async () => {
+		const dir = await makeRunDir(tmp4, 'run-budget-exhausted', {
+			'summary.json': {
+				...SUMMARY_OK,
+				ok: false,
+				responseCount: 0,
+				loopBudget: {
+					...SUMMARY_OK.loopBudget,
+					stopReason: 'turn_budget_exhausted',
+				},
+			},
+			'error.json': {
+				message: 'Loop budget stopped: turn_budget_exhausted',
+				name: 'LoopBudgetError',
+				stack:
+					'LoopBudgetError: Loop budget stopped: turn_budget_exhausted\n    at completeWithToolCalls',
+			},
+		});
+		const analysis = await loadRunAnalysis(dir);
+		const story = buildCausalStory(analysis);
+		const modelStep = story.find((s) => s.phase === 'Model Call');
+		assert.equal(modelStep.status, 'fail', 'Model Call should be fail');
+		assert.ok(
+			modelStep.detail.includes('turn_budget_exhausted') ||
+				modelStep.detail.includes('LoopBudgetError'),
+			'detail should include the error',
+		);
+	});
+
+	it('F4: Model Call is ok when run succeeded with responses', async () => {
+		const dir = await makeRunDir(tmp4, 'run-ok', {
+			'summary.json': SUMMARY_OK,
+		});
+		const analysis = await loadRunAnalysis(dir);
+		const story = buildCausalStory(analysis);
+		const modelStep = story.find((s) => s.phase === 'Model Call');
+		assert.equal(modelStep.status, 'ok');
+	});
+
+	it('F4: loadRunAnalysis loads error.json', async () => {
+		const errorObj = { message: 'some error', name: 'CliError' };
+		const dir = await makeRunDir(tmp4, 'run-with-error-json', {
+			'summary.json': SUMMARY_OK,
+			'error.json': errorObj,
+		});
+		const analysis = await loadRunAnalysis(dir);
+		assert.ok(analysis.errorJson !== null, 'errorJson should be loaded');
+		assert.equal(analysis.errorJson.name, 'CliError');
+	});
 });

@@ -35,7 +35,9 @@ describe('createWatcher', () => {
 		await new Promise((r) => setTimeout(r, 100));
 		await writeFile(join(tmpDir, 'hello.js'), 'const x = 1;');
 
-		await waitFor(() => changes.length > 0);
+		// macOS FSEvents can deliver an event for the watch root itself first;
+		// wait for the specific file rather than any first debounce batch.
+		await waitFor(() => changes.some((p) => p.includes('hello.js')));
 		w.close();
 
 		assert.ok(

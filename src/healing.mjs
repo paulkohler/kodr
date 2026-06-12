@@ -360,10 +360,17 @@ export async function buildRepairContext(cwd, testResult, options = {}) {
 	const failurePaths = await failurePathsFromTest(cwd, testResult);
 	const contextFiles = new Map();
 	for (const path of failurePaths) {
-		contextFiles.set(path, await readFileOrEmpty(cwd, path));
+		// F6: only include files that exist and are readable — never ghost entries.
+		const content = await readFileIfExists(cwd, path);
+		if (content !== null) {
+			contextFiles.set(path, content);
+		}
 		const sourcePath = siblingSourcePath(path);
 		if (sourcePath) {
-			contextFiles.set(sourcePath, await readFileOrEmpty(cwd, sourcePath));
+			const sourceContent = await readFileIfExists(cwd, sourcePath);
+			if (sourceContent !== null) {
+				contextFiles.set(sourcePath, sourceContent);
+			}
 		}
 	}
 
@@ -512,11 +519,13 @@ function siblingSourcePath(path) {
 	return '';
 }
 
-async function readFileOrEmpty(cwd, path) {
+// F6: returns file content when the file exists and is readable, null otherwise.
+// Used by buildRepairContext so ghost paths are never included in repair context.
+async function readFileIfExists(cwd, path) {
 	try {
 		return await readFile(join(cwd, path), 'utf8');
 	} catch {
-		return '';
+		return null;
 	}
 }
 

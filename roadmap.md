@@ -108,6 +108,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 106 Run Forensics As A Product Surface
 - [x] 107 Free-Token Background Loops
 - [x] 108 Publish @kodr/repomap
+- [x] 109 Dogfood Harness Fixes
 
 ## Phase Contract
 

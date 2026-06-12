@@ -151,9 +151,11 @@ describe('one-shot healing', () => {
 		});
 
 		assert.deepEqual(context.failurePaths, ['test/extract.test.mjs']);
+		// F6: only existing files are included; the sibling test/extract.mjs does
+		// not exist on disk so it must not appear as a ghost entry.
 		assert.deepEqual(
 			context.files.map((file) => file.path),
-			['test/extract.test.mjs', 'test/extract.mjs'],
+			['test/extract.test.mjs'],
 		);
 	});
 
@@ -367,6 +369,82 @@ describe('renderWrongPathWarning', () => {
 	it('returns empty string when writes array is empty', () => {
 		const warning = renderWrongPathWarning([], ['src/foo.mjs']);
 		assert.equal(warning, '');
+	});
+});
+
+// F6 tests
+describe('buildRepairContext — F6 no ghost files', () => {
+	it('F6: excludes nonexistent sibling source path from context files', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-ghost-'));
+		await mkdir(join(cwd, 'test'), { recursive: true });
+		// Only the test file exists — the sibling source file does not.
+		await writeFile(
+			join(cwd, 'test', 'wordfreq.test.mjs'),
+			"import { test } from 'node:test';\n",
+		);
+
+		const context = await buildRepairContext(cwd, {
+			ok: false,
+			stderr: `not ok 1 - ${cwd}/test/wordfreq.test.mjs`,
+			stdout: '',
+		});
+
+		const paths = context.files.map((f) => f.path);
+		assert.ok(
+			paths.includes('test/wordfreq.test.mjs'),
+			'test file should be included',
+		);
+		assert.ok(
+			!paths.includes('test/wordfreq.mjs'),
+			'ghost sibling must not be included',
+		);
+	});
+
+	it('F6: includes sibling source path when it exists on disk', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-sibling-'));
+		await mkdir(join(cwd, 'test'), { recursive: true });
+		await writeFile(
+			join(cwd, 'test', 'util.test.mjs'),
+			"import { test } from 'node:test';\n",
+		);
+		// Also create the sibling source file
+		await writeFile(join(cwd, 'test', 'util.mjs'), 'export const x = 1;\n');
+
+		const context = await buildRepairContext(cwd, {
+			ok: false,
+			stderr: `not ok 1 - ${cwd}/test/util.test.mjs`,
+			stdout: '',
+		});
+
+		const paths = context.files.map((f) => f.path);
+		assert.ok(
+			paths.includes('test/util.test.mjs'),
+			'test file should be included',
+		);
+		assert.ok(
+			paths.includes('test/util.mjs'),
+			'existing sibling should be included',
+		);
+	});
+
+	it('F6: no file in context has empty content from a nonexistent path', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-no-empty-'));
+		await mkdir(join(cwd, 'src'), { recursive: true });
+		// Only the test file exists
+		await writeFile(join(cwd, 'src', 'thing.test.mjs'), 'test content');
+
+		const context = await buildRepairContext(cwd, {
+			ok: false,
+			stderr: `fail: ${cwd}/src/thing.test.mjs`,
+			stdout: '',
+		});
+
+		for (const file of context.files) {
+			assert.ok(
+				file.content.length > 0,
+				`file ${file.path} should have non-empty content`,
+			);
+		}
 	});
 });
 
