@@ -113,7 +113,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 111 Proposal Extraction Resilience
 - [x] 112 Measured Structured Output
 - [x] 113 Stream-First Transport
-- [ ] 114 Environment-Aware System Prompt
+- [x] 114 Environment-Aware System Prompt
 
 ## Phase Contract
 

@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import { renderEditFormatContract } from './edit-formats.mjs';
 import {
+	renderBehavioursBlock,
+	renderEnvironmentBlock,
+	renderToolsBlock,
+} from './system-env.mjs';
+import {
 	buildFileMap,
 	buildFileSummaries,
 	buildInspectionChunks,
@@ -35,6 +40,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 	const totalBytes = contextBudget.budgetChars;
 	const toolsMode = options.toolsMode || false;
 	const editFormat = options.editFormat;
+	const environmentFacts = options.environmentFacts || null;
 	const files = await listContextFiles(cwd);
 	const memory = options.memory || { project: null, user: null };
 	const skills = options.skills || { index: [], loaded: [] };
@@ -58,10 +64,12 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			agents,
 			contextBudget,
 			editFormat,
+			environmentFacts,
 			fileMap,
 			files: [],
 			memory,
 			skills,
+			toolsMode,
 		});
 		return {
 			...context,
@@ -101,6 +109,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 					(agents?.includedBytes || 0),
 			},
 			editFormat,
+			environmentFacts,
 			files: packedFiles,
 			inspection,
 			memory,
@@ -163,6 +172,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			packedChars: usedBytes + (agents?.includedBytes || 0),
 		},
 		editFormat,
+		environmentFacts,
 		files: packedFiles,
 		memory,
 		omittedFiles,
@@ -306,9 +316,14 @@ export function renderPromptSections(context = {}) {
 		skills: context.skills || { index: [], loaded: [] },
 	};
 	return {
+		// stable: identity + envelope + behaviours + tools (tools only when toolsMode)
+		stable: renderStableSection(context?.editFormat, context?.toolsMode),
+		// environment: session-stable facts (cwd, git, node, model, date)
+		environment: context?.environmentFacts
+			? renderEnvironmentBlock(context.environmentFacts)
+			: '',
 		project: renderProjectPromptSection(safeContext),
 		semiStable: renderSemiStablePromptSection(safeContext),
-		stable: renderKodrBaseContract(context?.editFormat),
 		volatile: renderVolatilePromptSection(safeContext),
 	};
 }
@@ -382,8 +397,12 @@ function renderSemiStablePromptSection(context) {
 }
 
 function renderSystemPromptFromSections(sections) {
+	// Order: most-stable first → identity+envelope+behaviours+tools (stable),
+	// then environment (session-stable), then workspace instructions (project),
+	// then memory+skills (semiStable), then workspace file listing (volatile).
 	return [
 		sections.stable,
+		sections.environment,
 		sections.project,
 		sections.semiStable,
 		sections.volatile,
@@ -393,7 +412,10 @@ function renderSystemPromptFromSections(sections) {
 }
 
 export function summarizePromptSections(sections) {
+	const env = sections.environment || '';
 	return {
+		environmentChars: env.length,
+		environmentHash: hashPromptSection(env),
 		projectChars: sections.project.length,
 		projectHash: hashPromptSection(sections.project),
 		semiStableChars: sections.semiStable.length,
@@ -458,6 +480,22 @@ export function renderKodrCorePrompt(context = {}, options = {}) {
 	return parts.join('\n\n');
 }
 
+// renderStableSection builds the fully stable part of the system prompt:
+// identity + envelope contract + behaviours + tools (tools only in tools mode).
+// 'patch' branch is byte-identical to renderKodrBaseContract() for the contract
+// portion; the behaviours and tools blocks are appended after.
+function renderStableSection(editFormat = 'patch', toolsMode = false) {
+	const parts = [renderKodrBaseContract(editFormat), renderBehavioursBlock()];
+	if (toolsMode) {
+		parts.push(renderToolsBlock());
+	}
+	return parts.join('\n\n');
+}
+
+// renderKodrBaseContract returns ONLY the identity + envelope contract.
+// byte-identical to the 'patch' branch of renderEditFormatContract() in
+// edit-formats.mjs (updated together in phase 114 when the tool sentence
+// was extracted into renderToolsBlock()).
 function renderKodrBaseContract(editFormat = 'patch') {
 	return renderEditFormatContract(editFormat);
 }

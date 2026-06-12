@@ -20,6 +20,11 @@ export function normalizeEditFormat(value) {
  * 'patch' returns the EXACT text from renderKodrBaseContract() — byte-identical to
  * preserve prompt-prefix stability.
  *
+ * NOTE (phase 114): the tool-usage sentence was moved out of this contract into the
+ * dedicated # Tools section rendered by renderToolsBlock() in system-env.mjs. Both
+ * this function and renderKodrBaseContract() in context-packer.mjs were updated
+ * together to preserve byte-identity between them.
+ *
  * @param {'whole' | 'patch' | 'blocks'} editFormat
  * @returns {string}
  */
@@ -35,7 +40,6 @@ export function renderEditFormatContract(editFormat) {
 				'Use status "OK" when you are proposing changes or have no changes to make. Use status "ERROR" when you cannot complete the request; include the reason in messages and do not include file changes.',
 				'Use "files" for full-file writes with {"path","content"} entries. Always emit the complete file content — do not use partial content or placeholders. Set "patches" to an empty array [].',
 				'Use "messages" for short user-facing run notes. You may include a "scratchpad" string for planning notes, open questions, or next steps. For multi-step tasks, structure it as {"plan":["step 1","step 2"],"done":["step 1"],"next":"step 2","notes":""} so the harness can inject it as context on the next run. Do not put secrets in messages or scratchpad content.',
-				'When native tools are available, use inspect_symbols for a compact structural map, find_references for symbol references, read_file for raw file text, read_skill_resource for declared skill resources, run_skill_command only for declared skill helper commands after explicit approval, and run_command only for allowlisted verification commands.',
 			].join(' '),
 		].join('\n\n');
 	}
@@ -48,7 +52,6 @@ export function renderEditFormatContract(editFormat) {
 				'{"status":"OK","messages":[{"level":"info","content":"short note"}],"files":[],"patches":[],"scratchpad":""}',
 				'Use status "OK" when you are proposing changes or have no changes to make. Use status "ERROR" when you cannot complete the request; include the reason in messages and do not include file changes.',
 				'Use "messages" for short user-facing run notes. You may include a "scratchpad" string for planning notes, open questions, or next steps. For multi-step tasks, structure it as {"plan":["step 1","step 2"],"done":["step 1"],"next":"step 2","notes":""} so the harness can inject it as context on the next run. Do not put secrets in messages or scratchpad content.',
-				'When native tools are available, use inspect_symbols for a compact structural map, find_references for symbol references, read_file for raw file text, read_skill_resource for declared skill resources, run_skill_command only for declared skill helper commands after explicit approval, and run_command only for allowlisted verification commands.',
 			].join(' '),
 			[
 				'For file edits, emit SEARCH/REPLACE blocks OUTSIDE the JSON, one block per edit:',
@@ -80,7 +83,6 @@ export function renderEditFormatContract(editFormat) {
 			'Use status "OK" when you are proposing changes or have no changes to make. Use status "ERROR" when you cannot complete the request; include the reason in messages and do not include file changes.',
 			'Use "files" for full-file writes with {"path","content"} entries — only for new files or complete rewrites. Use "patches" for targeted edits to existing files with {"path","search","replace"} entries; prefer patches whenever you are adding or changing a small section of an existing file; patch search text must match the current file exactly once. Do not rewrite an entire existing file just to make a small change.',
 			'Use "messages" for short user-facing run notes. You may include a "scratchpad" string for planning notes, open questions, or next steps. For multi-step tasks, structure it as {"plan":["step 1","step 2"],"done":["step 1"],"next":"step 2","notes":""} so the harness can inject it as context on the next run. Do not put secrets in messages or scratchpad content.',
-			'When native tools are available, use inspect_symbols for a compact structural map, find_references for symbol references, read_file for raw file text, read_skill_resource for declared skill resources, run_skill_command only for declared skill helper commands after explicit approval, and run_command only for allowlisted verification commands.',
 		].join(' '),
 	].join('\n\n');
 }

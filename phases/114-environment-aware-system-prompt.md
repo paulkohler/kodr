@@ -108,13 +108,13 @@ shell/Node assumptions in generated commands).
 
 ## Done criteria
 
-- [ ] P1: environment block rendered with real facts, byte-stable per
+- [x] P1: environment block rendered with real facts, byte-stable per
       session, in the stable prefix.
-- [ ] P2: behaviours block, every line traceable to a failures.jsonl entry.
-- [ ] P3: per-tool lines + workflow + budget line, tools-mode only.
-- [ ] P4: prefix stability preserved; prompt budget guard test in place.
-- [ ] `process/failures.jsonl` / `process/decisions.jsonl` updated.
-- [ ] Blog post `blog/114-environment-aware-system-prompt.md`.
-- [ ] NEXT.md entries shipped by this phase deleted (FIFO), if any apply.
-- [ ] Version bumped to 0.0.114; suite green; committed.
+- [x] P2: behaviours block, every line traceable to a failures.jsonl entry.
+- [x] P3: per-tool lines + workflow + budget line, tools-mode only.
+- [x] P4: prefix stability preserved; prompt budget guard test in place.
+- [x] `process/failures.jsonl` / `process/decisions.jsonl` updated.
+- [x] Blog post `blog/114-environment-aware-system-prompt.md`.
+- [x] NEXT.md entries shipped by this phase deleted (FIFO), if any apply.
+- [x] Version bumped to 0.0.114; suite green; committed.
 - [ ] P5: live two-model A/B validation recorded (run after the commit).

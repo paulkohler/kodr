@@ -63,6 +63,7 @@ import {
 	extractEditBlocks,
 	mergeBlockPatches,
 } from './edit-formats.mjs';
+import { captureEnvironmentFacts } from './system-env.mjs';
 import { applyModelProfileDefaults } from './model-profiles.mjs';
 import {
 	applyProjectConfig,
@@ -2346,6 +2347,12 @@ export async function runPrompt(options, io) {
 		// Resolve parent session (if --continue or --session was passed).
 		const parent = await resolveParentSession(options, io.cwd);
 
+		// Capture environment facts once per session — byte-stable across all
+		// buildWorkspaceContext calls within this run (phase 114).
+		const environmentFacts = await captureEnvironmentFacts(io.cwd, {
+			model: options.model,
+		});
+
 		let skills;
 		let memory;
 		let context;
@@ -2391,6 +2398,7 @@ export async function runPrompt(options, io) {
 				}
 			}
 			context = await buildWorkspaceContext(io.cwd, {
+				environmentFacts,
 				inspection,
 				memory,
 				skills,
@@ -2418,6 +2426,7 @@ export async function runPrompt(options, io) {
 				? `${renderInspectionTaskPlan(inspectionPlan)}\n\n${prompt}`
 				: prompt;
 			context = await buildWorkspaceContext(io.cwd, {
+				environmentFacts,
 				inspection,
 				memory,
 				skills,
@@ -2677,6 +2686,7 @@ export async function runPrompt(options, io) {
 					commandRunner,
 					configuredHooks,
 					context,
+					environmentFacts,
 					activeExecutor,
 					io,
 					memory,
@@ -3258,6 +3268,7 @@ async function runStagedPrompt({
 	commandRunner,
 	configuredHooks,
 	context,
+	environmentFacts,
 	activeExecutor,
 	io,
 	memory,
@@ -3312,6 +3323,7 @@ async function runStagedPrompt({
 
 	for (let stageIndex = 1; stageIndex <= maxExecutionStages; stageIndex += 1) {
 		const stageContext = await buildWorkspaceContext(io.cwd, {
+			environmentFacts,
 			memory,
 			skills,
 			toolsMode: options.tools,
