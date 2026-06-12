@@ -30,24 +30,6 @@ it from healing. The main no-tools path still sends it. Decide per
 model-profile whether structured output should be on at all for reasoning
 models, and re-measure the main path the same way (A/B on identical prompts).
 
-### Empty-Final-Turn Recovery (top round-2 candidate)
-
-Round 2's dominant failure, hit in both example tasks: qwen3.6 plans a
-complete correct implementation in reasoning tokens (up to 4,117), then emits
-two newlines as content on a `stop` turn — without `response_format`, so
-broader than the phase-110 schema finding. Mitigation shape: when a turn ends
-`stop` with near-empty content after substantive context, send one nudge
-retry ("output the JSON proposal now"); surface "Proposal: MISSING — response
-was empty (N chars)" in run output. Evidence under
-`~/src/kodr-testing/phase-111/`.
-
-### Envelope Duplicate-Key Detection
-
-A files[] object with two duplicate `path` keys silently dropped a whole file
-after JSON.parse (greenfield logstats: the CLI was never written, every test
-failed confusingly). Detect duplicate path/content keys in the raw extracted
-JSON text pre-parse and warn or steer a repair.
-
 ### TUI Piped-Input Serialization
 
 Piped stdin races in-flight turns: a scripted session ran /status fine, then

@@ -14,6 +14,7 @@ import { renderHookStopFeedback } from './command-hooks.mjs';
 import { applyResponseFormat } from './structured-output.mjs';
 import { loadSkillResource } from './skills.mjs';
 import { runSkillCommand } from './skill-execution.mjs';
+import { extractProposal } from './json-extractor.mjs';
 
 const MAX_INSPECT_SYMBOLS = 200;
 const MAX_INSPECT_REFERENCES = 100;
@@ -143,6 +144,9 @@ export async function completeWithToolCalls(
 
 	// Track tool calls seen this run to short-circuit exact repeats.
 	const seenToolCalls = new Map();
+	// E4: track whether we have already sent the empty-turn nudge so it fires
+	// exactly once and cannot become a loop.
+	let nudgeSent = false;
 
 	while (true) {
 		// F2: catch LoopBudgetError from beforeTurn and return salvaged completion
@@ -280,6 +284,35 @@ export async function completeWithToolCalls(
 
 		// Normal finish — run stop hooks before allowing the turn to end.
 		const text = firstAssistantMessage(chatResponse.body);
+
+		// E4: empty-final-turn recovery. When the model returns a stop turn with
+		// near-empty content and no extractable proposal, send exactly one nudge
+		// before declaring failure. This catches qwen3.6's reasoning-then-silence
+		// mode where planning tokens are consumed but content is blank.
+		// Only fires when options.nudgeEmptyTurn is true (set by callers that
+		// expect a JSON proposal — no-tools main path and no-tools subagent path).
+		// The nudge fires only on whitespace-only (zero visible chars) stop turns
+		// with no extractable proposal. This precisely targets qwen3.6's
+		// reasoning-then-silence mode where the model emits "\n\n" or similar
+		// empty content after spending all its tokens in reasoning, without
+		// triggering on short but legitimate text answers ("ok", "Done.", etc.).
+		if (
+			options.nudgeEmptyTurn &&
+			!nudgeSent &&
+			finishReason === 'stop' &&
+			countNonWhitespace(text) === 0 &&
+			extractProposal(text) === null
+		) {
+			nudgeSent = true;
+			messages.push({ content: text, role: 'assistant' });
+			messages.push({
+				content:
+					'Your last message was empty. Output the single JSON proposal envelope now.',
+				role: 'user',
+			});
+			continue;
+		}
+
 		messages.push({ content: text, role: 'assistant' });
 		try {
 			await options.hooks?.run('stop', {
@@ -300,6 +333,20 @@ export async function completeWithToolCalls(
 		budget.stop(finishReason ? `finish_${finishReason}` : 'finish_unknown');
 		return result(finishReasons, budget, responses, messages, text);
 	}
+}
+
+// Count non-whitespace characters in a string (used for near-empty detection).
+function countNonWhitespace(text) {
+	if (!text) {
+		return 0;
+	}
+	let count = 0;
+	for (const char of text) {
+		if (!/\s/u.test(char)) {
+			count += 1;
+		}
+	}
+	return count;
 }
 
 // Return the content of the last assistant message in the conversation, or ''

@@ -1184,4 +1184,219 @@ describe('completeWithToolCalls', () => {
 			await server.close();
 		}
 	});
+
+	// E4: empty-final-turn recovery — exactly one nudge retry on near-empty stop
+	it('E4: sends one nudge when stop turn is near-empty, then succeeds on valid reply', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-e4-ok-'));
+		const validEnvelope = JSON.stringify({
+			status: 'OK',
+			files: [{ path: 'out.mjs', content: 'export const x = 1;' }],
+			patches: [],
+			messages: [],
+			scratchpad: '',
+		});
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1: near-empty stop — triggers the nudge
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: '\n\n', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_empty',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// Turn 2: valid proposal envelope — returned after nudge
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: validEnvelope, role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_valid',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				nudgeEmptyTurn: true,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write out.mjs.',
+				'You are helpful.',
+				registry,
+			);
+
+			assert.equal(completion.text, validEnvelope);
+			// Two turns: original + nudge follow-up
+			assert.equal(server.recordings.length, 2);
+			// The nudge message should appear in the second request
+			const secondReq = server.recordings[1].requestBody;
+			const nudgeMsg = secondReq.messages.find(
+				(m) =>
+					m.role === 'user' &&
+					typeof m.content === 'string' &&
+					m.content.includes('Your last message was empty'),
+			);
+			assert.ok(nudgeMsg, 'nudge message should appear in second request');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('E4: does not send a second nudge when first nudge also returns empty (exactly one retry)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-e4-fail-'));
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1: near-empty stop
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: '  ', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_empty1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// Turn 2: still near-empty after nudge — must NOT trigger another nudge
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: '{}', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_empty2',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				nudgeEmptyTurn: true,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Do something.',
+				'You are helpful.',
+				registry,
+			);
+
+			// Should stop after exactly 2 turns (original + one nudge), not loop
+			assert.equal(server.recordings.length, 2);
+			// The text from turn 2 is returned as final
+			assert.equal(completion.text, '{}');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('E4: does not nudge when stop turn has a valid proposal', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-e4-has-proposal-'));
+		const validEnvelope = JSON.stringify({
+			status: 'OK',
+			files: [{ path: 'a.mjs', content: 'export const a = 1;' }],
+			patches: [],
+			messages: [],
+			scratchpad: '',
+		});
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: validEnvelope, role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_ok',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				nudgeEmptyTurn: true,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write a.mjs.',
+				'You are helpful.',
+				registry,
+			);
+
+			// Only one turn — no nudge needed
+			assert.equal(server.recordings.length, 1);
+			assert.equal(completion.text, validEnvelope);
+		} finally {
+			await server.close();
+		}
+	});
 });

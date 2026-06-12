@@ -410,6 +410,8 @@ export async function runImplementerAgent(
 			agentName: 'implementer',
 			agentOptions: {
 				...activeOptions,
+				// E4: implementer must return a JSON proposal envelope.
+				nudgeEmptyTurn: true,
 				responseFormat: proposalResponseFormat(),
 			},
 			registry,
@@ -758,6 +760,8 @@ export async function runFileAuthorAgent(
 		agentName: 'file-author',
 		agentOptions: {
 			...activeOptions,
+			// E4: file-author must return a JSON proposal envelope.
+			nudgeEmptyTurn: true,
 			responseFormat: proposalResponseFormat(),
 		},
 		registry,

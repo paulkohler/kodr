@@ -2310,6 +2310,9 @@ export async function runPrompt(options, io) {
 			...options,
 			cwd: io.cwd,
 			hooks: configuredHooks.hooks,
+			// E4: enable empty-final-turn nudge on the main agent path where the
+			// model is expected to return a JSON proposal envelope.
+			nudgeEmptyTurn: true,
 			...(options.editFormat !== 'blocks'
 				? { responseFormat: proposalResponseFormat() }
 				: {}),
@@ -4233,6 +4236,19 @@ function renderRunSummary(result) {
 		if (writes.length === 0 && messages.length === 0) {
 			appendResponseBlock(lines, result.response);
 		}
+	} else if (
+		!result.proposalError &&
+		!result.proposal &&
+		result.responseChars !== undefined &&
+		result.responseChars <= 2
+	) {
+		// E4: near-empty response (whitespace only) with no proposal — surface
+		// this clearly so the user and forensics know what happened.
+		// responseChars <= 2 covers "\n\n" (2 chars) and "" (0 chars).
+		lines.push('');
+		lines.push(
+			`Proposal: MISSING — response was empty (${result.responseChars} chars)`,
+		);
 	} else {
 		appendResponseBlock(lines, result.response);
 	}

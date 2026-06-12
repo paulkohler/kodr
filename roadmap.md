@@ -110,6 +110,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 108 Publish @kodr/repomap
 - [x] 109 Dogfood Harness Fixes
 - [x] 110 Repair-Loop Discipline
+- [x] 111 Proposal Extraction Resilience
 
 ## Phase Contract
 
