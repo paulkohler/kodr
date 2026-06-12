@@ -20,16 +20,14 @@ local model.
 
 These are follow-ups the recent phases explicitly left open.
 
-### 109 Dogfood Burn-In: Real Sessions, Forensics-Audited
+### ~~109 Dogfood Burn-In~~ — done (shipped as Phase 109: Dogfood Harness Fixes)
 
-Run kodr against qwen3.6 on real tasks (its own examples, or small self-dev
-items) and use `kodr why` (phase 106) after every run. Record what the
-seven-step causal story actually surfaces in `process/failures.jsonl`. The
-brownfield eval suite (100) and bench (105) measure isolated cases; nothing yet
-exercises sensors + repair pressure + forensics together on live model output.
-Done criteria should be evidence-shaped: N real runs, forensics reports
-archived as artifacts, at least one harness fix or phase proposal derived from
-them.
+Round 1 ran a brownfield fix and a greenfield generation under
+`~/src/kodr-testing/phase-109/`, produced eleven findings, and the fixes
+shipped with the brownfield re-test passing end-to-end. A second round is
+worth queueing after 110/111: re-run the greenfield test (its repair-timeout
+failure mode is still open), a TUI daily-driver session, and a `kodr bench`
+run to populate routing scores.
 
 ### 110 Activate The Routing Table
 
