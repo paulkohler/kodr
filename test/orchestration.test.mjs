@@ -611,17 +611,23 @@ describe('subagent stage orchestration', () => {
 				server.recordings.map((recording) => recording.requestBody.model),
 				['planner-model', 'implementer-model', 'reviewer-model'],
 			);
+			// S2: response_format follows the profile's structuredOutput mode.
+			// planner uses openrouter (json_schema) → gets the schema.
+			// implementer and reviewer use lmstudio (none) → no response_format
+			// (measured: json_schema stalls local models; phase 110 + 112 A/B).
 			assert.equal(
-				server.recordings[0].requestBody.response_format.json_schema.name,
+				server.recordings[0].requestBody.response_format?.json_schema.name,
 				'kodr_plan_manifest',
 			);
 			assert.equal(
-				server.recordings[1].requestBody.response_format.json_schema.name,
-				'kodr_proposal',
+				server.recordings[1].requestBody.response_format,
+				undefined,
+				'lmstudio implementer should not get response_format (mode=none)',
 			);
 			assert.equal(
-				server.recordings[2].requestBody.response_format.json_schema.name,
-				'kodr_review',
+				server.recordings[2].requestBody.response_format,
+				undefined,
+				'lmstudio reviewer should not get response_format (mode=none)',
 			);
 			assert.equal(result.orchestration.agents.planner.model, 'planner-model');
 			assert.equal(result.orchestration.agents.planner.provider, 'openrouter');

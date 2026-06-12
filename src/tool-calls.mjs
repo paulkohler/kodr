@@ -11,7 +11,10 @@ import { jailedPath } from './safe-writes.mjs';
 import { normalizeModelUsage } from './usage-normalizer.mjs';
 import { runVerification } from './verification-runner.mjs';
 import { renderHookStopFeedback } from './command-hooks.mjs';
-import { applyResponseFormat } from './structured-output.mjs';
+import {
+	applyResponseFormat,
+	responseFormatForRequest,
+} from './structured-output.mjs';
 import { loadSkillResource } from './skills.mjs';
 import { runSkillCommand } from './skill-execution.mjs';
 import { extractProposal } from './json-extractor.mjs';
@@ -147,6 +150,9 @@ export async function completeWithToolCalls(
 	// E4: track whether we have already sent the empty-turn nudge so it fires
 	// exactly once and cannot become a loop.
 	let nudgeSent = false;
+	// S4: track whether we have already sent the no-proposal steer so it fires
+	// exactly once (the steer is cheaper than a full repair loop).
+	let noProposalSteerSent = false;
 
 	while (true) {
 		// F2: catch LoopBudgetError from beforeTurn and return salvaged completion
@@ -308,6 +314,47 @@ export async function completeWithToolCalls(
 			messages.push({
 				content:
 					'Your last message was empty. Output the single JSON proposal envelope now.',
+				role: 'user',
+			});
+			continue;
+		}
+
+		// S4: substantial-content no-proposal recovery. When the model returns a
+		// stop turn with real content (non-empty) but no extractable proposal,
+		// send exactly one steering message before declaring failure. This covers
+		// the gemma-4 pattern where the model narrates its plan in prose then stops
+		// without emitting a JSON envelope. The E4 nudge (above) covers whitespace-
+		// only content; this covers the non-empty case.
+		//
+		// Gate: only fires when ALL of the following hold:
+		//   - nudgeEmptyTurn is true (caller expects a JSON proposal)
+		//   - the response_format was actually sent to the model (mode != none)
+		//   - E4 has not already nudged (exclusive recovery paths)
+		//   - no steer has been sent yet (exactly once)
+		//   - finish reason is stop (not tool_calls or length)
+		//   - content is non-empty (E4 handles the whitespace-only case)
+		//   - no proposal is extractable from the content
+		//
+		// The responseFormatForRequest gate ensures S4 only fires when the model
+		// was actually constrained to return structured output. For local models
+		// with structuredOutputMode 'none', the format is never sent, prose is
+		// a valid response, and S4 must not steer.
+		if (
+			options.nudgeEmptyTurn &&
+			responseFormatForRequest({}, options) !== null &&
+			!noProposalSteerSent &&
+			!nudgeSent &&
+			finishReason === 'stop' &&
+			countNonWhitespace(text) > 0 &&
+			extractProposal(text) === null
+		) {
+			noProposalSteerSent = true;
+			messages.push({ content: text, role: 'assistant' });
+			messages.push({
+				content:
+					'Your response contained text but no JSON proposal envelope was found. ' +
+					'Output the JSON proposal envelope now with the required fields: ' +
+					'status, messages, files, patches, scratchpad.',
 				role: 'user',
 			});
 			continue;

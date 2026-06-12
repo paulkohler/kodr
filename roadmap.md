@@ -111,6 +111,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 109 Dogfood Harness Fixes
 - [x] 110 Repair-Loop Discipline
 - [x] 111 Proposal Extraction Resilience
+- [x] 112 Measured Structured Output
 
 ## Phase Contract
 

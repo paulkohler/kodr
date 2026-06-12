@@ -22,32 +22,11 @@ These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
-### Gemma Decode-Artifact Repair + No-Proposal Stop Healing
-
-Phase 111's live validation re-run still failed on gemma-4: the model emits a
-literal `<|"|>` pseudo-token in place of escaped/closing quotes inside JSON
-strings (7 occurrences, every envelope corrupted; confirmed in
-raw-response.json — genuine model output). Deterministic in shape, so a
-targeted `repairJsonText` rule (`<|"|>` → `"`) could rescue it; gather more
-gemma runs first to confirm the pattern. Same run exposed a flow gap: a
-substantial-content `finish_stop` with no extractable proposal does not
-engage the repair loop the way `invalid_proposal` does — only the E4
-empty-content nudge covers that path. Evidence:
-`~/src/kodr-testing/phase-111/gemma-smoke-2/`.
-
 ### Extraction Metadata Into Run Artifacts
 
 Phase 111 attaches `_extractionMeta` (candidateCount, proposalCount, merged)
 to merged proposals, but it is not yet written into `summary.json` or shown
 by `kodr why` ("proposal assembled from N blocks"). Thread it through.
-
-### Structured Output On Reasoning Models
-
-Phase 110 proved strict `json_schema` response_format breaks qwen3.6 repair
-turns on LM Studio (empty content or constrained-decode stalls) and stripped
-it from healing. The main no-tools path still sends it. Decide per
-model-profile whether structured output should be on at all for reasoning
-models, and re-measure the main path the same way (A/B on identical prompts).
 
 ### TUI Piped-Input Serialization
 

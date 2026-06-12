@@ -1399,4 +1399,363 @@ describe('completeWithToolCalls', () => {
 			await server.close();
 		}
 	});
+
+	// S4: substantial-content no-proposal recovery — one steering message before
+	// declaring failure on a stop turn with real content but no proposal envelope.
+	it('S4: sends one steer when stop turn has content but no proposal', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-s4-ok-'));
+		const fmt = {
+			type: 'json_schema',
+			json_schema: {
+				name: 'kodr_proposal',
+				strict: true,
+				schema: { type: 'object' },
+			},
+		};
+		const validEnvelope = JSON.stringify({
+			status: 'OK',
+			files: [{ path: 'out.mjs', content: 'export const x = 1;' }],
+			patches: [],
+			messages: [],
+			scratchpad: '',
+		});
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1: substantial prose content but no JSON proposal — triggers steer
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: {
+									content:
+										'I will create the file with the required exports. Let me write the implementation.',
+									role: 'assistant',
+								},
+							},
+						],
+						id: 'chatcmpl_prose',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// Turn 2: valid proposal envelope returned after steer
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: validEnvelope, role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_valid',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				nudgeEmptyTurn: true,
+				// S4 requires the response_format to have been sent (mode != none)
+				responseFormat: fmt,
+				structuredOutputMode: 'json_schema',
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write out.mjs.',
+				'You are helpful.',
+				registry,
+			);
+
+			assert.equal(completion.text, validEnvelope);
+			// Two turns: original + steer follow-up
+			assert.equal(server.recordings.length, 2);
+			// The steer message should appear in the second request
+			const secondReq = server.recordings[1].requestBody;
+			const steerMsg = secondReq.messages.find(
+				(m) =>
+					m.role === 'user' &&
+					typeof m.content === 'string' &&
+					m.content.includes('no JSON proposal envelope was found'),
+			);
+			assert.ok(steerMsg, 'steer message should appear in second request');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('S4: does not send steer when stop turn has a valid proposal (no false positive)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-s4-has-proposal-'));
+		const validEnvelope = JSON.stringify({
+			status: 'OK',
+			files: [{ path: 'b.mjs', content: 'export const b = 2;' }],
+			patches: [],
+			messages: [],
+			scratchpad: '',
+		});
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: validEnvelope, role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_ok',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				nudgeEmptyTurn: true,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write b.mjs.',
+				'You are helpful.',
+				registry,
+			);
+
+			// Only one turn — steer should not fire when a proposal is present
+			assert.equal(server.recordings.length, 1);
+			assert.equal(completion.text, validEnvelope);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('S4: does not send steer when nudgeEmptyTurn is false', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-s4-no-nudge-'));
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: {
+									content: 'Just a prose answer, no proposal here.',
+									role: 'assistant',
+								},
+							},
+						],
+						id: 'chatcmpl_prose',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				nudgeEmptyTurn: false, // steer disabled
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Just answer.',
+				'You are helpful.',
+				registry,
+			);
+
+			// Only one turn — no steer without nudgeEmptyTurn
+			assert.equal(server.recordings.length, 1);
+			assert.equal(completion.text, 'Just a prose answer, no proposal here.');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('S4: does not send steer when mode is none (responseFormatForRequest returns null)', async () => {
+		// When structuredOutputMode is 'none' (local model default), S4 must not
+		// fire even if content is non-empty with no proposal — the model was never
+		// told to return JSON, so prose is a valid response.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-s4-mode-none-'));
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: {
+									content: 'A prose answer with no JSON proposal.',
+									role: 'assistant',
+								},
+							},
+						],
+						id: 'chatcmpl_prose_local',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				nudgeEmptyTurn: true,
+				// structuredOutputMode 'none' means mode=none, so S4 must not fire
+				structuredOutputMode: 'none',
+				responseFormat: {
+					type: 'json_schema',
+					json_schema: { name: 'kodr_proposal' },
+				},
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Just answer.',
+				'You are helpful.',
+				registry,
+			);
+
+			// Only one turn — S4 must not fire for local mode='none'
+			assert.equal(server.recordings.length, 1);
+			assert.equal(completion.text, 'A prose answer with no JSON proposal.');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('S4: sends at most one steer even if second response also lacks a proposal', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-s4-once-'));
+		const fmt = {
+			type: 'json_schema',
+			json_schema: {
+				name: 'kodr_proposal',
+				strict: true,
+				schema: { type: 'object' },
+			},
+		};
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1: prose, no proposal — triggers steer
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'I am thinking...', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_prose1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// Turn 2: still no proposal — must NOT trigger another steer
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Still thinking...', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_prose2',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				nudgeEmptyTurn: true,
+				responseFormat: fmt,
+				structuredOutputMode: 'json_schema',
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write something.',
+				'You are helpful.',
+				registry,
+			);
+
+			// Exactly 2 turns: original + one steer. No third.
+			assert.equal(server.recordings.length, 2);
+			assert.equal(completion.text, 'Still thinking...');
+		} finally {
+			await server.close();
+		}
+	});
 });

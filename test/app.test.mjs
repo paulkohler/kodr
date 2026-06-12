@@ -1039,10 +1039,12 @@ describe('run', () => {
 			assert.match(chatRequest.messages[0].content, /^You are Kodr/u);
 			assert.equal(chatRequest.messages[1].content, 'Summarize the repo.');
 			assert.equal(chatRequest.model, 'qwen/qwen3.6-35b-a3b');
-			assert.equal(chatRequest.response_format.type, 'json_schema');
+			// S2: local models use structuredOutput: 'none' (measured default —
+			// json_schema stalls both qwen3.6 and gemma-4 on LM Studio).
 			assert.equal(
-				chatRequest.response_format.json_schema.name,
-				'kodr_proposal',
+				chatRequest.response_format,
+				undefined,
+				'local model should not get response_format (structuredOutput: none)',
 			);
 		} finally {
 			await server.close();

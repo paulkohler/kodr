@@ -369,8 +369,23 @@ function firstJsonOpenFrom(text, from) {
 	return Math.min(objectIndex, arrayIndex);
 }
 
+// Decode-artifact substitution rules: model-emitted pseudo-tokens that corrupt
+// JSON and must be replaced with their intended character. The list is ordered
+// by specificity (longest match first) and is meant to grow one entry per newly
+// observed model artifact.
+//
+// Provenance: <|"|> confirmed in google/gemma-4-26b-a4b output on LM Studio
+// (~/src/kodr-testing/phase-111/gemma-smoke-2/.kodr/runs/2026-06-12T06-54-00.966Z/response.md,
+// 7 occurrences — every fenced envelope corrupted). The token appears where an
+// escaped or closing quote belongs inside a JSON string value.
+const DECODE_ARTIFACT_RULES = [{ from: '<|"|>', to: '"' }];
+
 function repairJsonText(text) {
-	return repairRawStringControlChars(text).replaceAll('\\`', '`');
+	let result = text;
+	for (const rule of DECODE_ARTIFACT_RULES) {
+		result = result.replaceAll(rule.from, rule.to);
+	}
+	return repairRawStringControlChars(result).replaceAll('\\`', '`');
 }
 
 function repairRawStringControlChars(text) {

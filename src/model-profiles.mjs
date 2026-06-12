@@ -9,6 +9,19 @@ export const DEFAULT_CONTEXT_WINDOW = 32768;
 export const DEFAULT_COMPLETION_RESERVE = 4096;
 export const DEFAULT_TIMEOUT_MS = 600000;
 
+// Valid structuredOutput modes. 'json_object' is excluded for LM Studio profiles
+// (the server returns HTTP 400 — only 'json_schema' or 'text' are accepted).
+// Measured defaults: 'none' for all local/LM Studio profiles (json_schema stalls
+// both qwen3.6 and gemma-4; phase 110 + phase 112 A/B). Cloud/OpenRouter: 'json_schema'.
+const VALID_STRUCTURED_OUTPUT_MODES = new Set([
+	'json_schema',
+	'json_object',
+	'none',
+]);
+
+// Providers whose server rejects json_object with HTTP 400.
+const NO_JSON_OBJECT_PROVIDERS = new Set(['local', 'lmstudio']);
+
 const DEFAULT_PROFILES = [
 	{
 		baseUrl: LMSTUDIO_BASE_URL,
@@ -18,6 +31,7 @@ const DEFAULT_PROFILES = [
 		nativeToolCalls: true,
 		provider: 'local',
 		responseEnvelope: 'json',
+		structuredOutput: 'none',
 		timeoutMs: 600000,
 	},
 	{
@@ -28,6 +42,7 @@ const DEFAULT_PROFILES = [
 		nativeToolCalls: true,
 		provider: 'lmstudio',
 		responseEnvelope: 'json',
+		structuredOutput: 'none',
 		timeoutMs: 600000,
 	},
 	{
@@ -38,6 +53,7 @@ const DEFAULT_PROFILES = [
 		nativeToolCalls: true,
 		provider: 'local',
 		responseEnvelope: 'json',
+		structuredOutput: 'none',
 		timeoutMs: 600000,
 	},
 	{
@@ -48,6 +64,7 @@ const DEFAULT_PROFILES = [
 		nativeToolCalls: true,
 		provider: 'lmstudio',
 		responseEnvelope: 'json',
+		structuredOutput: 'none',
 		timeoutMs: 600000,
 	},
 	{
@@ -58,6 +75,7 @@ const DEFAULT_PROFILES = [
 		nativeToolCalls: true,
 		provider: 'ollama',
 		responseEnvelope: 'json',
+		structuredOutput: 'none',
 		timeoutMs: 600000,
 	},
 	{
@@ -68,6 +86,7 @@ const DEFAULT_PROFILES = [
 		nativeToolCalls: true,
 		provider: 'openrouter',
 		responseEnvelope: 'json_schema',
+		structuredOutput: 'json_schema',
 		timeoutMs: 600000,
 	},
 ];
@@ -81,7 +100,9 @@ export function loadModelProfiles(cwd = process.cwd(), env = {}) {
 	if (configPath) {
 		const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
 		for (const profile of parseConfiguredProfiles(parsed)) {
-			addProfile(profiles, normalizeProfile(profile, configPath));
+			const normalized = normalizeProfile(profile, configPath);
+			validateStructuredOutputMode(normalized);
+			addProfile(profiles, normalized);
 		}
 	}
 	return { configPath, profiles };
@@ -133,6 +154,7 @@ export function applyModelProfileDefaults(
 		modelProfile: serializeProfile(profile),
 		nativeToolCalls: profile.nativeToolCalls,
 		responseEnvelopeMode: profile.responseEnvelope,
+		structuredOutputMode: profile.structuredOutput,
 	};
 	if (!options._timeoutSet) {
 		next.timeoutMs = profile.timeoutMs;
@@ -174,6 +196,16 @@ function addProfile(profiles, profile) {
 function normalizeProfile(profile, source) {
 	const provider = normalizeProvider(profile.provider || 'local');
 	const id = stringValue(profile.id || profile.model || '*');
+	// Default structuredOutput based on provider: local/lmstudio/ollama → none
+	// (measured: json_schema stalls; json_object HTTP 400 on LM Studio),
+	// openrouter → json_schema (current cloud behavior).
+	const defaultStructuredOutput =
+		provider === 'openrouter' ? 'json_schema' : 'none';
+	const structuredOutput = VALID_STRUCTURED_OUTPUT_MODES.has(
+		profile.structuredOutput,
+	)
+		? profile.structuredOutput
+		: defaultStructuredOutput;
 	return {
 		baseUrl: stringValue(profile.baseUrl || defaultBaseUrl(provider)),
 		completionReserve: positiveInteger(
@@ -190,8 +222,24 @@ function normalizeProfile(profile, source) {
 		provider,
 		responseEnvelope: stringValue(profile.responseEnvelope || 'json'),
 		source,
+		structuredOutput,
 		timeoutMs: positiveInteger(profile.timeoutMs, DEFAULT_TIMEOUT_MS),
 	};
+}
+
+// Loudly reject a profile config that would send json_object to LM Studio.
+// LM Studio only accepts 'json_schema' or 'text'; json_object returns HTTP 400.
+function validateStructuredOutputMode(profile) {
+	if (
+		NO_JSON_OBJECT_PROVIDERS.has(profile.provider) &&
+		profile.structuredOutput === 'json_object'
+	) {
+		throw new Error(
+			`Profile "${profile.provider}/${profile.id}" sets structuredOutput: "json_object" ` +
+				`but LM Studio rejects that mode (HTTP 400 — only "json_schema" or "text" are ` +
+				`accepted). Use "json_schema" or "none" instead.`,
+		);
+	}
 }
 
 function parseConfiguredProfiles(parsed) {
@@ -265,6 +313,7 @@ function serializeProfile(profile) {
 		provider: profile.provider,
 		responseEnvelope: profile.responseEnvelope,
 		source: profile.source,
+		structuredOutput: profile.structuredOutput,
 		timeoutMs: profile.timeoutMs,
 	};
 }

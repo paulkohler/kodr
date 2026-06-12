@@ -1190,6 +1190,7 @@ export async function main(argv, io) {
 			io.stdout.write(`Probe ok\n`);
 			io.stdout.write(`Run: ${result.runDir}\n`);
 			io.stdout.write(`Model: ${result.model}\n`);
+			io.stdout.write(`Structured output: ${result.structuredOutputMode}\n`);
 			io.stdout.write(`Reply: ${result.reply}\n`);
 		}
 		return { ok: true, command: 'probe', result };
@@ -2212,6 +2213,7 @@ async function probe(options, io) {
 		ok: true,
 		reply,
 		runDir,
+		structuredOutputMode: options.structuredOutputMode || 'none',
 	};
 
 	await writeJson(join(runDir, 'result.json'), result);
@@ -3712,16 +3714,14 @@ async function runHealingIfNeeded({
 		return null;
 	}
 
+	// S2: repair turns follow the profile's structuredOutput mode like every other
+	// turn type. For local profiles the measured default is 'none', which means
+	// response_format is never attached — same wire behavior as before (phase 110
+	// decision), now enforced by the profile rule rather than a special case.
 	const repairOptions = {
 		...options,
 		maxRetries: Math.min(options.maxRetries, 1),
 		maxTurns: Math.min(Math.max(options.maxTurns, 1), 4),
-		// Strict json_schema enforcement breaks repair turns on local reasoning
-		// models (LM Studio returns empty content or stalls in constrained
-		// decode; phase 110 A/B: 6s correct fix without schema vs empty/240s+
-		// with). The repair prompt demands the JSON envelope in text and
-		// extraction is defensive, so the schema adds risk without value here.
-		responseFormat: undefined,
 	};
 
 	return runSelfHealingLoop(cwd, testResult, {

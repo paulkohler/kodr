@@ -293,3 +293,62 @@ describe('extractProposal — E2: multi-envelope merge', () => {
 		assert.equal(extractProposal(42), null);
 	});
 });
+
+describe('repairJsonText — S3: decode-artifact pseudo-token repair', () => {
+	// Provenance: google/gemma-4-26b-a4b on LM Studio emits the literal token
+	// <|"|> in place of escaped/closing quotes inside JSON string values. Confirmed
+	// in ~/src/kodr-testing/phase-111/gemma-smoke-2/.kodr/runs/2026-06-12T06-54-00.966Z/response.md
+	// (7 occurrences, every fenced envelope corrupted). The fixture below reproduces
+	// the pattern from that response.
+	it('replaces <|"|> pseudo-token with a real quote in a JSON string', () => {
+		// Simulated gemma-4 output: closing quote of the "content" string value is
+		// replaced by <|"|>, so the JSON is malformed. After repair it parses.
+		// Pattern: "content": "code here<|"|>  →  "content": "code here"
+		const gemmaArtifact =
+			'```json\n' +
+			'{\n' +
+			'  "status": "OK",\n' +
+			'  "messages": [],\n' +
+			'  "files": [{"path": "src/index.mjs", "content": "console.log(42);<|"|>}],\n' +
+			'  "patches": [],\n' +
+			'  "scratchpad": "done"\n' +
+			'}\n' +
+			'```';
+
+		// After repair, <|"|> becomes " so the JSON parses correctly.
+		const result = extractJson(gemmaArtifact);
+		assert.ok(result, 'should extract JSON after decode-artifact repair');
+		assert.ok(
+			Array.isArray(result.files),
+			'files array should be present after repair',
+		);
+		assert.equal(result.files[0].path, 'src/index.mjs');
+		assert.equal(result.files[0].content, 'console.log(42);');
+	});
+
+	it('repairs closing <|"|> that replaces the structural closing quote', () => {
+		// In real gemma-4 output, <|"|> substitutes for a structural " in the JSON
+		// syntax — typically the closing quote of a string value. After repair the
+		// JSON becomes valid and parses normally.
+		// Example pattern: "content": "some code<|"|> → "content": "some code"
+		const text = '{"key": "hello world<|"|>, "other": "value"}';
+		// After replacement: {"key": "hello world", "other": "value"}
+		const result = extractJson(text);
+		assert.equal(result.key, 'hello world');
+		assert.equal(result.other, 'value');
+	});
+
+	it('repairs a complete gemma-style proposal envelope containing <|"|> artifacts', () => {
+		// Pattern from gemma-smoke-2: closing structural quotes replaced by <|"|>.
+		// "status": "OK<|"|>  →  "status": "OK"
+		const envelope =
+			'```json\n' +
+			'{"status":"OK<|"|>,"messages":[],"files":[],"patches":[],"scratchpad":"done<|"|>}\n' +
+			'```';
+
+		const proposal = extractProposal(envelope);
+		assert.ok(proposal, 'should extract proposal after decode-artifact repair');
+		assert.equal(proposal.status, 'OK');
+		assert.equal(proposal.scratchpad, 'done');
+	});
+});
