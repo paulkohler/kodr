@@ -1,1 +1,0 @@
-Repair only these generated files: tests/health.test.js, tests/utils.js, tests/users.test.js, tests/documents.test.js, README.md. The failing test helper is named fetch and recursively calls itself; rename helpers to request or call globalThis.fetch. Ensure tests do not start duplicate servers unnecessarily and README appears once. Produce changed files or patches only.

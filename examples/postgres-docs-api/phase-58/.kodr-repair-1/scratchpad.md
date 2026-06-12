@@ -1,1 +1,0 @@
-The previous generation was cut off mid-file for src/routes/documents.js. I need to: 1) Check what files exist, 2) Complete documents.js, 3) Create test files with proper helpers (not shadowing global fetch), 4) Fix README, 5) Ensure clean server lifecycle. Let me first check the workspace state.
