@@ -99,8 +99,21 @@ bytes that failed in production.
 - [x] Blog post `blog/115-structural-decode-artifact-rules.md`.
 - [x] NEXT.md entries shipped by this phase deleted (FIFO).
 - [x] Version bumped to 0.0.115; suite green; committed.
-- [ ] Live validation (run after the commit, sequential): smoke + greenfield
+- [x] Live validation (run after the commit, sequential): smoke + greenfield
       run on `mistralai/devstral-small-2-2512` (new model — establish its
       baseline and watch for a signature corruption of its own), then a
       greenfield re-run on `openai/gpt-oss-20b` to observe whether the
       boundary rules rescue a live run end-to-end.
+      RESULT — gpt-oss: RESCUED. First fully green end-to-end gpt-oss run:
+      the stray-quote rule fired on a live response (`"},"{"path":`), 2
+      files applied, tests green; `write_file` calls dropped from 4–5 to 2
+      under the R4 steering. devstral: blocked first by a new harness bug
+      (it emits `arguments:""` on tool calls; LM Studio 500s when that is
+      echoed in history — fixed in the same validation window, commit
+      25e8279, normalize-outbound-only), then re-run clean (no crashes, 8
+      turns) but devstral never conforms to the envelope: it persistently
+      calls a nonexistent `files` tool, ignores R4 steering and the
+      repeat-call detector, and ends with an empty stop. Model
+      compatibility finding, queued in NEXT.md. Evidence:
+      `~/src/kodr-testing/phase-115/` (OPERATOR-REPORT.md),
+      `process/failures.jsonl` phase 115-validation.
