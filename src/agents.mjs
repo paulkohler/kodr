@@ -125,13 +125,30 @@ export function parseAgentMarkdown(raw, sourcePath, tier = 'project') {
 	};
 }
 
+// Claude Code model aliases that look like bare strings but are not real model
+// ids — they map to Claude models, not to local/openrouter endpoints.
+// These must be intercepted BEFORE parseSlashModelSpec, which accepts any
+// bare string as a valid model id (e.g. 'sonnet' → { model: 'sonnet', provider: '' }).
+const CLAUDE_CODE_MODEL_ALIASES = new Set([
+	'sonnet',
+	'opus',
+	'haiku',
+	'fable',
+	'inherit',
+]);
+
 // Attempt to resolve the agent model frontmatter value.
-// If it looks like a valid kodr model spec (provider/model or bare model id),
-// return it as modelSpec. Aliases like "sonnet", "opus" that don't map to a
-// kodr provider are kept as modelAlias and ignored with a warning at use time.
+// Claude Code aliases (sonnet, opus, haiku, fable, inherit) are stored as
+// modelAlias and never used as kodr model specs.  A frontmatter model that
+// contains a slash (e.g. 'lmstudio/qwen3-35b' or 'google/gemma-4-26b-a4b')
+// or does not match a known alias is treated as a real model spec.
 function resolveModelSpec(value) {
 	if (!value) {
 		return { modelAlias: '', modelSpec: '' };
+	}
+	// Check known Claude Code aliases first (case-insensitive).
+	if (CLAUDE_CODE_MODEL_ALIASES.has(value.toLowerCase())) {
+		return { modelAlias: value, modelSpec: '' };
 	}
 	try {
 		const parsed = parseSlashModelSpec(value);

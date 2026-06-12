@@ -1,4 +1,4 @@
-import { open, readdir } from 'node:fs/promises';
+import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { listContextFiles } from './context-packer.mjs';
@@ -110,17 +110,37 @@ export async function discoverSkillsTiered(cwd, options = {}) {
 			const parsed = parseSkillMarkdown(skillPath, loaded.raw);
 			parsed.includedBytes = loaded.includedBytes;
 			parsed.truncated = loaded.truncated;
-			parsed.tier = label;
+			// Re-attribute workspace-tier entries that live under a project dot-folder
+			// prefix (.kodr/skills/ or .claude/skills/) so they report tier 'project'
+			// rather than 'workspace'. The context-packer path and content are
+			// unchanged — only the display label is corrected.
+			const effectiveTier =
+				label === 'workspace' &&
+				relPath !== undefined &&
+				(relPath.startsWith('.kodr/skills/') ||
+					relPath.startsWith('.claude/skills/'))
+					? 'project'
+					: label;
+			parsed.tier = effectiveTier;
 			parsed.absoluteRoot = absoluteRoot;
 
 			if (seen.has(parsed.name)) {
-				shadows.push({
-					name: parsed.name,
-					shadowPath: absPath,
-					shadowTier: label,
-					winnerPath: seen.get(parsed.name).path,
-					winnerTier: seen.get(parsed.name).tier,
-				});
+				const winner = seen.get(parsed.name);
+				// Suppress self-shadows: workspace-reclassified project entries are
+				// re-encountered by the project tier scan. If absPath resolves to the
+				// same file as the winner path (via cwd join), skip the shadow record.
+				const winnerAbsPath = winner.path.startsWith('/')
+					? winner.path
+					: join(cwd, winner.path);
+				if (absPath !== winnerAbsPath) {
+					shadows.push({
+						name: parsed.name,
+						shadowPath: absPath,
+						shadowTier: label,
+						winnerPath: winner.path,
+						winnerTier: winner.tier,
+					});
+				}
 			} else {
 				seen.set(parsed.name, parsed);
 				usedBytes += loaded.includedBytes;
@@ -185,6 +205,9 @@ export async function discoverSkills(cwd, options = {}) {
 
 // Scan a dot-folder skills directory (<dir>/<name>/SKILL.md).
 // Returns [{ absPath, absoluteRoot }]. Silently skips missing dirs.
+// Symlinked subdirectories are followed via stat() so that skill dirs
+// installed by symlink (e.g. Claude Code's own ~/.claude/skills/) are
+// discovered correctly.
 async function scanDotFolderSkills(baseDir) {
 	let entries;
 	try {
@@ -195,8 +218,21 @@ async function scanDotFolderSkills(baseDir) {
 
 	const results = [];
 	for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-		if (!entry.isDirectory()) continue;
 		const skillDir = join(baseDir, entry.name);
+		if (entry.isDirectory()) {
+			// Real directory — proceed directly.
+		} else if (entry.isSymbolicLink()) {
+			// Symlink — stat() follows the link; skip if target is not a directory.
+			let targetStat;
+			try {
+				targetStat = await stat(skillDir);
+			} catch {
+				continue;
+			}
+			if (!targetStat.isDirectory()) continue;
+		} else {
+			continue;
+		}
 		const skillFile = join(skillDir, 'SKILL.md');
 		results.push({ absPath: skillFile, absoluteRoot: skillDir });
 	}

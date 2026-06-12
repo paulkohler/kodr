@@ -86,3 +86,21 @@ Three issues surfaced during the test run:
 ## The origin story
 
 Kodr's own `.claude/agents/` specs were invisible to Kodr. The tool that phases are implemented with could not consume the role files that describe how to implement phases. This phase closes that gap. The next time someone runs `kodr run --agent kodr-phase-implementer "implement phase 117"`, the agent persona will be in the system prompt.
+
+## Validation findings
+
+Live validation ran against the phase-116 commit. The core features passed: skill and agent discovery, skill in packed context, agent persona injection, envelope blocks intact. Three issues came back.
+
+**The symlink irony.** `~/.claude/skills/` has fifteen entries. One is a real directory (`agentic-diagrams`). Fourteen are symlinks. Kodr's new dot-folder scanner discovered exactly one skill — because `entry.isDirectory()` from `readdir({withFileTypes:true})` returns `false` for symbolic links.
+
+The feature designed to eliminate symlink farms couldn't see through symlinks. Claude Code manages skill installations with symlinks. `scanDotFolderSkills` was written to handle the layout Claude Code produces, and immediately couldn't handle it.
+
+The fix: when `entry.isSymbolicLink()`, call `stat()` — which follows the link — and check whether the target is a directory. Symlinked skill dirs now work. Symlinks to non-directories are still skipped. After the fix, running `kodr skills --skills-dir ~/.claude/skills` reports all fifteen skills instead of one.
+
+**The alias that slipped through.** The phase spec says Claude Code model aliases like `sonnet` should be stored as `modelAlias` and ignored with a warning. The implementation called `parseSlashModelSpec('sonnet')` and got back `{model: 'sonnet', provider: ''}` — a truthy `parsed.model` — and classified `sonnet` as a valid model spec. The alias-warning branch never fired.
+
+`parseSlashModelSpec` is not to blame. It accepts bare strings because bare model IDs are valid kodr specs (e.g., `qwen3.6-35b-a3b`). The caller needed to filter known aliases before delegating to the parser. Added `CLAUDE_CODE_MODEL_ALIASES = new Set(['sonnet', 'opus', 'haiku', 'fable', 'inherit'])`, checked case-insensitively before the `parseSlashModelSpec` call.
+
+The practical consequence without the fix: a user who creates an agent file with `model: sonnet`, then runs `kodr run --agent <name>` without an explicit `--model`, would have kodr send `model: "sonnet"` to the local LM Studio server. That request would fail.
+
+**The tier label.** Skills placed under `.claude/skills/` inside the workspace were labeled `workspace` instead of `project`. The workspace tree walk finds them first. The cosmetic fix reclassifies any workspace-tier entry whose relative path starts with `.kodr/skills/` or `.claude/skills/` as `project`. A self-shadow suppressor prevents the project-tier scan from creating a spurious duplicate record for the same file.

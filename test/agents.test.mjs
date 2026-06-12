@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -237,8 +237,9 @@ describe('parseAgentMarkdown', () => {
 		assert.equal(spec.name, 'my-agent');
 		assert.equal(spec.description, 'Does useful things');
 		assert.equal(spec.rawModelSpec, 'sonnet');
-		// 'sonnet' is not a valid kodr spec (no known provider prefix with model id)
-		assert.equal(spec.modelSpec, 'sonnet'); // parseSlashModelSpec treats bare string as model id with no provider
+		// 'sonnet' is a Claude Code alias — stored as modelAlias, not modelSpec
+		assert.equal(spec.modelSpec, '');
+		assert.equal(spec.modelAlias, 'sonnet');
 		assert.equal(spec.body, 'You are a helpful assistant.');
 		assert.equal(spec.tier, 'project');
 	});
@@ -257,11 +258,34 @@ describe('parseAgentMarkdown', () => {
 	});
 
 	it('model alias kept as metadata, not a provider spec', () => {
-		// 'sonnet' is treated as a bare model id by parseSlashModelSpec
-		const raw = '---\nname: x\nmodel: sonnet\n---\nbody';
-		const spec = parseAgentMarkdown(raw, '/a.md', 'project');
-		// parseSlashModelSpec returns { model: 'sonnet', provider: '' } — it's a valid spec
-		assert.equal(spec.rawModelSpec, 'sonnet');
+		// All Claude Code aliases must be stored as modelAlias, not modelSpec
+		for (const alias of [
+			'sonnet',
+			'opus',
+			'haiku',
+			'fable',
+			'inherit',
+			'Sonnet',
+			'OPUS',
+		]) {
+			const raw = `---\nname: x\nmodel: ${alias}\n---\nbody`;
+			const spec = parseAgentMarkdown(raw, '/a.md', 'project');
+			assert.equal(
+				spec.rawModelSpec,
+				alias,
+				`rawModelSpec should equal input for alias ${alias}`,
+			);
+			assert.equal(
+				spec.modelSpec,
+				'',
+				`modelSpec should be empty for alias ${alias}`,
+			);
+			assert.equal(
+				spec.modelAlias,
+				alias,
+				`modelAlias should equal input for alias ${alias}`,
+			);
+		}
 	});
 
 	it('body is empty string when no body after frontmatter', () => {
@@ -513,5 +537,205 @@ describe('skill resource jail for out-of-tree skills', () => {
 			s.absoluteRoot.startsWith(fakeHome),
 			`absoluteRoot should be under fakeHome; got: ${s.absoluteRoot}`,
 		);
+	});
+});
+
+// ── BUG-116-01: symlinked skill directories are discovered ───────────────────
+
+describe('scanDotFolderSkills follows symlinked directories (BUG-116-01)', () => {
+	it('discovers a skill dir installed as a symlink', async () => {
+		// Create a real skill directory tree elsewhere in tmp
+		const realSkillsRoot = await mkdtemp(join(tmpdir(), 'kodr-real-skills-'));
+		const realSkillDir = join(realSkillsRoot, 'linked-skill');
+		await mkdir(realSkillDir, { recursive: true });
+		await writeFile(
+			join(realSkillDir, 'SKILL.md'),
+			'---\nname: linked-skill\ndescription: Installed via symlink\n---\nSymlink skill body',
+			'utf8',
+		);
+
+		// Create a skills dir where the skill entry is a symlink to the real dir
+		const symlinkSkillsDir = await mkdtemp(join(tmpdir(), 'kodr-sym-skills-'));
+		let symlinkCreated = true;
+		try {
+			await symlink(realSkillDir, join(symlinkSkillsDir, 'linked-skill'));
+		} catch {
+			symlinkCreated = false;
+		}
+
+		if (!symlinkCreated) {
+			// Symlink creation failed (unusual on darwin/linux) — skip with note
+			process.stdout.write(
+				'# SKIP: symlink creation failed on this platform\n',
+			);
+			return;
+		}
+
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cwd-'));
+		const { skills } = await discoverSkillsTiered(cwd, {
+			homeDir: cwd,
+			skillsDirs: [symlinkSkillsDir],
+		});
+
+		const s = skills.find((sk) => sk.name === 'linked-skill');
+		assert.ok(s, 'symlinked skill directory should be discovered');
+		assert.equal(s.tier, 'override');
+		assert.equal(s.description, 'Installed via symlink');
+	});
+
+	it('skips symlinks whose target is not a directory', async () => {
+		// A symlink pointing to a file (not a dir) must be ignored
+		const tmpRoot = await mkdtemp(join(tmpdir(), 'kodr-sym-file-'));
+		const targetFile = join(tmpRoot, 'not-a-dir.txt');
+		await writeFile(targetFile, 'hello', 'utf8');
+		const symlinkSkillsDir = join(tmpRoot, 'skills-dir');
+		await mkdir(symlinkSkillsDir, { recursive: true });
+		let symlinkCreated = true;
+		try {
+			await symlink(targetFile, join(symlinkSkillsDir, 'bad-link'));
+		} catch {
+			symlinkCreated = false;
+		}
+		if (!symlinkCreated) {
+			process.stdout.write(
+				'# SKIP: symlink creation failed on this platform\n',
+			);
+			return;
+		}
+
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cwd-'));
+		const { skills } = await discoverSkillsTiered(cwd, {
+			homeDir: cwd,
+			skillsDirs: [symlinkSkillsDir],
+		});
+		// bad-link points to a file — must not appear as a skill
+		assert.equal(
+			skills.length,
+			0,
+			'file-symlink should not be treated as skill dir',
+		);
+	});
+});
+
+// ── BUG-116-02: Claude Code model aliases are never used as model specs ───────
+
+describe('Claude Code model aliases treated as metadata (BUG-116-02)', () => {
+	it('sonnet/opus/haiku/fable/inherit are stored as modelAlias, not modelSpec', () => {
+		for (const alias of ['sonnet', 'opus', 'haiku', 'fable', 'inherit']) {
+			const raw = `---\nname: a\nmodel: ${alias}\n---\nbody`;
+			const spec = parseAgentMarkdown(raw, '/a.md', 'project');
+			assert.equal(spec.modelSpec, '', `${alias}: modelSpec must be empty`);
+			assert.equal(
+				spec.modelAlias,
+				alias,
+				`${alias}: modelAlias must equal alias`,
+			);
+		}
+	});
+
+	it('case-insensitive: Sonnet and OPUS treated as aliases', () => {
+		for (const alias of ['Sonnet', 'OPUS', 'Haiku']) {
+			const raw = `---\nname: a\nmodel: ${alias}\n---\nbody`;
+			const spec = parseAgentMarkdown(raw, '/a.md', 'project');
+			assert.equal(spec.modelSpec, '', `${alias}: modelSpec must be empty`);
+			assert.equal(spec.modelAlias, alias);
+		}
+	});
+
+	it('real provider-prefixed model ids are still treated as model specs', () => {
+		const ids = [
+			'lmstudio/google/gemma-4-26b-a4b',
+			'google/gemma-4-26b-a4b',
+			'qwen/qwen3.6-35b-a3b',
+			'ollama/llama3',
+		];
+		for (const id of ids) {
+			const raw = `---\nname: a\nmodel: ${id}\n---\nbody`;
+			const spec = parseAgentMarkdown(raw, '/a.md', 'project');
+			assert.equal(spec.modelAlias, '', `${id}: modelAlias must be empty`);
+			assert.equal(spec.modelSpec, id, `${id}: modelSpec must equal id`);
+		}
+	});
+
+	it('when agent has alias and no --model, model is NOT set to the alias', async () => {
+		// Simulate what app.mjs does: if agentSpec.modelAlias && !agentSpec.modelSpec
+		// → warn and skip. The alias must never land in options.model.
+		const raw = '---\nname: a\nmodel: sonnet\n---\nbody';
+		const spec = parseAgentMarkdown(raw, '/a.md', 'project');
+
+		// Mimic app.mjs agent resolution logic
+		const options = { model: 'qwen/qwen3.6-35b-a3b', modelExplicit: false };
+		if (spec.modelSpec && !options.modelExplicit) {
+			options.model = spec.modelSpec; // should NOT happen
+		}
+
+		// options.model must NOT be 'sonnet'
+		assert.notEqual(
+			options.model,
+			'sonnet',
+			'sonnet alias must not propagate to options.model',
+		);
+		assert.equal(
+			options.model,
+			'qwen/qwen3.6-35b-a3b',
+			'default model unchanged when agent uses alias',
+		);
+	});
+});
+
+// ── OBSERVATION-116-01: project dot-folder skill tier label ──────────────────
+
+describe('project dot-folder skills report tier project (OBSERVATION-116-01)', () => {
+	it('skill under .claude/skills/ in cwd gets tier project, not workspace', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-obs-'));
+		const skillDir = join(cwd, '.claude', 'skills', 'proj-skill');
+		await mkdir(skillDir, { recursive: true });
+		await writeFile(
+			join(skillDir, 'SKILL.md'),
+			'---\nname: proj-skill\ndescription: Project tier skill\n---\nProject body',
+			'utf8',
+		);
+
+		const fakeHome = await mkdtemp(join(tmpdir(), 'kodr-home-'));
+		const { skills, shadows } = await discoverSkillsTiered(cwd, {
+			homeDir: fakeHome,
+		});
+
+		const s = skills.find((sk) => sk.name === 'proj-skill');
+		assert.ok(s, 'proj-skill found');
+		assert.equal(
+			s.tier,
+			'project',
+			'skill under .claude/skills/ should report tier project',
+		);
+		// No self-shadow: the skill should not shadow itself
+		const selfShadow = shadows.find((sh) => sh.name === 'proj-skill');
+		assert.ok(!selfShadow, 'no self-shadow for project dot-folder skill');
+	});
+
+	it('skill under .kodr/skills/ in cwd gets tier project, not workspace', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-obs2-'));
+		const skillDir = join(cwd, '.kodr', 'skills', 'kodr-skill');
+		await mkdir(skillDir, { recursive: true });
+		await writeFile(
+			join(skillDir, 'SKILL.md'),
+			'---\nname: kodr-skill\ndescription: Kodr project skill\n---\nKodr body',
+			'utf8',
+		);
+
+		const fakeHome = await mkdtemp(join(tmpdir(), 'kodr-home-'));
+		const { skills, shadows } = await discoverSkillsTiered(cwd, {
+			homeDir: fakeHome,
+		});
+
+		const s = skills.find((sk) => sk.name === 'kodr-skill');
+		assert.ok(s, 'kodr-skill found');
+		assert.equal(
+			s.tier,
+			'project',
+			'skill under .kodr/skills/ should report tier project',
+		);
+		const selfShadow = shadows.find((sh) => sh.name === 'kodr-skill');
+		assert.ok(!selfShadow, 'no self-shadow for .kodr/skills/ skill');
 	});
 });
