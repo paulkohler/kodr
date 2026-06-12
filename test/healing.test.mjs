@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	buildRepairContext,
@@ -77,8 +77,10 @@ describe('one-shot healing', () => {
 	it('runs bounded repair turns until verification passes', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-loop-'));
 		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		// 5s rather than 1s: under full-suite load the node --check spawn can
+		// exceed 1s and make the loop's verification (and the test) flake.
 		const failed = await runVerification(cwd, 'node --check bad.mjs', {
-			timeoutMs: 1000,
+			timeoutMs: 5000,
 		});
 
 		const result = await runSelfHealingLoop(cwd, failed, {
@@ -93,7 +95,7 @@ describe('one-shot healing', () => {
 				};
 			},
 			testCommand: 'node --check bad.mjs',
-			timeoutMs: 1000,
+			timeoutMs: 5000,
 		});
 
 		assert.equal(result.healed, true);
@@ -218,6 +220,8 @@ describe('one-shot healing', () => {
 			timeoutMs: 1000,
 		});
 
+		// D3 (revised): writes apply and verification decides; a second failing
+		// wrong-path turn exhausts the loop.
 		assert.equal(result.stopReason, 'wrong_path_exhausted');
 		assert.equal(result.healed, false);
 		assert.equal(result.wrongPathWarnings, 1);
@@ -252,6 +256,224 @@ describe('one-shot healing', () => {
 			).name,
 			'HealingTimeoutError',
 		);
+	});
+
+	// D1: instrumentation
+	it('D1: repair entry records durationMs, promptChars, completionChars, usage, timeoutMs', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-d1-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 1,
+			repairTurn: async ({ prompt }) => ({
+				text: repairText('bad.mjs'),
+				raw: {
+					loopBudget: { usage: { promptTokens: 10, completionTokens: 5 } },
+				},
+			}),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		const entry = result.repairs[0];
+		assert.equal(
+			typeof entry.durationMs,
+			'number',
+			'durationMs should be a number',
+		);
+		assert.ok(entry.durationMs >= 0, 'durationMs should be non-negative');
+		assert.equal(
+			typeof entry.promptChars,
+			'number',
+			'promptChars should be a number',
+		);
+		assert.ok(
+			entry.promptChars > 0,
+			'promptChars should reflect prompt length',
+		);
+		assert.equal(
+			typeof entry.completionChars,
+			'number',
+			'completionChars should be a number',
+		);
+		assert.ok(
+			entry.completionChars > 0,
+			'completionChars should reflect completion length',
+		);
+		assert.equal(
+			typeof entry.timeoutMs,
+			'number',
+			'timeoutMs should be a number',
+		);
+		// usage from raw.loopBudget.usage
+		assert.deepEqual(entry.usage, { promptTokens: 10, completionTokens: 5 });
+	});
+
+	it('D1: timeout repair entry records elapsedMs and timeoutMs, turn-meta.json written', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-d1-timeout-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 1,
+			repairTurn: () => new Promise(() => {}),
+			testCommand: 'node --check bad.mjs',
+			turnTimeoutMs: 20,
+		});
+
+		const entry = result.repairs[0];
+		assert.equal(entry.stopReason, 'timeout');
+		assert.equal(
+			typeof entry.elapsedMs,
+			'number',
+			'elapsedMs on timeout entry',
+		);
+		assert.equal(
+			typeof entry.durationMs,
+			'number',
+			'durationMs on timeout entry',
+		);
+		assert.equal(entry.completionChars, 0, 'completionChars is 0 on timeout');
+		assert.equal(entry.usage, null, 'usage is null on timeout');
+		assert.equal(entry.timeoutMs, 20, 'timeoutMs matches configured value');
+
+		// turn-meta.json should also be written
+		const meta = JSON.parse(
+			await readFile(
+				join(cwd, '.kodr-repairs', 'turn-1', 'turn-meta.json'),
+				'utf8',
+			),
+		);
+		assert.equal(meta.completionChars, 0);
+		assert.equal(meta.timeoutMs, 20);
+		assert.equal(meta.usage, null);
+	});
+
+	// D2: capped default timeout
+	it('D2: default turnTimeoutMs is capped at 240000 when timeoutMs is larger', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-d2-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		let capturedTimeoutMs;
+		// Use a short timeout for the test itself — we intercept the call
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs-d2'),
+			maxTurns: 1,
+			repairTurn: async ({ prompt }) => {
+				// The turnTimeoutMs is recorded in the repair entry
+				return { text: repairText('bad.mjs') };
+			},
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 600_000, // larger than 240_000 cap
+		});
+
+		// The entry should record timeoutMs === 240_000 (the cap)
+		const entry = result.repairs[0];
+		assert.equal(
+			entry.timeoutMs,
+			240_000,
+			'timeoutMs should be capped at 240000',
+		);
+	});
+
+	it('D2: explicit turnTimeoutMs overrides the cap', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-d2-explicit-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs-d2e'),
+			maxTurns: 1,
+			repairTurn: async () => ({ text: repairText('bad.mjs') }),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 600_000,
+			turnTimeoutMs: 300_000, // explicit override
+		});
+
+		const entry = result.repairs[0];
+		assert.equal(
+			entry.timeoutMs,
+			300_000,
+			'explicit turnTimeoutMs should not be capped',
+		);
+	});
+
+	// D3 (revised): wrong-path writes apply, verification is ground truth, and
+	// wrong-path is post-verification steering only.
+	it('D3: failing wrong-path writes apply, warn once, then exhaust the loop', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-d3-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const prompts = [];
+		let counter = 0;
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-d3'),
+			maxTurns: 3,
+			repairTurn: async ({ prompt }) => {
+				prompts.push(prompt);
+				counter += 1;
+				return { text: repairText(`unrelated${counter}.mjs`) };
+			},
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 1000,
+		});
+
+		assert.equal(result.stopReason, 'wrong_path_exhausted');
+		assert.equal(result.healed, false);
+		assert.equal(result.repairs.length, 2);
+		// Writes were applied — gating never blocks measurement.
+		assert.equal(result.repairs[0].writes.applied, true);
+		assert.equal(result.repairs[0].stopReason, '');
+		assert.equal(result.repairs[1].stopReason, 'wrong_path_exhausted');
+		// Second prompt carries the path warning
+		assert.match(prompts[1], /Path warning/u);
+		assert.match(prompts[1], /bad\.mjs/u);
+	});
+
+	it('D3: partial overlap (at least one write in-set) applies normally', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-d3-partial-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-d3p'),
+			maxTurns: 1,
+			// proposal includes the failing path + an unrelated path — should not be gated
+			repairTurn: async () => ({
+				text: JSON.stringify({
+					files: [
+						{ path: 'bad.mjs', content: 'export const value = 1;\n' },
+						{ path: 'extra.mjs', content: '// extra\n' },
+					],
+				}),
+			}),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.stopReason, 'healed');
 	});
 });
 
@@ -445,6 +667,155 @@ describe('buildRepairContext — F6 no ghost files', () => {
 				`file ${file.path} should have non-empty content`,
 			);
 		}
+	});
+});
+
+describe('wrong-path verification is ground truth', () => {
+	it('heals when a write outside the known set makes verification pass', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-truth-'));
+		await mkdir(join(cwd, 'test'), { recursive: true });
+		// The test reads ./data.json without importing it, so data.json is not
+		// derivable into the repair context — a repair creating it is
+		// "wrong-path" by the heuristic but genuinely fixes the failure.
+		await writeFile(
+			join(cwd, 'test', 'data.test.mjs'),
+			[
+				"import assert from 'node:assert/strict';",
+				"import { readFileSync } from 'node:fs';",
+				"import { test } from 'node:test';",
+				"test('data file exists', () => {",
+				"\tassert.equal(JSON.parse(readFileSync('data.json', 'utf8')).ok, true);",
+				'});',
+				'',
+			].join('\n'),
+		);
+		const failed = await runVerification(cwd, 'node --test', {
+			timeoutMs: 5000,
+		});
+		assert.equal(failed.ok, false);
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 2,
+			repairTurn: async () => ({
+				text: JSON.stringify({
+					files: [{ content: '{"ok": true}\n', path: 'data.json' }],
+				}),
+			}),
+			testCommand: 'node --test',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.healed, true);
+		assert.equal(result.stopReason, 'healed');
+	});
+});
+
+describe('buildRepairContext — D6 imported source files', () => {
+	it('D6: includes the source file the failing test imports', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-import-'));
+		await mkdir(join(cwd, 'test'), { recursive: true });
+		await mkdir(join(cwd, 'src'), { recursive: true });
+		await writeFile(
+			join(cwd, 'test', 'math.test.mjs'),
+			"import { add } from '../src/math.mjs';\n",
+		);
+		await writeFile(
+			join(cwd, 'src', 'math.mjs'),
+			'export function add(a, b) {\n\treturn a + b + 1;\n}\n',
+		);
+
+		const context = await buildRepairContext(cwd, {
+			ok: false,
+			stderr: `not ok 1 - ${cwd}/test/math.test.mjs`,
+			stdout: '',
+		});
+
+		const paths = context.files.map((f) => f.path);
+		assert.ok(
+			paths.includes('src/math.mjs'),
+			`imported source should be included, got: ${paths}`,
+		);
+	});
+
+	it('D6: resolves extensionless relative imports via .mjs and .js', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-extless-'));
+		await mkdir(join(cwd, 'test'), { recursive: true });
+		await mkdir(join(cwd, 'lib'), { recursive: true });
+		await writeFile(
+			join(cwd, 'test', 'util.test.mjs'),
+			"const util = require('../lib/util');\n",
+		);
+		await writeFile(join(cwd, 'lib', 'util.js'), 'module.exports = {};\n');
+
+		const context = await buildRepairContext(cwd, {
+			ok: false,
+			stderr: `not ok 1 - ${cwd}/test/util.test.mjs`,
+			stdout: '',
+		});
+
+		const paths = context.files.map((f) => f.path);
+		assert.ok(
+			paths.includes('lib/util.js'),
+			`extensionless require target should be included, got: ${paths}`,
+		);
+	});
+
+	it('D6: ignores imports that escape the workspace', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-escape-'));
+		await mkdir(join(cwd, 'test'), { recursive: true });
+		await writeFile(
+			join(cwd, 'test', 'leak.test.mjs'),
+			"import secret from '../../outside.mjs';\n",
+		);
+		await writeFile(
+			join(dirname(cwd), 'outside.mjs'),
+			'export default "outside";\n',
+		);
+
+		const context = await buildRepairContext(cwd, {
+			ok: false,
+			stderr: `not ok 1 - ${cwd}/test/leak.test.mjs`,
+			stdout: '',
+		});
+
+		for (const file of context.files) {
+			assert.ok(
+				!file.path.includes('outside'),
+				`workspace-escaping import must not be included: ${file.path}`,
+			);
+		}
+		await rm(join(dirname(cwd), 'outside.mjs'), { force: true });
+	});
+
+	it('D6: caps the number of imported files added', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-cap-'));
+		await mkdir(join(cwd, 'test'), { recursive: true });
+		await mkdir(join(cwd, 'src'), { recursive: true });
+		const imports = [];
+		for (let i = 0; i < 8; i++) {
+			await writeFile(join(cwd, 'src', `m${i}.mjs`), `export const v=${i};\n`);
+			imports.push(`import { v as v${i} } from '../src/m${i}.mjs';`);
+		}
+		await writeFile(
+			join(cwd, 'test', 'many.test.mjs'),
+			`${imports.join('\n')}\n`,
+		);
+
+		const context = await buildRepairContext(cwd, {
+			ok: false,
+			stderr: `not ok 1 - ${cwd}/test/many.test.mjs`,
+			stdout: '',
+		});
+
+		const importedCount = context.files.filter((f) =>
+			f.path.startsWith('src/m'),
+		).length;
+		assert.ok(
+			importedCount <= 5,
+			`at most 5 imported files should be added, got ${importedCount}`,
+		);
 	});
 });
 

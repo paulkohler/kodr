@@ -49,8 +49,9 @@ describe('verification runner', () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-'));
 		await writeFile(join(cwd, 'ok.mjs'), 'export {};\n', 'utf8');
 
+		// 10s rather than 1s: real spawns can exceed 1s under full-suite load.
 		const result = await runVerification(cwd, 'node --check ok.mjs', {
-			timeoutMs: 1000,
+			timeoutMs: 10000,
 		});
 
 		assert.equal(result.ok, true);
@@ -140,8 +141,9 @@ describe('verification runner', () => {
 			'utf8',
 		);
 
+		// 10s rather than 1s: npm startup alone can exceed 1s under load.
 		const result = await runVerification(cwd, 'npm test', {
-			timeoutMs: 1000,
+			timeoutMs: 10000,
 		});
 
 		assert.equal(result.exitCode, 0);

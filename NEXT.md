@@ -20,7 +20,15 @@ local model.
 
 These are follow-ups the recent phases explicitly left open.
 
-_(In flight: Phase 110 Repair-Loop Discipline — see phases/110-repair-loop-discipline.md. Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
+_(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
+
+### Structured Output On Reasoning Models
+
+Phase 110 proved strict `json_schema` response_format breaks qwen3.6 repair
+turns on LM Studio (empty content or constrained-decode stalls) and stripped
+it from healing. The main no-tools path still sends it. Decide per
+model-profile whether structured output should be on at all for reasoning
+models, and re-measure the main path the same way (A/B on identical prompts).
 
 ### Dogfooding Round 2
 

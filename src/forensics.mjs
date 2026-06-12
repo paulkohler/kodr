@@ -251,14 +251,34 @@ export function buildCausalStory(analysis) {
 	// 6. Healing
 	// ------------------------------------------------------------------
 	if (repairs !== null && repairs !== undefined) {
-		const list = Array.isArray(repairs) ? repairs : [];
+		// repairs.json is the full result object; the repairs array is nested.
+		// Accept both for backwards compatibility with older fixtures.
+		const repairsObj = Array.isArray(repairs) ? null : repairs;
+		const list = Array.isArray(repairs)
+			? repairs
+			: Array.isArray(repairs?.repairs)
+				? repairs.repairs
+				: [];
+		const overallStop = repairsObj?.stopReason || list.at(-1)?.stopReason || '';
 		const turns = list.length;
-		const last = list.at(-1);
-		const stopReason = last?.stopReason || '';
-		const ok = stopReason === 'healed' || last?.ok === true;
+		const ok = overallStop === 'healed' || list.at(-1)?.ok === true;
+
+		// D2: for timeout, include elapsed and limit in the detail line
+		let detail = `healingTurns=${turns} stopReason=${overallStop || '(none)'}`;
+		if (overallStop === 'timeout') {
+			const timedOut = list.find((r) => r.stopReason === 'timeout');
+			const elapsed = timedOut?.elapsedMs ?? timedOut?.durationMs;
+			const limit = timedOut?.timeoutMs;
+			const turnIdx = timedOut?.index ?? turns;
+			const elapsedSec =
+				elapsed != null ? `${Math.round(elapsed / 1000)}s` : '?';
+			const limitSec = limit != null ? `${Math.round(limit / 1000)}s` : '?';
+			detail = `healingTurns=${turns} stopReason=timeout repair turn ${turnIdx} timed out after ${elapsedSec} (limit ${limitSec})`;
+		}
+
 		steps.push({
 			artifactPath: join(runDir, 'repairs', 'repairs.json'),
-			detail: `healingTurns=${turns} stopReason=${stopReason || '(none)'}`,
+			detail,
 			phase: 'Healing',
 			status: turns === 0 ? 'skip' : ok ? 'ok' : 'fail',
 		});

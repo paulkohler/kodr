@@ -61,6 +61,16 @@ and let the next turn retry. One rejection per loop — a second wrong-path
 proposal ends the loop (no-progress). This converts the observed
 waste-a-turn-then-time-out pattern into a steered retry.
 
+**Revised during D4.** Heal trial 4 disproved this design: the model produced
+the exactly correct patch to `src/math.mjs` in 5.8s, and the wrong-path
+machinery (the pre-existing post-apply `continue` and the gate above) made
+the loop blind to it — the fix applied but verification never re-ran, and the
+run reported "not healed" over a healed workspace. The settled design:
+**verification is ground truth; path heuristics may steer but never gate.**
+Writes always apply, verification always runs, wrong-path is judged against
+the full repair-context set (failing tests + siblings + D6 imports) and only
+produces a warning on a failing turn, exhausting the loop on the second.
+
 ### D4 — Reproduce and diagnose the 600s stall (manual, recorded)
 
 Re-run the greenfield wordfreq test under `~/src/kodr-testing/phase-110/`
@@ -69,6 +79,21 @@ with D1 instrumentation and the default LM Studio model. Record in
 (completion length? structured-output overhead? stall?). If the cause is
 structured-output constraint overhead, note it in the model profile docs; a
 fix may become its own phase.
+
+### D6 — Repair context includes what the failing test imports (added during D4)
+
+The first live heal trial exposed the loop's real functional defect: the
+repair model correctly diagnosed the bug from test output, asked to read
+`src/math.mjs`, and could not — repair context only contained failing-test
+files and a naive same-directory sibling guess. In no-tools mode the model has
+no way to see the code it must fix, so it returns empty proposals until
+no-progress ends the loop (observed: two 5s turns, zero writes). This also
+explains round 1's wrong-path writes: the model was guessing at unseen files.
+
+Fix: `buildRepairContext` resolves relative import specifiers from in-context
+files (ESM `import`/dynamic `import()`/CJS `require`), jailed to the
+workspace, extensionless specifiers trying `.mjs` then `.js`, capped at 5
+files / 24KB so repair prompts stay small.
 
 ### D5 — Verdict: keep or remove healing (decision gate)
 
@@ -93,13 +118,15 @@ produce a useful applied repair on a real local-model run within its budget?
 
 ## Done criteria
 
-- [ ] D1: repair artifacts record duration, sizes, usage, and timeout config
-- [ ] D2: capped default repair timeout; timeout surfaced in summary, `kodr why`, and user output
-- [ ] D3: wrong-path proposals rejected-with-feedback once, loop ends on repeat
-- [ ] node:test coverage for D1–D3
-- [ ] D4: greenfield re-run under phase-110/ with findings recorded in `process/failures.jsonl`
-- [ ] D5: keep-or-remove verdict recorded in `process/decisions.jsonl` (and acted on)
-- [ ] `npm run format`, `npm test`, `npm run check` clean
-- [ ] Blog post
-- [ ] Roadmap + version bump
-- [ ] Commit
+- [x] D1: repair artifacts record duration, sizes, usage, and timeout config (plus per-turn `turn-meta.json`)
+- [x] D2: capped default repair timeout (`min(--timeout-ms, 240s)`, `--repair-timeout-ms` override); timeout surfaced in summary, `kodr why`, and user output
+- [x] D3: settled as "verification is ground truth" — wrong-path steers (warn once, exhaust on repeat) but never gates; judged against the full repair-context set
+- [x] D6: repair context resolves the failing test's relative imports (capped 5 files / 24KB, workspace-jailed)
+- [x] Repair turns no longer send `response_format` (json_schema breaks reasoning models on LM Studio — A/B evidenced)
+- [x] node:test coverage for each change (healing 37, forensics +3, ground-truth regression test)
+- [x] D4: trials under `~/src/kodr-testing/phase-110/` — greenfield re-run passed without healing; brownfield rename and cli-flag passed first-try; heal trials 1–6 drove three root-cause fixes; findings in `process/failures.jsonl`
+- [x] D5: verdict **KEEP** recorded in `process/decisions.jsonl` — heal trials 5 and 6 healed the planted bug end-to-end in one ~5s repair turn
+- [x] `npm run format`, `npm test`, `npm run check` clean
+- [x] Blog post
+- [x] Roadmap + version bump
+- [x] Commit

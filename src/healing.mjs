@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { dirname, join, normalize, relative, sep } from 'node:path';
 import { writeJson, writeText } from './artifacts.mjs';
 import { renderDiagnosticsForModel } from './harness.mjs';
 import { buildWorkspaceContext } from './context-packer.mjs';
@@ -9,6 +9,9 @@ import { prepareChanges, prepareWrites } from './safe-writes.mjs';
 import { runVerification } from './verification-runner.mjs';
 
 const DEFAULT_REPAIR_TURN_TIMEOUT_MS = 60000;
+// D2: cap per-turn default to 4 minutes — a repair turn that needs more than
+// this on a local model is not converging.
+const MAX_DEFAULT_REPAIR_TURN_TIMEOUT_MS = 240_000;
 const SNAPSHOT_EXCLUDE_DIRS = new Set([
 	'.git',
 	'.kodr',
@@ -134,10 +137,14 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 	const maxTurns = Math.max(1, options.maxTurns || 2);
 	let diagnostics = options.diagnostics || null;
 	const diagnosticsProvider = options.diagnosticsProvider || null;
-	const turnTimeoutMs =
-		options.turnTimeoutMs ||
-		options.timeoutMs ||
-		DEFAULT_REPAIR_TURN_TIMEOUT_MS;
+	// D2: explicit option wins; otherwise cap the per-turn default to 4 min so
+	// a hung local model call doesn't silently consume the full run timeout.
+	const turnTimeoutMs = options.turnTimeoutMs
+		? options.turnTimeoutMs
+		: Math.min(
+				options.timeoutMs || DEFAULT_REPAIR_TURN_TIMEOUT_MS,
+				MAX_DEFAULT_REPAIR_TURN_TIMEOUT_MS,
+			);
 	const artifactDir = options.artifactDir || join(cwd, '.kodr', 'repairs');
 	const repairs = [];
 	let verification = failedTest;
@@ -186,6 +193,7 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 		await writeJson(join(turnDir, 'repair-context.json'), repairContext);
 
 		let completion;
+		const turnStart = Date.now();
 		try {
 			completion = await withTimeout(
 				options.repairTurn({ index, prompt, repairContext, scratchpad }),
@@ -193,23 +201,56 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 				`Repair turn ${index} exceeded ${turnTimeoutMs}ms`,
 			);
 		} catch (error) {
-			const timeout = serializeError(error);
-			await writeJson(join(turnDir, 'error.json'), timeout);
-			stopReason =
-				error instanceof HealingTimeoutError ? 'timeout' : 'repair_error';
+			const elapsedMs = Date.now() - turnStart;
+			const serialized = serializeError(error);
+			const isTimeout = error instanceof HealingTimeoutError;
+			// D1: persist elapsed and limit alongside the error for diagnostics
+			const errorDetail = {
+				...serialized,
+				elapsedMs,
+				timeoutMs: turnTimeoutMs,
+			};
+			await writeJson(join(turnDir, 'error.json'), errorDetail);
+			// D1: turn-meta.json captures per-turn timing even on failure
+			await writeJson(join(turnDir, 'turn-meta.json'), {
+				completionChars: 0,
+				durationMs: elapsedMs,
+				promptChars: prompt.length,
+				timeoutMs: turnTimeoutMs,
+				usage: null,
+			});
+			stopReason = isTimeout ? 'timeout' : 'repair_error';
 			repairs.push({
-				error: timeout,
+				completionChars: 0,
+				durationMs: elapsedMs,
+				elapsedMs,
+				error: errorDetail,
 				index,
 				ok: false,
+				promptChars: prompt.length,
 				stopReason,
+				timeoutMs: turnTimeoutMs,
+				usage: null,
 			});
 			break;
 		}
+		const durationMs = Date.now() - turnStart;
 
 		await writeText(join(turnDir, 'response.md'), completion.text || '');
 		if (completion.raw) {
 			await writeJson(join(turnDir, 'raw-response.json'), completion.raw);
 		}
+		// D1: capture turn-level timing/sizing for diagnostics
+		const completionChars = (completion.text || '').length;
+		const promptChars = prompt.length;
+		const usage = completion.raw?.loopBudget?.usage ?? null;
+		await writeJson(join(turnDir, 'turn-meta.json'), {
+			completionChars,
+			durationMs,
+			promptChars,
+			timeoutMs: turnTimeoutMs,
+			usage,
+		});
 
 		let proposal;
 		try {
@@ -219,10 +260,15 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			await writeJson(join(turnDir, 'error.json'), serialized);
 			stopReason = 'invalid_proposal';
 			repairs.push({
+				completionChars,
+				durationMs,
 				error: serialized,
 				index,
 				ok: false,
+				promptChars,
 				stopReason,
+				timeoutMs: turnTimeoutMs,
+				usage,
 			});
 			break;
 		}
@@ -231,6 +277,11 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			scratchpad = proposal.scratchpad;
 		}
 
+		// D3 (revised during D4): no pre-apply path gating. The first heal trial
+		// proved heuristic gates that block measurement are wrong — a "wrong
+		// path" write can be the correct fix (the failing path is the symptom,
+		// not the bug). Writes always apply, verification always runs, and
+		// wrong-path is post-verification steering only.
 		const writes = await prepareChanges(cwd, proposal, { apply });
 		await writeJson(join(turnDir, 'writes.json'), writes);
 
@@ -243,20 +294,30 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			if (noProgressCount >= 2) {
 				stopReason = 'no-progress-exhausted';
 				repairs.push({
+					completionChars,
+					durationMs,
 					index,
 					ok: false,
+					promptChars,
 					snapshotDiff,
 					stopReason,
+					timeoutMs: turnTimeoutMs,
+					usage,
 					writes,
 				});
 				break;
 			}
 			// First no-progress turn: escalate (loop continues, next turn uses escalation prompt)
 			repairs.push({
+				completionChars,
+				durationMs,
 				index,
 				ok: false,
+				promptChars,
 				snapshotDiff,
 				stopReason: '',
+				timeoutMs: turnTimeoutMs,
+				usage,
 				writes,
 			});
 			continue;
@@ -265,41 +326,17 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 		// Reset no-progress counter when the model makes actual changes
 		noProgressCount = 0;
 
-		if (!touchesFailurePath(writes.writes, repairContext.failurePaths)) {
-			wrongPathCount += 1;
-			if (wrongPathCount >= 2) {
-				stopReason = 'wrong_path_exhausted';
-				repairs.push({
-					index,
-					ok: false,
-					snapshotDiff,
-					stopReason,
-					wrongPathSiblings: writes.writes.map((w) => ({
-						expected: repairContext.failurePaths[0] || '',
-						actual: w.path,
-					})),
-					writes,
-				});
-				break;
-			}
-			// First wrong-path turn: warn (loop continues, next turn uses wrongPathWarning)
-			wrongPathWarnings += 1;
-			repairs.push({
-				index,
-				ok: false,
-				snapshotDiff,
-				stopReason: '',
-				wrongPathSiblings: writes.writes.map((w) => ({
-					expected: repairContext.failurePaths[0] || '',
-					actual: w.path,
-				})),
-				writes,
-			});
-			continue;
+		// Wrong-path is judged against the full repair-context set: failing-test
+		// paths plus every file shown to the model (siblings, imported sources).
+		// Editing an imported source file is the normal repair shape — the
+		// failing path is where the symptom is, not where the bug lives.
+		const touchesKnownPath = touchesFailurePath(
+			writes.writes,
+			allowedRepairPaths(repairContext),
+		);
+		if (touchesKnownPath) {
+			wrongPathCount = 0;
 		}
-
-		// Successful path touch — reset wrong-path counter
-		wrongPathCount = 0;
 
 		// Re-run diagnostics on changed files if a provider was given
 		if (diagnosticsProvider) {
@@ -326,12 +363,65 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 		const turnTestDelta = computeTestDelta(previousVerification, verification);
 		await writeJson(join(turnDir, 'test-delta.json'), turnTestDelta);
 
+		// Verification is ground truth: a wrong-path write that passes tests is
+		// healed. Wrong-path bookkeeping only applies to writes that missed the
+		// known set AND failed to fix anything.
+		if (!verification.ok && !touchesKnownPath) {
+			wrongPathCount += 1;
+			const wrongPathSiblings = writes.writes.map((w) => ({
+				actual: w.path,
+				expected: repairContext.failurePaths[0] || '',
+			}));
+			if (wrongPathCount >= 2) {
+				stopReason = 'wrong_path_exhausted';
+				repairs.push({
+					completionChars,
+					durationMs,
+					index,
+					ok: false,
+					promptChars,
+					snapshotDiff,
+					stopReason,
+					testDelta: turnTestDelta,
+					tests: verification,
+					timeoutMs: turnTimeoutMs,
+					usage,
+					wrongPathSiblings,
+					writes,
+				});
+				break;
+			}
+			// First wrong-path turn: warn (next turn's prompt carries the warning)
+			wrongPathWarnings += 1;
+			repairs.push({
+				completionChars,
+				durationMs,
+				index,
+				ok: false,
+				promptChars,
+				snapshotDiff,
+				stopReason: '',
+				testDelta: turnTestDelta,
+				tests: verification,
+				timeoutMs: turnTimeoutMs,
+				usage,
+				wrongPathSiblings,
+				writes,
+			});
+			continue;
+		}
+
 		repairs.push({
+			completionChars,
+			durationMs,
 			index,
 			ok: verification.ok,
+			promptChars,
 			snapshotDiff,
 			testDelta: turnTestDelta,
 			tests: verification,
+			timeoutMs: turnTimeoutMs,
+			usage,
 			writes,
 		});
 
@@ -373,6 +463,13 @@ export async function buildRepairContext(cwd, testResult, options = {}) {
 			}
 		}
 	}
+
+	// D6: a failing test usually imports the code under repair. Without those
+	// files the no-tools repair model can only ask to "read the source" and the
+	// loop dead-ends (observed live in the phase 110 heal trial). Resolve
+	// relative import specifiers from the files already in context, bounded so
+	// repair prompts stay small.
+	await addImportedSourceFiles(cwd, contextFiles);
 
 	return {
 		diagnostics: options.diagnostics || null,
@@ -511,6 +608,51 @@ async function fileExists(path) {
 	}
 }
 
+const MAX_IMPORTED_CONTEXT_FILES = 5;
+const MAX_IMPORTED_CONTEXT_BYTES = 24_000;
+
+// D6: pull relative import targets of in-context files into the repair
+// context. Only relative specifiers are considered, resolution is jailed to
+// the workspace, and additions are capped by count and total bytes.
+async function addImportedSourceFiles(cwd, contextFiles) {
+	const importPattern =
+		/(?:import\s[^'"]*?from\s*|import\s*\(\s*|require\s*\(\s*|import\s+)['"](\.{1,2}\/[^'"]+)['"]/gu;
+	const seeds = [...contextFiles.entries()];
+	let added = 0;
+	let addedBytes = 0;
+	for (const [fromPath, content] of seeds) {
+		for (const match of content.matchAll(importPattern)) {
+			if (added >= MAX_IMPORTED_CONTEXT_FILES) return;
+			for (const candidate of resolveRelativeImport(cwd, fromPath, match[1])) {
+				if (contextFiles.has(candidate)) break;
+				const fileContent = await readFileIfExists(cwd, candidate);
+				if (fileContent === null) continue;
+				if (addedBytes + fileContent.length > MAX_IMPORTED_CONTEXT_BYTES) {
+					break;
+				}
+				contextFiles.set(candidate, fileContent);
+				added += 1;
+				addedBytes += fileContent.length;
+				break;
+			}
+		}
+	}
+}
+
+// Resolve a relative import specifier against the importing file's directory.
+// Returns cwd-relative candidate paths inside the workspace (empty when the
+// specifier escapes the workspace). Extensionless specifiers try .mjs and .js.
+function resolveRelativeImport(cwd, fromPath, specifier) {
+	const fromDir = dirname(join(cwd, fromPath));
+	const target = normalize(join(fromDir, specifier));
+	const root = normalize(cwd + sep);
+	if (!target.startsWith(root)) return [];
+	const relativePath = target.slice(root.length).replaceAll('\\', '/');
+	if (!relativePath) return [];
+	if (/\.[cm]?[jt]s$/u.test(relativePath)) return [relativePath];
+	return [`${relativePath}.mjs`, `${relativePath}.js`];
+}
+
 function siblingSourcePath(path) {
 	if (path.endsWith('.test.js')) return path.replace(/\.test\.js$/u, '.js');
 	if (path.endsWith('.test.mjs')) return path.replace(/\.test\.mjs$/u, '.mjs');
@@ -599,6 +741,16 @@ function touchesFailurePath(writes, failurePaths) {
 	}
 	const failures = new Set(failurePaths);
 	return writes.some((write) => failures.has(write.path));
+}
+
+// The set of paths a repair may legitimately touch: failing-test paths plus
+// every file included in the repair context (siblings, imported sources).
+function allowedRepairPaths(repairContext) {
+	const allowed = new Set(repairContext.failurePaths);
+	for (const file of repairContext.files || []) {
+		allowed.add(file.path);
+	}
+	return [...allowed];
 }
 
 function withTimeout(promise, timeoutMs, message) {

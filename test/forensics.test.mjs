@@ -284,6 +284,60 @@ describe('buildCausalStory', () => {
 			assert.ok(typeof step.detail === 'string', 'detail must be a string');
 		}
 	});
+
+	// D2: timeout detail in forensics Healing step
+	it('D2: healing step detail includes elapsed and limit on timeout', async () => {
+		const repairsObj = {
+			finalVerification: { ok: false },
+			healed: false,
+			repairs: [
+				{
+					completionChars: 0,
+					durationMs: 35000,
+					elapsedMs: 35000,
+					error: {
+						name: 'HealingTimeoutError',
+						message: 'timed out',
+						elapsedMs: 35000,
+						timeoutMs: 60000,
+					},
+					index: 1,
+					ok: false,
+					promptChars: 500,
+					stopReason: 'timeout',
+					timeoutMs: 60000,
+					usage: null,
+				},
+			],
+			stopReason: 'timeout',
+			wrongPathWarnings: 0,
+		};
+		const dir = await makeRunDir(tmp, 'run-heal-timeout', {
+			'summary.json': SUMMARY_OK,
+			'repairs/repairs.json': repairsObj,
+		});
+		const analysis = await loadRunAnalysis(dir);
+		const story = buildCausalStory(analysis);
+		const healStep = story.find((s) => s.phase === 'Healing');
+		assert.equal(healStep.status, 'fail');
+		assert.match(healStep.detail, /timeout/u);
+		assert.match(healStep.detail, /35s/u, 'should include elapsed seconds');
+		assert.match(healStep.detail, /60s/u, 'should include limit seconds');
+	});
+
+	it('D2: healing step handles legacy array repairs.json format', async () => {
+		// Older fixtures stored repairs.json as a plain array
+		const repairs = [{ ok: true, stopReason: 'healed', turn: 1 }];
+		const dir = await makeRunDir(tmp, 'run-heal-legacy', {
+			'summary.json': SUMMARY_OK,
+			'repairs/repairs.json': repairs,
+		});
+		const analysis = await loadRunAnalysis(dir);
+		const story = buildCausalStory(analysis);
+		const healStep = story.find((s) => s.phase === 'Healing');
+		assert.equal(healStep.status, 'ok');
+		assert.match(healStep.detail, /healingTurns=1/u);
+	});
 });
 
 // ---------------------------------------------------------------------------

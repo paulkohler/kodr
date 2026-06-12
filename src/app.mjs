@@ -229,6 +229,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		staged: 'auto',
 		subagentStages: false,
 		skipReview: false,
+		repairTimeoutMs: '',
 		reviewTimeoutMs: '',
 		tools: 'auto',
 		testCwd: '',
@@ -517,6 +518,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			arg === '--test' ||
 			arg === '--test-cwd' ||
 			arg === '--timeout-ms' ||
+			arg === '--repair-timeout-ms' ||
 			arg === '--review-timeout-ms' ||
 			arg === '--transcript-file' ||
 			arg === '--format' ||
@@ -731,6 +733,15 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		);
 	}
 	validateContextBudgetOptions(options);
+	if (
+		options.repairTimeoutMs !== '' &&
+		(!Number.isInteger(options.repairTimeoutMs) ||
+			options.repairTimeoutMs < 100)
+	) {
+		throw new CliError(
+			'--repair-timeout-ms must be an integer greater than or equal to 100',
+		);
+	}
 	if (
 		options.reviewTimeoutMs !== '' &&
 		(!Number.isInteger(options.reviewTimeoutMs) ||
@@ -957,6 +968,7 @@ OpenRouter:
   --no-staged          Disable automatic staged execution.
   --subagent-stages    Run planner, implementer, and reviewer as isolated tool agents.
   --no-review          Skip the advisory reviewer stage in --subagent-stages runs.
+  --repair-timeout-ms N  Per-turn repair model timeout. Default: min(--timeout-ms, 240000).
   --review-timeout-ms N  Reviewer model timeout. Default: min(--timeout-ms, ${DEFAULT_REVIEW_TIMEOUT_MS}).
   --install            Run controlled dependency install after applied writes.
                        Uses npm ci when package-lock.json exists, otherwise npm install.
@@ -2092,6 +2104,8 @@ function assignValue(options, flag, value) {
 	} else if (flag === '--timeout-ms') {
 		options.timeoutMs = Number(value);
 		options._timeoutSet = true;
+	} else if (flag === '--repair-timeout-ms') {
+		options.repairTimeoutMs = Number(value);
 	} else if (flag === '--review-timeout-ms') {
 		options.reviewTimeoutMs = Number(value);
 	} else if (flag === '--transcript-file') {
@@ -3699,6 +3713,12 @@ async function runHealingIfNeeded({
 		...options,
 		maxRetries: Math.min(options.maxRetries, 1),
 		maxTurns: Math.min(Math.max(options.maxTurns, 1), 4),
+		// Strict json_schema enforcement breaks repair turns on local reasoning
+		// models (LM Studio returns empty content or stalls in constrained
+		// decode; phase 110 A/B: 6s correct fix without schema vs empty/240s+
+		// with). The repair prompt demands the JSON envelope in text and
+		// extraction is defensive, so the schema adds risk without value here.
+		responseFormat: undefined,
 	};
 
 	return runSelfHealingLoop(cwd, testResult, {
@@ -3733,7 +3753,11 @@ async function runHealingIfNeeded({
 		},
 		testCommand: options.testCommand,
 		timeoutMs: options.timeoutMs,
-		turnTimeoutMs: options.timeoutMs,
+		// D2: explicit --repair-timeout-ms wins; otherwise healing.mjs applies
+		// the min(timeoutMs, 240_000) cap automatically.
+		...(options.repairTimeoutMs !== ''
+			? { turnTimeoutMs: options.repairTimeoutMs }
+			: {}),
 		commandRunner,
 	});
 }
@@ -4222,9 +4246,24 @@ function renderRunSummary(result) {
 
 	if (result.healingResult) {
 		lines.push('');
-		lines.push(
-			`Repairs: ${result.healingResult.healed ? 'healed' : 'not healed'} (${result.healingResult.stopReason})`,
-		);
+		const hr = result.healingResult;
+		if (hr.stopReason === 'timeout') {
+			// D2: surface elapsed and limit so the user knows what happened and
+			// how to raise the budget.
+			const timedOut = hr.repairs?.find((r) => r.stopReason === 'timeout');
+			const elapsed = timedOut?.elapsedMs ?? timedOut?.durationMs;
+			const limit = timedOut?.timeoutMs;
+			const elapsedSec =
+				elapsed != null ? `${Math.round(elapsed / 1000)}s` : '?';
+			const limitSec = limit != null ? `${Math.round(limit / 1000)}s` : '?';
+			lines.push(
+				`Repairs: not healed (timeout) — repair turn timed out after ${elapsedSec} (limit ${limitSec}). Raise with --repair-timeout-ms.`,
+			);
+		} else {
+			lines.push(
+				`Repairs: ${hr.healed ? 'healed' : 'not healed'} (${hr.stopReason})`,
+			);
+		}
 	}
 
 	if (result.installResult) {
