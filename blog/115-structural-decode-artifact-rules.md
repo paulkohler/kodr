@@ -59,3 +59,19 @@ The `DECODE_ARTIFACT_RULES` array is exported. Tests verify that `gemma-collapse
 Four saved raw responses from phases 113 and 114 are now fixture files in `test/fixtures/`. The offline replay tests feed the exact bytes that failed in production through `extractProposal` and assert the expected file paths are recovered. This is the strongest validation available without a live model — the same bytes, the same code path, no approximation.
 
 The gemma fixture recovers `logstats.mjs` but not `test/logstats.test.mjs`. That block's content string contains JavaScript with `"json"` inside single-quoted strings, which creates unescaped `"` characters that break JSON parsing even after structural repair. The R1 rule fires (5 times, recorded in `repairs`), and the blocks where repair is sufficient are recovered. The block that cannot be recovered after repair is a pre-existing limitation, not a regression.
+
+## Validation finding: devstral and the empty arguments crash
+
+A new model's first run produced a new failure mode.
+
+`mistralai/devstral-small-2-2512` called `list_files` on turn 1, which has no arguments. Instead of emitting `arguments: "{}"` — what every other model sends — it emitted `arguments: ""`. An empty string.
+
+The harness placed that tool_call verbatim into the conversation history and sent it back to LM Studio on turn 2. LM Studio returned HTTP 500.
+
+A proxy intercepted the request, patched `""` to `"{}"`, and replayed it. HTTP 200. The model's output was wrong; the wire was fine; the fix was purely local to message assembly.
+
+The repair is one function: `normalizeToolCallArguments()`, called when the assistant tool_calls message is pushed into history. Empty string, null, and missing arguments all become `"{}"`. The dispatch path already had this covered — `argsJson || '{}'` — but dispatch parses arguments for tool execution, not for conversation history. The two paths are correctly separate. Dispatch tolerates `""` locally. History must not emit it.
+
+The artifact is preserved. `raw-response.json` is written from `chatResponse.body` before any message assembly happens. The model's actual bytes stay on disk; only the outbound request body is corrected. This is the same principle behind every decode-artifact rule: never lie to the record, only fix the wire.
+
+Three phases of structural rules had established a pattern: models emit unexpected bytes, the harness breaks, a narrow targeted repair restores the round-trip. devstral's first contribution was a fourth variant — not in the response content, but in the tool_call arguments field itself. Same pattern, different slot.

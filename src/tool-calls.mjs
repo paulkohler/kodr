@@ -227,10 +227,16 @@ export async function completeWithToolCalls(
 
 			// Append the full assistant message (tool_calls array must be preserved
 			// in history for the API to accept the subsequent tool result messages).
+			// Normalize outbound tool_calls: some models (e.g. devstral-small-2-2512)
+			// emit arguments:"" instead of "{}". LM Studio returns HTTP 500 when the
+			// conversation history contains a tool_calls entry with arguments:"".
+			// Normalize to "{}" before the message enters history — the raw artifact
+			// (raw-response.json) is written from chatResponse.body, not messages, so
+			// the model's actual bytes are preserved in artifacts.
 			messages.push({
 				content: choice?.message?.content ?? null,
 				role: 'assistant',
-				tool_calls: toolCalls,
+				tool_calls: normalizeToolCallArguments(toolCalls),
 			});
 
 			if (toolCalls.length === 0) {
@@ -652,6 +658,29 @@ export async function safeCompleteWithToolCalls(...args) {
 		}
 		throw error;
 	}
+}
+
+// Normalize outbound tool_calls before they enter conversation history.
+// Some models (e.g. devstral-small-2-2512) emit arguments:"" (empty string)
+// instead of "{}". Servers such as LM Studio respond HTTP 500 when history
+// contains a tool_calls entry with arguments:"". Normalize empty/absent
+// arguments to "{}" so the conversation round-trips cleanly.
+// This does NOT affect raw-response.json artifacts — those are written from
+// chatResponse.body before messages are assembled.
+export function normalizeToolCallArguments(toolCalls) {
+	if (!Array.isArray(toolCalls)) {
+		return toolCalls;
+	}
+	return toolCalls.map((call) => {
+		const args = call?.function?.arguments;
+		if (args === '' || args == null) {
+			return {
+				...call,
+				function: { ...call.function, arguments: '{}' },
+			};
+		}
+		return call;
+	});
 }
 
 function result(

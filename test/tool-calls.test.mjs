@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import {
 	completeWithToolCalls,
 	createBuiltinRegistry,
+	normalizeToolCallArguments,
 	ToolCallError,
 	ToolRegistry,
 } from '../src/tool-calls.mjs';
@@ -1811,5 +1812,173 @@ describe('completeWithToolCalls', () => {
 		} finally {
 			await server.close();
 		}
+	});
+});
+
+// devstral empty-arguments normalization (phase-115-validation)
+describe('normalizeToolCallArguments', () => {
+	it('normalizes empty-string arguments to "{}"', () => {
+		// devstral-small-2-2512 emits arguments:"" instead of "{}"
+		const input = [
+			{
+				id: 'call_1',
+				type: 'function',
+				function: { name: 'list_files', arguments: '' },
+			},
+		];
+		const output = normalizeToolCallArguments(input);
+		assert.equal(output[0].function.arguments, '{}');
+		// Other fields are preserved
+		assert.equal(output[0].id, 'call_1');
+		assert.equal(output[0].function.name, 'list_files');
+	});
+
+	it('normalizes null/undefined arguments to "{}"', () => {
+		const withNull = [
+			{ id: 'c', type: 'function', function: { name: 'f', arguments: null } },
+		];
+		const withUndef = [{ id: 'c', type: 'function', function: { name: 'f' } }];
+		assert.equal(
+			normalizeToolCallArguments(withNull)[0].function.arguments,
+			'{}',
+		);
+		assert.equal(
+			normalizeToolCallArguments(withUndef)[0].function.arguments,
+			'{}',
+		);
+	});
+
+	it('leaves non-empty arguments unchanged', () => {
+		const input = [
+			{
+				id: 'c',
+				type: 'function',
+				function: { name: 'read_file', arguments: '{"path":"a.txt"}' },
+			},
+		];
+		const output = normalizeToolCallArguments(input);
+		assert.equal(output[0].function.arguments, '{"path":"a.txt"}');
+	});
+
+	it('handles empty array and non-array without throwing', () => {
+		assert.deepEqual(normalizeToolCallArguments([]), []);
+		assert.equal(normalizeToolCallArguments(null), null);
+		assert.equal(normalizeToolCallArguments(undefined), undefined);
+	});
+
+	// Integration: verify the outbound request body does not contain arguments:""
+	// when the model emits a tool_call with empty arguments (devstral pattern).
+	it('outbound request body has arguments:"{}" when model emits arguments:""', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-devstral-'));
+		await writeFile(join(cwd, 'hello.txt'), 'hi', 'utf8');
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1: devstral emits tool call with arguments:"" (empty string)
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_devstral',
+											type: 'function',
+											function: { name: 'list_files', arguments: '' },
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_devstral_1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// Turn 2: final answer
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Files listed.', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_devstral_2',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'mistralai/devstral-small-2-2512',
+				'List files.',
+				'You are helpful.',
+				registry,
+			);
+
+			assert.equal(completion.text, 'Files listed.');
+
+			// The second request body (turn 2) carries the conversation history.
+			// The assistant message in that history must have arguments:"{}" not "".
+			const secondReq = server.recordings[1].requestBody;
+			const assistantMsg = secondReq.messages.find(
+				(m) => m.role === 'assistant' && Array.isArray(m.tool_calls),
+			);
+			assert.ok(
+				assistantMsg,
+				'assistant message with tool_calls should be in turn-2 history',
+			);
+			const tc = assistantMsg.tool_calls[0];
+			assert.equal(
+				tc.function.arguments,
+				'{}',
+				'empty arguments must be normalized to "{}" in outbound history',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+describe('ToolRegistry dispatch - empty arguments', () => {
+	it('dispatch treats empty-string arguments as empty object (same as "{}")', async () => {
+		const registry = new ToolRegistry();
+		let receivedArgs;
+		registry.register('noop', {
+			description: 'No-op.',
+			parameters: { type: 'object', properties: {} },
+			handler: async (args) => {
+				receivedArgs = args;
+				return 'ok';
+			},
+		});
+		// "" and "{}" should both yield an empty object
+		await registry.dispatch('noop', '');
+		assert.deepEqual(receivedArgs, {});
+		await registry.dispatch('noop', '{}');
+		assert.deepEqual(receivedArgs, {});
 	});
 });
