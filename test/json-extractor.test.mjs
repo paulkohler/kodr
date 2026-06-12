@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import {
+	DECODE_ARTIFACT_RULES,
 	extractJson,
 	extractProposal,
 	findJsonText,
 } from '../src/json-extractor.mjs';
+
+// Helper: resolve fixture paths relative to this file's directory.
+const fixtureDir = new URL('../test/fixtures/', import.meta.url);
+function fixturePath(name) {
+	return new URL(name, fixtureDir).pathname;
+}
 
 describe('extractJson', () => {
 	it('extracts prose-wrapped JSON', () => {
@@ -350,5 +358,301 @@ describe('repairJsonText — S3: decode-artifact pseudo-token repair', () => {
 		assert.ok(proposal, 'should extract proposal after decode-artifact repair');
 		assert.equal(proposal.status, 'OK');
 		assert.equal(proposal.scratchpad, 'done');
+	});
+});
+
+// Phase 115: structural decode-artifact rules
+// R1 — gemma collapsed-key rule
+describe('repairJsonText — R1: gemma collapsed-key structural rule', () => {
+	// Provenance: ~/src/kodr-testing/phase-113/greenfield-logstats-1/.kodr/runs/2026-06-12T09-22-36.855Z/raw-response.json
+	// gemma collapses "key":"  into  "key:<|"|> — the blanket rule alone cannot fix this.
+
+	it('repairs "key:<|"|> collapsed artifact into "key":"', () => {
+		// After R1: "content:<|"|>  →  "content":"
+		// The blanket rule would have yielded "content:" (unquoted value) — still malformed.
+		const text =
+			'{"status":"OK","files":[{"path":"a.mjs","content:<|"|>console.log(1)"}],"patches":[],"messages":[],"scratchpad":""}';
+		const proposal = extractProposal(text);
+		assert.ok(proposal, 'proposal should be extracted after R1 repair');
+		assert.equal(proposal.files.length, 1);
+		assert.equal(proposal.files[0].path, 'a.mjs');
+		assert.equal(proposal.files[0].content, 'console.log(1)');
+	});
+
+	it('R1 fires before the blanket <|"|> rule so the key separator is not mangled', () => {
+		// If blanket fired first: "content:<|"|> → "content:" — value still unquoted.
+		// R1 must fire first: "content:<|"|> → "content":"
+		const text =
+			'{"status":"OK","files":[{"path":"x.mjs","content:<|"|>x"}],"patches":[],"messages":[],"scratchpad":""}';
+		const proposal = extractProposal(text);
+		assert.ok(
+			proposal,
+			'structural ordering should allow R1 to fix the separator',
+		);
+		assert.equal(proposal.files[0].content, 'x');
+	});
+
+	it('does not fire on valid JSON that already parses (no false positive)', () => {
+		// A valid envelope must parse cleanly without structural mutation.
+		const valid = JSON.stringify({
+			status: 'OK',
+			files: [{ path: 'ok.mjs', content: 'good' }],
+			patches: [],
+			messages: [],
+			scratchpad: '',
+		});
+		const proposal = extractProposal(valid);
+		assert.ok(proposal);
+		assert.equal(proposal.files[0].content, 'good');
+		// No structural repairs should have fired.
+		assert.equal(proposal._extractionMeta.repairs, undefined);
+	});
+});
+
+// R2 — gpt-oss array-boundary structural rules
+describe('repairJsonText — R2: gpt-oss array-boundary structural rules', () => {
+	// Provenance (R2a stray quote):
+	//   ~/src/kodr-testing/phase-113/transport-validation-gptoss/.kodr/runs/2026-06-12T11-41-44.327Z/raw-response.json
+	// Provenance (R2b missing brace, twice):
+	//   ~/src/kodr-testing/phase-114/ab-gptoss-newprompt/.kodr/runs/2026-06-12T12-07-32.733Z/raw-response.json
+	//   ~/src/kodr-testing/phase-114/ab2-gptoss/.kodr/runs/2026-06-12T12-25-15.658Z/raw-response.json
+
+	it('R2a: repairs stray-quote boundary },"{ → },{', () => {
+		// Observed: "},"{" between two files[] objects.
+		const text =
+			'{"status":"OK","files":[{"path":"a.mjs","content":"x"},"{"path":"b.mjs","content":"y"}],"patches":[],"messages":[],"scratchpad":""}';
+		const proposal = extractProposal(text);
+		assert.ok(proposal, 'proposal should be extracted after R2a repair');
+		const paths = proposal.files.map((f) => f.path);
+		assert.ok(paths.includes('a.mjs'), 'a.mjs should be present');
+		assert.ok(paths.includes('b.mjs'), 'b.mjs should be present');
+		assert.ok(
+			proposal._extractionMeta.repairs?.some(
+				(r) => r.ruleId === 'gpt-oss-stray-quote',
+			),
+			'gpt-oss-stray-quote repair should be recorded',
+		);
+	});
+
+	it('R2b: repairs missing-brace boundary },"key": → },{"key":', () => {
+		// Observed: "},"path":" between two files[] objects.
+		const text =
+			'{"status":"OK","files":[{"path":"a.mjs","content":"x"},"path":"b.mjs","content":"y"}],"patches":[],"messages":[],"scratchpad":""}';
+		const proposal = extractProposal(text);
+		assert.ok(proposal, 'proposal should be extracted after R2b repair');
+		const paths = proposal.files.map((f) => f.path);
+		assert.ok(paths.includes('a.mjs'), 'a.mjs should be present');
+		assert.ok(paths.includes('b.mjs'), 'b.mjs should be present');
+		assert.ok(
+			proposal._extractionMeta.repairs?.some(
+				(r) => r.ruleId === 'gpt-oss-missing-brace',
+			),
+			'gpt-oss-missing-brace repair should be recorded',
+		);
+	});
+
+	it('valid envelope containing },"path": inside a STRING VALUE is not corrupted', () => {
+		// The structural repair must only fire in the repair path (after a parse failure).
+		// A valid envelope with the pattern inside a string value must round-trip cleanly.
+		const valid = JSON.stringify({
+			status: 'OK',
+			files: [
+				{
+					path: 'test.mjs',
+					content: 'the pattern },"path": appears inside this string value',
+				},
+			],
+			patches: [],
+			messages: [],
+			scratchpad: '',
+		});
+		const proposal = extractProposal(valid);
+		assert.ok(proposal);
+		assert.equal(proposal.files.length, 1);
+		assert.equal(
+			proposal.files[0].content,
+			'the pattern },"path": appears inside this string value',
+		);
+		// No structural repairs should fire on valid JSON.
+		assert.equal(proposal._extractionMeta.repairs, undefined);
+	});
+});
+
+// R3 — _extractionMeta.repairs
+describe('extractProposal — R3: _extractionMeta.repairs', () => {
+	it('repairs array is absent when no rules fired', () => {
+		const text =
+			'```json\n{"status":"OK","files":[],"patches":[],"messages":[]}\n```';
+		const proposal = extractProposal(text);
+		assert.ok(proposal);
+		assert.equal(proposal._extractionMeta.repairs, undefined);
+	});
+
+	it('repairs array records blanket-quote-token when <|"|> tokens are present', () => {
+		// Pattern: <|"|> substitutes for a structural closing quote.
+		// "status":"OK<|"|>  →  "status":"OK"
+		const text =
+			'{"status":"OK<|"|>,"files":[],"patches":[],"messages":[],"scratchpad":"<|"|>}';
+		const proposal = extractProposal(text);
+		assert.ok(proposal);
+		const repairs = proposal._extractionMeta.repairs;
+		assert.ok(Array.isArray(repairs), 'repairs should be an array');
+		const blanket = repairs.find((r) => r.ruleId === 'blanket-quote-token');
+		assert.ok(blanket, 'blanket-quote-token entry should be present');
+		assert.ok(blanket.count >= 1, 'count should be at least 1');
+	});
+
+	it('repairs array records structural rule when it fires', () => {
+		const text =
+			'{"status":"OK","files":[{"path":"a.mjs","content:<|"|>x"}],"patches":[],"messages":[],"scratchpad":""}';
+		const proposal = extractProposal(text);
+		assert.ok(proposal);
+		const repairs = proposal._extractionMeta.repairs;
+		assert.ok(Array.isArray(repairs));
+		const structural = repairs.find((r) => r.ruleId === 'gemma-collapsed-key');
+		assert.ok(structural, 'gemma-collapsed-key entry should be present');
+		assert.equal(structural.count, 1);
+	});
+});
+
+// R5 — offline replay tests from real saved responses
+describe('extractProposal — R5: offline replay of real corrupt responses', () => {
+	it('gptoss-stray-quote: extracts both files after R2a repair', async () => {
+		// Provenance: ~/src/kodr-testing/phase-113/transport-validation-gptoss/.kodr/runs/2026-06-12T11-41-44.327Z/raw-response.json
+		// responses.at(-1).choices[0].message.content — corrupt pattern: },"{"path":
+		const content = await readFile(
+			fixturePath('gptoss-stray-quote.txt'),
+			'utf8',
+		);
+		const proposal = extractProposal(content);
+		assert.ok(proposal, 'proposal should not be null');
+		const paths = proposal.files.map((f) => f.path);
+		assert.ok(
+			paths.includes('wordfreq.mjs'),
+			'wordfreq.mjs should be in proposal',
+		);
+		assert.ok(
+			paths.includes('test/wordfreq.test.mjs'),
+			'test/wordfreq.test.mjs should be in proposal',
+		);
+		assert.ok(
+			proposal._extractionMeta.repairs?.some(
+				(r) => r.ruleId === 'gpt-oss-stray-quote',
+			),
+			'gpt-oss-stray-quote repair should be recorded',
+		);
+	});
+
+	it('gptoss-missing-brace-1: extracts both files after R2b repair', async () => {
+		// Provenance: ~/src/kodr-testing/phase-114/ab-gptoss-newprompt/.kodr/runs/2026-06-12T12-07-32.733Z/raw-response.json
+		// responses.at(-1).choices[0].message.content — corrupt pattern: },"path":
+		const content = await readFile(
+			fixturePath('gptoss-missing-brace-1.txt'),
+			'utf8',
+		);
+		const proposal = extractProposal(content);
+		assert.ok(proposal, 'proposal should not be null');
+		const paths = proposal.files.map((f) => f.path);
+		assert.ok(
+			paths.includes('wordfreq.mjs'),
+			'wordfreq.mjs should be in proposal',
+		);
+		assert.ok(
+			paths.includes('test/wordfreq.test.mjs'),
+			'test/wordfreq.test.mjs should be in proposal',
+		);
+		assert.ok(
+			proposal._extractionMeta.repairs?.some(
+				(r) => r.ruleId === 'gpt-oss-missing-brace',
+			),
+			'gpt-oss-missing-brace repair should be recorded',
+		);
+	});
+
+	it('gptoss-missing-brace-2: extracts both files after R2b repair', async () => {
+		// Provenance: ~/src/kodr-testing/phase-114/ab2-gptoss/.kodr/runs/2026-06-12T12-25-15.658Z/raw-response.json
+		// responses.at(-1).choices[0].message.content — corrupt pattern: },"path":
+		const content = await readFile(
+			fixturePath('gptoss-missing-brace-2.txt'),
+			'utf8',
+		);
+		const proposal = extractProposal(content);
+		assert.ok(proposal, 'proposal should not be null');
+		const paths = proposal.files.map((f) => f.path);
+		assert.ok(
+			paths.includes('wordfreq.mjs'),
+			'wordfreq.mjs should be in proposal',
+		);
+		assert.ok(
+			paths.includes('test/wordfreq.test.mjs'),
+			'test/wordfreq.test.mjs should be in proposal',
+		);
+		assert.ok(
+			proposal._extractionMeta.repairs?.some(
+				(r) => r.ruleId === 'gpt-oss-missing-brace',
+			),
+			'gpt-oss-missing-brace repair should be recorded',
+		);
+	});
+
+	it('gemma-collapsed-key: extracts file after R1 repair', async () => {
+		// Provenance: ~/src/kodr-testing/phase-113/greenfield-logstats-1/.kodr/runs/2026-06-12T09-22-36.855Z/raw-response.json
+		// responses.at(-1).choices[0].message.content — collapse: "content:<|"|>
+		const content = await readFile(
+			fixturePath('gemma-collapsed-key.txt'),
+			'utf8',
+		);
+		const proposal = extractProposal(content);
+		assert.ok(proposal, 'proposal should not be null');
+		const paths = proposal.files.map((f) => f.path);
+		// logstats.mjs is the block where R1 repair is sufficient to recover content.
+		assert.ok(
+			paths.includes('logstats.mjs'),
+			'logstats.mjs should be in proposal',
+		);
+		assert.ok(
+			proposal._extractionMeta.repairs?.some(
+				(r) => r.ruleId === 'gemma-collapsed-key',
+			),
+			'gemma-collapsed-key repair should be recorded',
+		);
+	});
+});
+
+// DECODE_ARTIFACT_RULES export — rule ordering
+describe('DECODE_ARTIFACT_RULES — exported rule ordering', () => {
+	it('gemma-collapsed-key appears before blanket-quote-token', () => {
+		const ids = DECODE_ARTIFACT_RULES.map((r) => r.ruleId);
+		const collapsedIdx = ids.indexOf('gemma-collapsed-key');
+		const blanketIdx = ids.indexOf('blanket-quote-token');
+		assert.ok(collapsedIdx !== -1, 'gemma-collapsed-key should be in rules');
+		assert.ok(blanketIdx !== -1, 'blanket-quote-token should be in rules');
+		assert.ok(
+			collapsedIdx < blanketIdx,
+			'gemma-collapsed-key must precede blanket-quote-token',
+		);
+	});
+
+	it('all structural rules precede blanket rules', () => {
+		let lastStructural = -1;
+		let firstBlanket = Infinity;
+		DECODE_ARTIFACT_RULES.forEach((r, i) => {
+			if (r.type === 'structural') lastStructural = i;
+			if (r.type === 'blanket' && i < firstBlanket) firstBlanket = i;
+		});
+		assert.ok(
+			firstBlanket !== Infinity,
+			'there should be at least one blanket rule',
+		);
+		assert.ok(
+			lastStructural < firstBlanket,
+			'all structural rules should precede all blanket rules',
+		);
+	});
+
+	it('each rule has a unique stable ruleId', () => {
+		const ids = DECODE_ARTIFACT_RULES.map((r) => r.ruleId);
+		const unique = new Set(ids);
+		assert.equal(unique.size, ids.length, 'all ruleIds should be unique');
 	});
 });

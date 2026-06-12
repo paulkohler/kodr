@@ -34,26 +34,6 @@ retry/nudge, not heal; a repair that only creates paths never mentioned in
 the task or prior proposal is suspect, not healed. Evidence:
 `~/src/kodr-testing/phase-113/greenfield-logstats-1/`.
 
-### Structural Decode-Artifact Rules
-
-Phase 112's `<|"|>` → `"` rule is necessary but insufficient: gemma also
-collapses `"key":"` into `"key:<|"|>` (one per file block in the logstats
-response), and plain substitution leaves those blocks unparseable. Add the
-structural rule (`"<key>:<|"|>` → `"<key>":"`) ahead of the plain one, driven
-by the phase-113 fixture. Consider an artifact-density signal (N pseudo-tokens
-in one response) surfacing in run output/forensics. Phase-113 validation added
-a second model's signature corruption: gpt-oss-20b emitted one stray `"`
-between files[] elements (`},"{ ` instead of `},{`), killing an otherwise
-valid envelope — position-aware single-character repair belongs in the same
-pre-parse pass (evidence:
-`~/src/kodr-testing/phase-113/transport-validation-gptoss/`). Phase-114
-validation made it three-for-three: gpt-oss corrupts the same `files[]`
-object boundary every run, each time differently (stray `"`, missing `{`,
-dropped `{` — `"},"path":` instead of `"},{"path":`). The array-boundary
-rule (`},"<key>":` → `},{"<key>":`) is the highest-value single rule.
-Related: gpt-oss kept calling a nonexistent `write_file` tool despite an
-explicit prompt line — unknown-tool error feedback should steer back to the
-envelope (same pattern as the phase-109 allowlist hint).
 
 ### Inter-Chunk Idle Deadline
 

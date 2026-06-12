@@ -21,12 +21,27 @@ export function extractJson(text) {
 	const errors = [];
 
 	for (const candidate of candidates) {
-		const repaired = repairJsonText(candidate);
+		// First attempt: blanket rules only (safe, never mutates valid JSON).
+		const { text: repaired } = repairJsonText(candidate);
 		try {
 			assertNoDuplicateKeys(repaired);
 			return JSON.parse(repaired);
 		} catch (error) {
 			errors.push(error.message);
+		}
+
+		// Second attempt: structural rules (repair path — safe to mutate since
+		// the first attempt already failed to parse).
+		const { text: repairedStructural } = repairJsonText(candidate, {
+			structural: true,
+		});
+		if (repairedStructural !== repaired) {
+			try {
+				assertNoDuplicateKeys(repairedStructural);
+				return JSON.parse(repairedStructural);
+			} catch (error) {
+				errors.push(error.message);
+			}
 		}
 	}
 
@@ -38,41 +53,116 @@ export function extractProposal(text) {
 		return null;
 	}
 
+	// Accumulate fired repair rule counts across all candidates.
+	const repairCounts = new Map();
+
+	function recordRepairs(repairs) {
+		for (const { ruleId, count } of repairs) {
+			repairCounts.set(ruleId, (repairCounts.get(ruleId) ?? 0) + count);
+		}
+	}
+
+	// Attempt to extract proposal envelopes from a set of candidate texts.
+	// For each candidate:
+	//   1. Apply blanket rules → try to parse (safe, never mutates valid JSON).
+	//   2. If that fails, apply structural rules + blanket rules → try again
+	//      (repair path — safe because the first attempt already failed).
+	function extractFromCandidates(candidates) {
+		const envelopes = [];
+		let firstValidationError = null;
+
+		const tryEnvelope = (repairedText) => {
+			let value;
+			try {
+				assertNoDuplicateKeys(repairedText);
+				value = JSON.parse(repairedText);
+			} catch {
+				return false;
+			}
+
+			if (
+				!value ||
+				(!Array.isArray(value.files) &&
+					!Array.isArray(value.patches) &&
+					!Array.isArray(value.messages) &&
+					typeof value.status !== 'string' &&
+					typeof value.scratchpad !== 'string')
+			) {
+				return false;
+			}
+
+			try {
+				const envelope = parseProposalEnvelope(value);
+				envelopes.push(envelope);
+				return true;
+			} catch (error) {
+				if (error instanceof ProposalValidationError && !firstValidationError) {
+					firstValidationError = error;
+				}
+				return false;
+			}
+		};
+
+		for (const candidate of candidates) {
+			// Blanket rules only first — these are safe on any text.
+			const { text: repaired, repairs } = repairJsonText(candidate);
+			recordRepairs(repairs);
+
+			const parsed = tryEnvelope(repaired);
+
+			if (!parsed) {
+				// Structural rules (repair path only — safe because the candidate
+				// already failed to parse without structural repair).
+				const { text: repairedStructural, repairs: allRepairs } =
+					repairJsonText(candidate, {
+						structural: true,
+					});
+				if (repairedStructural !== repaired) {
+					// Only record the structural-rule repairs (blanket already recorded above).
+					const structuralOnly = allRepairs.filter((r) =>
+						DECODE_ARTIFACT_RULES.find(
+							(d) => d.ruleId === r.ruleId && d.type === 'structural',
+						),
+					);
+					recordRepairs(structuralOnly);
+					tryEnvelope(repairedStructural);
+				}
+			}
+		}
+
+		return { envelopes, firstValidationError };
+	}
+
+	// First pass: try extraction on the original text (brace-walked candidates).
+	// Each candidate gets: blanket-rules-only attempt first; if that fails, a
+	// structural+blanket attempt (repair path — the failed parse is the gate).
 	const candidates = candidateTexts(text);
-	const envelopes = [];
-	// Track the first ProposalValidationError so it can be rethrown if no
-	// valid envelope is found — this preserves the original contract that
-	// structural malformation (e.g. patch missing "replace") surfaces as an
-	// error rather than silently returning null.
-	let firstValidationError = null;
+	let { envelopes, firstValidationError } = extractFromCandidates(candidates);
 
-	for (const candidate of candidates) {
-		const repaired = repairJsonText(candidate);
-		let value;
-		try {
-			assertNoDuplicateKeys(repaired);
-			value = JSON.parse(repaired);
-		} catch {
-			continue;
-		}
-
-		if (
-			!value ||
-			(!Array.isArray(value.files) &&
-				!Array.isArray(value.patches) &&
-				!Array.isArray(value.messages) &&
-				typeof value.status !== 'string' &&
-				typeof value.scratchpad !== 'string')
-		) {
-			continue;
-		}
-
-		try {
-			const envelope = parseProposalEnvelope(value);
-			envelopes.push(envelope);
-		} catch (error) {
-			if (error instanceof ProposalValidationError && !firstValidationError) {
-				firstValidationError = error;
+	// Second pass: if still no envelopes, apply structural rules to the full
+	// text and re-enumerate candidates. Array-boundary corruption (gpt-oss
+	// pattern) can prevent braceWalkFrom from producing any candidate at all
+	// because the structural corruption appears at the outer level where the
+	// brace-walker tracks nesting. Re-running candidateTexts on the repaired
+	// full text allows the brace-walker to succeed.
+	if (envelopes.length === 0) {
+		const { text: structuralText, repairs: structuralRepairs } =
+			applyStructuralRules(text);
+		if (structuralText !== text) {
+			// Record structural repairs from the full-text pass.
+			const structuralOnly = structuralRepairs.filter((r) =>
+				DECODE_ARTIFACT_RULES.find(
+					(d) => d.ruleId === r.ruleId && d.type === 'structural',
+				),
+			);
+			recordRepairs(structuralOnly);
+			const structuralCandidates = candidateTexts(structuralText);
+			const secondPass = extractFromCandidates(structuralCandidates);
+			if (secondPass.envelopes.length > 0) {
+				envelopes = secondPass.envelopes;
+				firstValidationError = secondPass.firstValidationError;
+			} else if (secondPass.firstValidationError && !firstValidationError) {
+				firstValidationError = secondPass.firstValidationError;
 			}
 		}
 	}
@@ -87,10 +177,18 @@ export function extractProposal(text) {
 	}
 
 	const merged = mergeProposalEnvelopes(envelopes);
+	const firedRepairs =
+		repairCounts.size > 0
+			? Array.from(repairCounts.entries()).map(([ruleId, count]) => ({
+					ruleId,
+					count,
+				}))
+			: undefined;
 	const meta = {
 		candidateCount: candidates.length,
 		proposalCount: envelopes.length,
 		merged: envelopes.length > 1,
+		...(firedRepairs ? { repairs: firedRepairs } : {}),
 	};
 	merged._extractionMeta = meta;
 	return merged;
@@ -374,18 +472,130 @@ function firstJsonOpenFrom(text, from) {
 // by specificity (longest match first) and is meant to grow one entry per newly
 // observed model artifact.
 //
-// Provenance: <|"|> confirmed in google/gemma-4-26b-a4b output on LM Studio
-// (~/src/kodr-testing/phase-111/gemma-smoke-2/.kodr/runs/2026-06-12T06-54-00.966Z/response.md,
-// 7 occurrences — every fenced envelope corrupted). The token appears where an
-// escaped or closing quote belongs inside a JSON string value.
-const DECODE_ARTIFACT_RULES = [{ from: '<|"|>', to: '"' }];
+// Each rule has a stable ruleId used in _extractionMeta.repairs forensics.
+//
+// Rule ordering rationale:
+//   R1 (gemma-collapsed-key): must run BEFORE the blanket <|"|> rule (R0).
+//     gemma collapses `"key":"` into `"key:<|"|>`. Running the blanket rule
+//     first yields `"key:"value` — still unparseable. The structural rule
+//     yields `"key":"value` which parses correctly.
+//   R2a (gpt-oss-stray-quote): `},"{"` → `},{"` — stray quote before `{`.
+//   R2b (gpt-oss-missing-brace): `},"<key>":` → `},{"<key>":` — missing `{`.
+//     Both R2 rules are structural and MUST only run in the repair path
+//     (after a parse failure) to avoid corrupting valid string values.
+//   R0 (blanket-quote): blanket `<|"|>` → `"` catch-all, runs after R1.
+//
+// Provenance:
+//   R0: google/gemma-4-26b-a4b on LM Studio
+//     (~/src/kodr-testing/phase-111/gemma-smoke-2/.kodr/runs/2026-06-12T06-54-00.966Z/response.md)
+//   R1: gemma role-B collapse observed in phase-113
+//     (~/src/kodr-testing/phase-113/greenfield-logstats-1/.kodr/runs/2026-06-12T09-22-36.855Z/raw-response.json)
+//   R2a: openai/gpt-oss-20b stray quote observed in phase-113
+//     (~/src/kodr-testing/phase-113/transport-validation-gptoss/.kodr/runs/2026-06-12T11-41-44.327Z/raw-response.json)
+//   R2b: openai/gpt-oss-20b missing brace observed in phase-114 (two runs)
+//     (~/src/kodr-testing/phase-114/ab-gptoss-newprompt/.kodr/runs/2026-06-12T12-07-32.733Z/raw-response.json)
+//     (~/src/kodr-testing/phase-114/ab2-gptoss/.kodr/runs/2026-06-12T12-25-15.658Z/raw-response.json)
 
-function repairJsonText(text) {
+// Conservative JSON key charset: starts with letter or underscore, followed by
+// alphanumerics or underscores. Never .* — avoids false positives in string values.
+const JSON_KEY_RE = /[A-Za-z_][A-Za-z0-9_]*/u;
+
+// Structural rules applied as regex replacements. These run BEFORE the blanket
+// token rule to ensure proper ordering.
+const STRUCTURAL_RULES = [
+	{
+		// R1: gemma collapsed-key artifact: "key:<|"|> → "key":"
+		// The model collapses the colon-quote separator into the pseudo-token.
+		ruleId: 'gemma-collapsed-key',
+		pattern: new RegExp(`"(${JSON_KEY_RE.source}):<\\|"\\|>`, 'gu'),
+		replacement: '"$1":"',
+	},
+	{
+		// R2a: gpt-oss stray quote before array element boundary: },"{ → },{
+		// The captured {  is preserved; the stray " before it is dropped.
+		ruleId: 'gpt-oss-stray-quote',
+		pattern: /\},"(\{)/gu,
+		replacement: '},$1',
+	},
+	{
+		// R2b: gpt-oss missing opening brace at array element boundary: },"key": → },{"key":
+		// Must run AFTER R2a to avoid double-applying on },"{"key": patterns.
+		ruleId: 'gpt-oss-missing-brace',
+		pattern: new RegExp(`\\},"(${JSON_KEY_RE.source})"\\s*:`, 'gu'),
+		replacement: '},{"$1":',
+	},
+];
+
+// Blanket token rules applied character-by-character (replaceAll).
+const BLANKET_RULES = [
+	{
+		// R0: blanket <|"|> → " pseudo-token replacement (gemma phase-111+).
+		ruleId: 'blanket-quote-token',
+		from: '<|"|>',
+		to: '"',
+	},
+];
+
+// Combined ordered rule list (structural first, then blanket).
+// Exported for tests so they can verify rule ordering and IDs.
+export const DECODE_ARTIFACT_RULES = [
+	...STRUCTURAL_RULES.map((r) => ({ ruleId: r.ruleId, type: 'structural' })),
+	...BLANKET_RULES.map((r) => ({ ruleId: r.ruleId, type: 'blanket' })),
+];
+
+// Apply structural rules (regex-based) and return {text, repairs}.
+// Structural rules MUST only run in the repair path — they risk corrupting
+// valid string values that happen to contain the pattern.
+function applyStructuralRules(text) {
 	let result = text;
-	for (const rule of DECODE_ARTIFACT_RULES) {
-		result = result.replaceAll(rule.from, rule.to);
+	const repairs = [];
+	for (const rule of STRUCTURAL_RULES) {
+		const matches = [...result.matchAll(rule.pattern)];
+		if (matches.length > 0) {
+			repairs.push({ ruleId: rule.ruleId, count: matches.length });
+			result = result.replace(rule.pattern, rule.replacement);
+		}
 	}
-	return repairRawStringControlChars(result).replaceAll('\\`', '`');
+	return { text: result, repairs };
+}
+
+// Apply blanket token rules and return {text, repairs}.
+function applyBlanketRules(text) {
+	let result = text;
+	const repairs = [];
+	for (const rule of BLANKET_RULES) {
+		// Count occurrences in the current result (before replacing).
+		const count = result.split(rule.from).length - 1;
+		if (count > 0) {
+			result = result.replaceAll(rule.from, rule.to);
+			repairs.push({ ruleId: rule.ruleId, count });
+		}
+	}
+	return { text: result, repairs };
+}
+
+// repairJsonText applies rules in two modes:
+//   - repairOnly=false (default): only applies blanket rules (safe, unconditional)
+//   - repairOnly=true: applies structural rules first, then blanket rules
+// Returns {text, repairs} where repairs is an array of {ruleId, count} entries.
+function repairJsonText(text, { structural = false } = {}) {
+	let allRepairs = [];
+	let result = text;
+
+	if (structural) {
+		const { text: t, repairs } = applyStructuralRules(result);
+		result = t;
+		allRepairs = allRepairs.concat(repairs);
+	}
+
+	const { text: t2, repairs: blanketRepairs } = applyBlanketRules(result);
+	result = t2;
+	allRepairs = allRepairs.concat(blanketRepairs);
+
+	return {
+		text: repairRawStringControlChars(result).replaceAll('\\`', '`'),
+		repairs: allRepairs,
+	};
 }
 
 function repairRawStringControlChars(text) {

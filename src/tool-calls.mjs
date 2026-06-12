@@ -66,7 +66,11 @@ export class ToolRegistry {
 	async dispatch(name, argsJson) {
 		const def = this._tools.get(name);
 		if (!def) {
-			throw new ToolCallError(`Unknown tool: ${name}`);
+			const validTools = Array.from(this._tools.keys()).join(', ');
+			throw new ToolCallError(
+				`Unknown tool: ${name}. Valid tools: ${validTools}. ` +
+					'There is no write tool — file changes go in the files/patches arrays of the final JSON envelope.',
+			);
 		}
 
 		// Security: model-supplied argument strings must be valid JSON objects.

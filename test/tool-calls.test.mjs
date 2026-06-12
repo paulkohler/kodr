@@ -152,6 +152,60 @@ describe('ToolRegistry', () => {
 		await assert.rejects(() => registry.dispatch('nope', '{}'), ToolCallError);
 	});
 
+	// R4: unknown-tool error feedback steers model toward the JSON envelope
+	it('R4: unknown-tool error names valid tools and states the envelope contract', async () => {
+		// Evidence: gpt-oss called write_file 4–5 times per run despite a prompt
+		// line saying no write tool exists. Mirror the phase-109 allowlist-hint
+		// pattern: the error response should name valid tools and restate that
+		// file changes go in the files/patches arrays.
+		const registry = new ToolRegistry();
+		registry.register('list_files', {
+			description: 'List files.',
+			parameters: { type: 'object', properties: {} },
+			handler: async () => [],
+		});
+		registry.register('read_file', {
+			description: 'Read a file.',
+			parameters: {
+				type: 'object',
+				properties: { path: { type: 'string' } },
+				required: ['path'],
+			},
+			handler: async () => '',
+		});
+
+		const error = await assert
+			.rejects(() => registry.dispatch('write_file', '{}'), ToolCallError)
+			.then(() => null)
+			.catch((e) => e);
+
+		// The ToolCallError is what rejects — capture it via try/catch
+		let caught;
+		try {
+			await registry.dispatch('write_file', '{}');
+		} catch (e) {
+			caught = e;
+		}
+
+		assert.ok(caught instanceof ToolCallError, 'should throw ToolCallError');
+		assert.ok(
+			caught.message.includes('list_files'),
+			'error message should name list_files as a valid tool',
+		);
+		assert.ok(
+			caught.message.includes('read_file'),
+			'error message should name read_file as a valid tool',
+		);
+		assert.ok(
+			caught.message.includes('files/patches'),
+			'error message should reference the files/patches arrays',
+		);
+		assert.ok(
+			caught.message.includes('write tool'),
+			'error message should state there is no write tool',
+		);
+	});
+
 	it('throws ToolCallError for invalid JSON arguments', async () => {
 		const registry = new ToolRegistry();
 		registry.register('noop', {
