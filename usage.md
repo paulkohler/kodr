@@ -264,7 +264,7 @@ Run a verification command after applying:
 
 ```sh
 ./kodr run -p "Add tests for parseArgs" --yes --test "npm test"
-./kodr run -p "Fix the example tests" --yes --test "npm test" --test-cwd examples/todo-cli
+./kodr run -p "Fix the example tests" --yes --test "npm test" --test-cwd ~/src/kodr-testing/phase-18/todo-cli
 ```
 
 Verification commands are allowlisted and run without a shell. Generated writes
@@ -275,7 +275,7 @@ changes `package.json`:
 
 ```sh
 ./kodr run --prompt-file prompt.md --tools --yes --install --test "npm test"
-./kodr run --prompt-file prompt.md --tools --yes --install --test "npm test" --test-cwd examples/app
+./kodr run --prompt-file prompt.md --tools --yes --install --test "npm test" --test-cwd ~/src/kodr-testing/phase-65/app
 ```
 
 Dependency installs are a separate allowlisted workflow. Kodr runs `npm ci`
