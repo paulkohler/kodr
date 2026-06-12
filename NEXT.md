@@ -41,7 +41,21 @@ collapses `"key":"` into `"key:<|"|>` (one per file block in the logstats
 response), and plain substitution leaves those blocks unparseable. Add the
 structural rule (`"<key>:<|"|>` → `"<key>":"`) ahead of the plain one, driven
 by the phase-113 fixture. Consider an artifact-density signal (N pseudo-tokens
-in one response) surfacing in run output/forensics.
+in one response) surfacing in run output/forensics. Phase-113 validation added
+a second model's signature corruption: gpt-oss-20b emitted one stray `"`
+between files[] elements (`},"{ ` instead of `},{`), killing an otherwise
+valid envelope — position-aware single-character repair belongs in the same
+pre-parse pass (evidence:
+`~/src/kodr-testing/phase-113/transport-validation-gptoss/`).
+
+### Inter-Chunk Idle Deadline
+
+Phase 113 bounds time-to-first-token (120s, one retry), but a stream that
+goes silent *mid-read* is still governed only by the overall `timeoutMs` —
+gemma's validation stall received a first chunk on retry then hung for the
+remaining ~480s. An inter-chunk idle deadline (no SSE data for Ns after
+streaming began) would fail such stalls fast with a distinct error, same
+pattern as T2.
 
 ### Probe Reads The Management API
 

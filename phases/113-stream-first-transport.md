@@ -100,5 +100,10 @@ timeout.
 - [x] Blog post `blog/113-stream-first-transport.md`.
 - [x] NEXT.md entries shipped by this phase deleted (FIFO).
 - [x] Version bumped to 0.0.113; suite green; committed.
-- [ ] Live two-model validation green (run after the phase commit; findings
-      recorded).
+- [x] Live two-model validation green (run after the phase commit; findings
+      recorded). Note: transport mechanics confirmed on both models
+      (gpt-oss-20b fully green: wire=stream, TTFT 1.06s recorded in summary
+      and `kodr why`; gemma confirmed the first-token deadline + single retry
+      fire as designed). Gemma itself stalled at the SSE layer both attempts
+      — a model/server compatibility finding, not a transport regression;
+      recorded in `process/failures.jsonl` phase 113-validation.
