@@ -2173,7 +2173,10 @@ export function renderSkillsListing({ skills, shadows, agents, agentShadows }) {
 			const desc = skill.description
 				? ` — ${skill.description.slice(0, 60)}${skill.description.length > 60 ? '…' : ''}`
 				: '';
-			lines.push(`  [${skill.tier}] ${skill.name}${desc}`);
+			const metaOnly = skill.bodyOmitted
+				? ' (metadata only — over byte budget)'
+				: '';
+			lines.push(`  [${skill.tier}] ${skill.name}${desc}${metaOnly}`);
 			lines.push(`         ${skill.path}`);
 		}
 	} else {

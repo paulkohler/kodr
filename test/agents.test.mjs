@@ -14,6 +14,7 @@ import {
 	discoverSkillsTiered,
 	SKILL_TIERS,
 	discoverSkills,
+	loadSkills,
 } from '../src/skills.mjs';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -737,5 +738,71 @@ describe('project dot-folder skills report tier project (OBSERVATION-116-01)', (
 		);
 		const selfShadow = shadows.find((sh) => sh.name === 'kodr-skill');
 		assert.ok(!selfShadow, 'no self-shadow for .kodr/skills/ skill');
+	});
+});
+
+// ── Budget exhaustion lists metadata-only skills (BUG-116-03) ────────────────
+
+describe('budget exhaustion stops body inclusion, not enumeration', () => {
+	it('skills past the total budget are listed metadata-only', async () => {
+		const overrideDir = await mkdtemp(join(tmpdir(), 'kodr-budget-'));
+		const body = 'B'.repeat(500);
+		for (const name of ['aa', 'bb', 'cc']) {
+			await mkdir(join(overrideDir, name), { recursive: true });
+			await writeFile(
+				join(overrideDir, name, 'SKILL.md'),
+				`---\nname: ${name}\ndescription: Skill ${name}\n---\n${body}`,
+				'utf8',
+			);
+		}
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cwd-'));
+
+		const { skills } = await discoverSkillsTiered(cwd, {
+			homeDir: cwd,
+			skillsDirs: [overrideDir],
+			totalSkillBytes: 700, // fits one full skill, exhausted before the rest
+		});
+
+		assert.deepEqual(
+			skills.map((s) => s.name),
+			['aa', 'bb', 'cc'],
+			'all skills enumerated despite budget',
+		);
+		const omitted = skills.filter((s) => s.bodyOmitted);
+		assert.ok(omitted.length >= 1, 'at least one skill is metadata-only');
+		for (const skill of omitted) {
+			assert.equal(skill.body, '');
+			assert.equal(skill.includedBytes, 0);
+			assert.equal(skill.truncated, true);
+			assert.ok(skill.description.startsWith('Skill '), 'frontmatter kept');
+		}
+		const usedBytes = skills.reduce((sum, s) => sum + s.includedBytes, 0);
+		assert.ok(usedBytes <= 700, 'budget invariant holds');
+	});
+
+	it('loadSkills reloads the body of a metadata-only skill on request', async () => {
+		const overrideDir = await mkdtemp(join(tmpdir(), 'kodr-budget-'));
+		const body = 'B'.repeat(500);
+		for (const name of ['aa', 'bb']) {
+			await mkdir(join(overrideDir, name), { recursive: true });
+			await writeFile(
+				join(overrideDir, name, 'SKILL.md'),
+				`---\nname: ${name}\ndescription: Skill ${name}\n---\n${body}`,
+				'utf8',
+			);
+		}
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cwd-'));
+
+		const { loaded } = await loadSkills(cwd, ['bb'], {
+			homeDir: cwd,
+			skillsDirs: [overrideDir],
+			totalSkillBytes: 400, // aa hits the cap exactly; bb is metadata-only
+		});
+
+		assert.equal(loaded.length, 1);
+		assert.equal(loaded[0].name, 'bb');
+		assert.equal(loaded[0].body, body, 'body reloaded on explicit request');
+		assert.ok(!loaded[0].bodyOmitted, 'no longer metadata-only');
+		assert.equal(loaded[0].tier, 'override');
 	});
 });

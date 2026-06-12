@@ -132,10 +132,25 @@ machine view. This is the verification surface for the whole phase.
 - [x] `process/failures.jsonl` / `process/decisions.jsonl` updated.
 - [x] Blog post `blog/116-dot-folder-skill-and-agent-discovery.md`.
 - [x] NEXT.md entries shipped by this phase deleted (FIFO), if any apply.
-- [ ] Version bumped to 0.0.116; suite green; committed.
-- [ ] Live validation (after the commit, sequential, gemma): a test workspace
+- [x] Version bumped to 0.0.116; suite green; committed.
+- [x] Live validation (after the commit, sequential, gemma): a test workspace
       with a project `.claude/skills/<x>/SKILL.md` and `.claude/agents/<y>.md`
       — `kodr skills` lists both with correct tiers; a run requesting the
       skill shows it in the packed context; a `--agent <y>` run uses the agent
       body as persona and completes; `--skills-dir` pointed at the real
       `~/.claude/skills` lists those skills (read-only check, no run needed).
+      RESULT — core criteria all passed on the first pass (skill marker in
+      packed context; agent persona applied with envelope/tools/environment
+      blocks intact; gemma runs completed). The real-`~/.claude/skills`
+      check earned its place by finding three defects, all fixed in
+      follow-up commits: symlinked skill dirs were invisible
+      (readdir Dirent.isDirectory() is false for symlinks — ironic for a
+      feature meant to end symlink farms), Claude Code model aliases like
+      `sonnet` parsed as literal model ids (would have been sent to the
+      server on `--agent` runs without `--model`), and the 40KB context
+      byte budget terminated discovery enumeration so the listing showed 5
+      of 15 real skills (now metadata-only past the budget, reloaded on
+      explicit request). Known limitation recorded: YAML folded
+      `description: >` scalars list as a literal '>'. Evidence:
+      `~/src/kodr-testing/phase-116/` (OPERATOR-REPORT.md),
+      `process/failures.jsonl` phase 116-validation.

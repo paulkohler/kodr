@@ -6,6 +6,9 @@ import { jailedPath, SafeWriteError } from './safe-writes.mjs';
 
 export const DEFAULT_SKILL_BYTES = 12000;
 export const DEFAULT_TOTAL_SKILL_BYTES = 40000;
+// Enough to capture frontmatter (name/description) for metadata-only entries
+// discovered after the total byte budget is exhausted.
+const FRONTMATTER_PROBE_BYTES = 2048;
 
 export class SkillError extends Error {
 	constructor(message) {
@@ -89,11 +92,13 @@ export async function discoverSkillsTiered(cwd, options = {}) {
 		);
 
 		for (const { absPath, absoluteRoot, relPath } of entries) {
-			if (usedBytes >= totalSkillBytes) {
-				break;
-			}
-
-			const maxBytes = Math.min(perSkillBytes, totalSkillBytes - usedBytes);
+			// Budget exhaustion stops body inclusion, not enumeration: skills found
+			// past the budget are still listed (metadata only, body re-readable on
+			// explicit request via loadSkills).
+			const budgetExhausted = usedBytes >= totalSkillBytes;
+			const maxBytes = budgetExhausted
+				? FRONTMATTER_PROBE_BYTES
+				: Math.min(perSkillBytes, totalSkillBytes - usedBytes);
 			let loaded;
 			try {
 				loaded = await readSkillPrefix(absPath, maxBytes);
@@ -108,8 +113,15 @@ export async function discoverSkillsTiered(cwd, options = {}) {
 			// skills use the absolute path since no workspace-relative form exists.
 			const skillPath = relPath !== undefined ? relPath : absPath;
 			const parsed = parseSkillMarkdown(skillPath, loaded.raw);
-			parsed.includedBytes = loaded.includedBytes;
-			parsed.truncated = loaded.truncated;
+			if (budgetExhausted) {
+				parsed.body = '';
+				parsed.includedBytes = 0;
+				parsed.truncated = true;
+				parsed.bodyOmitted = true;
+			} else {
+				parsed.includedBytes = loaded.includedBytes;
+				parsed.truncated = loaded.truncated;
+			}
 			// Re-attribute workspace-tier entries that live under a project dot-folder
 			// prefix (.kodr/skills/ or .claude/skills/) so they report tier 'project'
 			// rather than 'workspace'. The context-packer path and content are
@@ -143,7 +155,7 @@ export async function discoverSkillsTiered(cwd, options = {}) {
 				}
 			} else {
 				seen.set(parsed.name, parsed);
-				usedBytes += loaded.includedBytes;
+				usedBytes += parsed.includedBytes;
 			}
 		}
 	}
@@ -292,7 +304,23 @@ export async function loadSkills(cwd, requests, options = {}) {
 			throw new SkillError(`Multiple SKILL.md files matched: ${request}`);
 		}
 
-		loaded.push(matches[0]);
+		let match = matches[0];
+		if (match.bodyOmitted) {
+			// Discovered past the total byte budget (metadata only). An explicit
+			// request justifies loading the body now, within the per-skill cap.
+			const perSkillBytes = options.perSkillBytes || DEFAULT_SKILL_BYTES;
+			const reload = await readSkillPrefix(
+				join(match.absoluteRoot, 'SKILL.md'),
+				perSkillBytes,
+			);
+			const reparsed = parseSkillMarkdown(match.path, reload.raw);
+			reparsed.includedBytes = reload.includedBytes;
+			reparsed.truncated = reload.truncated;
+			reparsed.tier = match.tier;
+			reparsed.absoluteRoot = match.absoluteRoot;
+			match = reparsed;
+		}
+		loaded.push(match);
 	}
 
 	return {
