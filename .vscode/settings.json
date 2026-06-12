@@ -9,5 +9,11 @@
 	},
 	"[jsonc]": {
 		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"cSpell.words": [
+		"Kodr"
+	],
+	"[markdown]": {
+		"editor.defaultFormatter": "esbenp.prettier-vscode"
 	}
 }
