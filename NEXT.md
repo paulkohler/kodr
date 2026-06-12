@@ -46,7 +46,14 @@ a second model's signature corruption: gpt-oss-20b emitted one stray `"`
 between files[] elements (`},"{ ` instead of `},{`), killing an otherwise
 valid envelope — position-aware single-character repair belongs in the same
 pre-parse pass (evidence:
-`~/src/kodr-testing/phase-113/transport-validation-gptoss/`).
+`~/src/kodr-testing/phase-113/transport-validation-gptoss/`). Phase-114
+validation made it three-for-three: gpt-oss corrupts the same `files[]`
+object boundary every run, each time differently (stray `"`, missing `{`,
+dropped `{` — `"},"path":` instead of `"},{"path":`). The array-boundary
+rule (`},"<key>":` → `},{"<key>":`) is the highest-value single rule.
+Related: gpt-oss kept calling a nonexistent `write_file` tool despite an
+explicit prompt line — unknown-tool error feedback should steer back to the
+envelope (same pattern as the phase-109 allowlist hint).
 
 ### Inter-Chunk Idle Deadline
 

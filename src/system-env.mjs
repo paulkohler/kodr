@@ -76,7 +76,7 @@ export function renderEnvironmentBlock(facts) {
 export function renderBehavioursBlock() {
 	return [
 		'# Behaviours',
-		'- Return exactly ONE JSON envelope per response. Never narrate a sequence of JSON blocks.',
+		'- Return exactly ONE JSON envelope per response, containing the COMPLETE files/patches for the task. Never split work across multiple JSON blocks or defer code to a later response.',
 		'- If verification or tests fail, say so in messages — never claim success.',
 		'- If a tool call fails or returns nothing useful, change your approach — do not repeat the identical call.',
 		'- When you have enough information to write the proposal, write it — do not keep exploring.',
@@ -99,7 +99,8 @@ export function renderToolsBlock() {
 		'- `run_skill_command` — declared skill helper commands (explicit approval required).',
 		'- `run_command` — allowlisted verification commands only.',
 		'',
-		'Workflow: inspect → read → patch/files → verify.',
+		'There is no write or edit tool — all file changes go in the files/patches arrays of your final JSON envelope.',
+		'Workflow: inspect → read → return the envelope with files/patches; the harness applies and verifies.',
 		'You have a limited number of tool turns; finish with the envelope before they run out.',
 	].join('\n');
 }

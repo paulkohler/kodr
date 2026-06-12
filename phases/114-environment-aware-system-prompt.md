@@ -117,4 +117,16 @@ shell/Node assumptions in generated commands).
 - [x] Blog post `blog/114-environment-aware-system-prompt.md`.
 - [x] NEXT.md entries shipped by this phase deleted (FIFO), if any apply.
 - [x] Version bumped to 0.0.114; suite green; committed.
-- [ ] P5: live two-model A/B validation recorded (run after the commit).
+- [x] P5: live two-model A/B validation recorded (run after the commit).
+      Iteration 1 FAILED the criterion: the original "exactly ONE envelope /
+      never narrate" behaviour line caused a gemma plan-stall (single
+      envelope, `files: []`), and gpt-oss hallucinated a `write_file` tool.
+      Wording tuned (envelope must be COMPLETE; explicit "there is no write
+      tool" line) and re-run. Iteration 2 HOLDS: gemma succeeded with the
+      ideal shape — exactly 1 fenced block (baseline 5), 0 decode artifacts,
+      2 files, tests green; gpt-oss unchanged vs baseline (fails on its
+      recurring single-character files[]-boundary corruption, a queued
+      extractor fix, not a prompt issue — it did emit one complete envelope).
+      Evidence: `~/src/kodr-testing/phase-114/ab-*` (iteration 1),
+      `~/src/kodr-testing/phase-114/ab2-*` (iteration 2),
+      `process/failures.jsonl` phase 114-validation.
