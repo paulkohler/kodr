@@ -29,7 +29,14 @@ worth queueing after 110/111: re-run the greenfield test (its repair-timeout
 failure mode is still open), a TUI daily-driver session, and a `kodr bench`
 run to populate routing scores.
 
-### 110 Activate The Routing Table
+### Selected as Phase 110: Repair-Loop Discipline (see phases/110-repair-loop-discipline.md)
+
+The 109 dogfooding evidence promoted the repair-loop open questions past the
+items below: every greenfield run lost its heal loop to a silent 600s repair
+timeout, and measurement showed prompt size is not the cause. Instrumentation,
+a capped visible timeout, and the wrong-path gating decision ship together.
+
+### Activate The Routing Table
 
 Phase 105's blog states the routing table is advisory and names the follow-up
 directly: "A future `/model auto` TUI command can activate the routing table
@@ -38,7 +45,7 @@ interactively." Add `/model auto` plus an opt-in config flag so cheap tasks
 `editModel`. Routing decisions should land in the run summary so `kodr why`
 can show which model handled which step.
 
-### 111 Watch Meets TUI
+### Watch Meets TUI
 
 Phase 107's watch loop produces pending repair proposals, and the blog's usage
 story ("the user reviews it in the TUI") implies an integration that doesn't
@@ -47,7 +54,7 @@ state the TUI already has (`/review`, `/accept`, `/reject` from phases 46/98),
 or give watch its own minimal accept prompt. Also a natural place to surface
 the no-progress guard state to the user instead of silently stopping.
 
-### 112 Actually Publish @kodr/repomap
+### Actually Publish @kodr/repomap
 
 **On hold by decision (2026-06-12): no publishing until more dogfooding/testing
 has happened.** The sync-check half of this idea can still proceed; the
@@ -64,7 +71,7 @@ it honest).
 
 ## Theme B — Forensics and evals as a flywheel
 
-### 113 Cross-Run Forensics
+### Cross-Run Forensics
 
 `kodr why` (106) is per-run. The `.kodr/runs/` directory plus the append-only
 eval results (100) now hold enough history for aggregate questions: which
@@ -73,7 +80,7 @@ did the edit-format change (102) move the needle. A `kodr trends` or
 `kodr why --all` over the run archive would turn the audit trail into the
 feedback instrument the harness-engineering arc has been pointing at.
 
-### 114 Bench-Driven Suite Growth
+### Bench-Driven Suite Growth
 
 The brownfield suite (100) has eight fixtures. Every real failure recorded in
 phase 109's burn-in should become a fixture, keeping the suite an honest
@@ -83,7 +90,7 @@ bench (105) better routing scores for free.
 
 ## Theme C — The web channel, for real
 
-### 115 Minimal Web UI Over The Existing Routes
+### Minimal Web UI Over The Existing Routes
 
 Phase 50 was explicitly "a channel sketch, not a full product UI." Since then
 the server grew async run control with SSE (85) and a self-contained HTML
@@ -104,14 +111,15 @@ inside the no-dependency constitution.
 
 ## Suggested order
 
-1. **109 first.** Everything in themes B–D gets cheaper to scope after real
-   burn-in evidence; the recent phases shipped a lot of paper-tested seams.
-   Burn-in runs live under `~/src/kodr-testing/phase-109/<slug>` per the
-   testing convention in `AGENTS.md`.
-2. **110 and 111 next** — both convert existing measurement into daily-driver
-   behavior, continuing the 104 arc.
-3. **112's sync check** when convenient; the publish itself is deferred until
-   testing has built confidence.
-4. Pick between themes B and C based on what 109's forensics show: if runs are
-   failing, the flywheel (113/114) pays first; if runs are healthy, the web
-   surface (115) is the more interesting build.
+1. ~~Dogfood burn-in~~ — done (Phase 109).
+2. **Repair-loop discipline** — selected as Phase 110; the burn-in's biggest
+   unfixed failure mode.
+3. **Routing activation and watch-meets-TUI** — both convert existing
+   measurement into daily-driver behavior, continuing the 104 arc. Sequence
+   after 110 alongside dogfooding round 2 (greenfield re-run, TUI session,
+   bench).
+4. **Repomap sync check** when convenient; the publish itself stays deferred
+   until testing has built confidence.
+5. Pick between themes B and C based on what dogfooding keeps showing: if runs
+   are failing, the forensics/eval flywheel pays first; if runs are healthy,
+   the web surface is the more interesting build.
