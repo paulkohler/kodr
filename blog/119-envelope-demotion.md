@@ -67,9 +67,17 @@ qwen running against this prompt for the first time with the envelope schema gen
 
 gpt-oss and gemma: confirm no regression from the path that's been working since 117. The live validation is the decisive experiment the arc has been pointing at.
 
+## What the live run showed
+
+The decisive experiment, with the envelope contract finally gone from the native prompt: **qwen adopted the tool channel.** Five turns, two files via `write_file`/`edit_file`, a plain-text summary, zero envelope, `recoveredVia: none`. The D3 safety net never fired. The phase-118 "preference" was entirely the confound — once the contradictory leading schema was removed, the stricter instruction-follower followed the only instruction left, and it pointed at the tools.
+
+gpt-oss and gemma stayed native with no regression (4 and 2 captures, `recoveredVia: none`). The native system prompt measured 2,036 chars against 3,022 for envelope mode — a 986-char reduction, the prompt-budget payoff the arc promised. All three runs reached verification; two failed on generated code quality (qwen 8/10, gpt-oss one suite), which is the architecture working: with no model-declared status, a buggy run reports `ok: false` instead of claiming success. gemma passed 6/6.
+
+The confound is the lesson. A model's apparent preference can be an artifact of the prompt, and the only way to know is to remove the contradiction and look. We had spent eleven phases building repair rules for a wound the prompt was inflicting.
+
 ## Test coverage
 
-1,153 tests pass. New tests added this phase:
+1,185 tests pass. New tests added this phase (plus review-driven reprompt-artifact fidelity):
 
 - **D1 (edit-formats.test.mjs):** native contract has no schema key names, contains the two tool-first sentences, is shorter than envelope mode. Envelope/auto byte-identity regression.
 - **D1 (context-packer.test.mjs):** per-mode coupling test asserting `renderKodrBaseContract` output matches `renderEditFormatContract` per mode. D4 length assertion: native ≥ 400 chars shorter than envelope.

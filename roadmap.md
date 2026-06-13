@@ -118,7 +118,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 116 Dot-Folder Skill And Agent Discovery
 - [x] 117 Proposal-Capturing Write Tools
 - [x] 118 Tool-Support Probe And Channel Profiles
-- [ ] 119 Envelope Demotion
+- [x] 119 Envelope Demotion
 
 ## Phase Contract
 

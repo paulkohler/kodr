@@ -228,8 +228,8 @@ mode: 0 tool writes, recovered via envelope fallback (T5 split applied)".
       the conceptual spine — already written during planning.)
 - [x] NEXT.md: delete the Tool-Channel Arc entry (arc complete; history lives
       in the phase files and blog).
-- [ ] Version bumped to 0.0.119; suite green; committed.
-- [ ] Live validation (after the commit, sequential, the decisive experiment):
+- [x] Version bumped to 0.0.119; suite green; committed.
+- [x] Live validation (after the commit, sequential, the decisive experiment):
       qwen greenfield in resolved-`native` mode with the envelope contract
       now GONE — does qwen adopt write_file/edit_file, or fall back via D3
       (record which `recoveredVia`)? Either is a pass; the question the whole
@@ -239,3 +239,14 @@ mode: 0 tool writes, recovered via envelope fallback (T5 split applied)".
       does). Record the native-mode prompt-length delta. Devstral remains the
       deferred circle-back (its `files` alias + native mode is the obvious
       follow-up once the three primaries are confirmed).
+      RESULT — the confound is disproven and the arc's question answered:
+      **qwen ADOPTED the tool channel** (recoveredVia:none, captured:2,
+      envelope:0, 5 tool-call turns vs phase-118's single blind 8,720-char
+      envelope). The D3 safety net never fired. gpt-oss (captured:4) and
+      gemma (captured:2) stayed native, no regression, recoveredVia:none.
+      D4 budget delta: native 2,036 vs envelope 3,022 system-prompt chars
+      (−986). All three reached verification; two failed on generated CODE
+      QUALITY (qwen 8/10, gpt-oss one suite), gemma 6/6 — status-from-
+      verification working as designed. Evidence:
+      `~/src/kodr-testing/phase-119/` (OPERATOR-REPORT.md),
+      `process/failures.jsonl` phase 119-validation.
