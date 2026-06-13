@@ -51,10 +51,14 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 	const agentPersona = options.agentPersona || null;
 	// C2 (phase 121): detect Node/ESM once per session — byte-stable prefix signal.
 	// options.isNodeEsm can override (for testing or forced-false non-Node workspaces).
-	const isNodeEsm =
+	// Phase 124: --no-language-guidance forces the block off (A-arm of the A/B).
+	// Detection still runs so non-block consumers are unaffected, but the block
+	// is suppressed by treating the workspace as non-Node for guidance purposes.
+	const detectedNodeEsm =
 		options.isNodeEsm !== undefined
 			? options.isNodeEsm
 			: await detectNodeEsm(cwd, files, options.taskPrompt || '');
+	const isNodeEsm = options.suppressLanguageGuidance ? false : detectedNodeEsm;
 	// C3 (phase 122): resolve the Node/ESM guidance once per session. A discovered
 	// `lang:node` skill (any tier) shadows the builtin; otherwise the builtin body
 	// is used downstream. Result is deterministic per workspace → stable prefix.

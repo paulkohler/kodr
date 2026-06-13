@@ -552,6 +552,20 @@ describe('language guidance (phase 122)', () => {
 		assert.doesNotMatch(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
 		assert.equal(context.languageGuidance, null);
 	});
+
+	// Phase 124: --no-language-guidance (suppressLanguageGuidance) forces the
+	// block off even for a Node/ESM workspace — the A-arm of the A/B.
+	it('suppresses the block when suppressLanguageGuidance is set', async () => {
+		const cwd = await mkWorkspace({ 'index.mjs': 'export {};' });
+		const on = await buildWorkspaceContext(cwd, { toolsMode: true });
+		const off = await buildWorkspaceContext(cwd, {
+			suppressLanguageGuidance: true,
+			toolsMode: true,
+		});
+		assert.match(on.systemPrompt, /# Node\.js \/ ESM Contract/u);
+		assert.doesNotMatch(off.systemPrompt, /# Node\.js \/ ESM Contract/u);
+		assert.equal(off.languageGuidance, null);
+	});
 });
 
 async function mkWorkspace(files) {

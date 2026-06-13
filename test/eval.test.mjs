@@ -54,6 +54,29 @@ describe('loadEvalSuite', () => {
 		assert.throws(() => loadEvalSuite('not json'), EvalError);
 	});
 
+	// Phase 124: the shipped suites must stay valid as they are durable fixtures.
+	it('loads the shipped code-quality suite with both trap cases', async () => {
+		const { readFile } = await import('node:fs/promises');
+		const text = await readFile(
+			new URL('../evals/code-quality.json', import.meta.url),
+			'utf8',
+		);
+		const suite = loadEvalSuite(text);
+		assert.equal(suite.name, 'code-quality');
+		const ids = suite.cases.map((c) => c.id).sort();
+		assert.deepEqual(ids, ['cq-esm-cli', 'cq-nodetest']);
+		// Every trap case pairs a files_exist with content_absent so a no-write
+		// cannot pass vacuously (content_absent is true for a missing file).
+		for (const c of suite.cases) {
+			const types = c.assertions.map((a) => a.type);
+			assert.ok(types.includes('files_exist'), `${c.id} needs files_exist`);
+			assert.ok(
+				types.includes('content_absent'),
+				`${c.id} needs content_absent`,
+			);
+		}
+	});
+
 	it('throws EvalError when name is missing', () => {
 		assert.throws(
 			() =>

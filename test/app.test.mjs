@@ -31,6 +31,16 @@ describe('parseArgs', () => {
 		assert.equal(options.modelProfile.id, 'qwen/qwen3.6-35b-a3b');
 		assert.equal(options.maxTurns, 8);
 		assert.equal(options.maxRetries, 7);
+		// Phase 124: guidance is on by default; --no-language-guidance opts out.
+		assert.equal(options.suppressLanguageGuidance, false);
+	});
+
+	it('parses --no-language-guidance (phase 124 A-arm)', () => {
+		assert.equal(
+			parseArgs(['--no-language-guidance'], {}).suppressLanguageGuidance,
+			true,
+		);
+		assert.equal(parseArgs([], {}).suppressLanguageGuidance, false);
 	});
 
 	it('parses model endpoint flags', () => {

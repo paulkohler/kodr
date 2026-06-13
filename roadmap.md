@@ -123,6 +123,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 121 Model Code Quality
 - [x] 122 Node Development Builtin Skill
 - [x] 123 Extractor-Replay Corpus
+- [x] 124 Code-Quality A/B Measurement
 
 ## Phase Contract
 

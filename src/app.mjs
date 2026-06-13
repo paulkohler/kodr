@@ -275,6 +275,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		transcriptFile: '',
 		applyMode: 'proposal',
+		// Phase 124: force the Node/ESM language-guidance block off even when the
+		// workspace signals Node/ESM. The A-arm of the guidance A/B measurement.
+		suppressLanguageGuidance: false,
 		maxCostUsd: '',
 		maxRetries: 7,
 		maxThinkingTokens: '',
@@ -437,6 +440,11 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		if (arg === '--no-tools') {
 			options.tools = false;
 			options._toolsSet = true;
+			continue;
+		}
+
+		if (arg === '--no-language-guidance') {
+			options.suppressLanguageGuidance = true;
 			continue;
 		}
 
@@ -1060,6 +1068,10 @@ OpenRouter:
                                     (--no-tools) this flag is accepted but inert.
                        Configurable via applyMode in .kodr/config.json.
                        Precedence: flag > config > default (proposal).
+  --no-language-guidance
+                       Force the Node/ESM contract block off even when the
+                       workspace signals Node/ESM. The A-arm for measuring the
+                       guidance's effect (phase 124); not for normal use.
   --staged             Force plan-first staged execution for complex work.
   --no-staged          Disable automatic staged execution.
   --subagent-stages    Run planner, implementer, and reviewer as isolated tool agents.
@@ -4454,6 +4466,8 @@ function workspaceContextOptions(options, cwd) {
 		// C3 (phase 122): resolved skill dirs so a project/user `lang:node` override
 		// in a dot-folder tier can shadow the builtin Node/ESM guidance.
 		...(cwd ? { skillsDirs: resolvedSkillsDirs(options, cwd) } : {}),
+		// Phase 124: A-arm of the guidance A/B — suppress the Node/ESM block.
+		suppressLanguageGuidance: options.suppressLanguageGuidance || false,
 		...(options.contextBudgetChars
 			? { totalBytes: options.contextBudgetChars }
 			: {}),

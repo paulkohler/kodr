@@ -1,0 +1,34 @@
+{
+	"name": "code-quality",
+	"description": "Greenfield ESM generation tasks that target the recurring local-model code-quality traps: CommonJS-in-ESM (require/module.exports), invented node:test API (t.assert()), and non-ESM test wiring. Each case asserts the target file exists (so a no-write cannot pass vacuously) and that the trap pattern is absent. Run with and without --no-language-guidance to measure the phase-121/122 contract's effect.",
+	"cases": [
+		{
+			"id": "cq-esm-cli",
+			"fixture": "fixtures/cq-esm-cli",
+			"test": "node --check wordcount.mjs",
+			"requires": [],
+			"expectFailingBaseline": false,
+			"heal": false,
+			"prompt": "Create wordcount.mjs: a Node.js CLI that reads a file path from process.argv and prints the number of lines in that file. Use ES modules.",
+			"assertions": [
+				{ "type": "files_exist", "paths": ["wordcount.mjs"] },
+				{ "type": "content_absent", "path": "wordcount.mjs", "pattern": "\\brequire\\s*\\(" },
+				{ "type": "content_absent", "path": "wordcount.mjs", "pattern": "module\\.exports" }
+			]
+		},
+		{
+			"id": "cq-nodetest",
+			"fixture": "fixtures/cq-nodetest",
+			"test": "node --test",
+			"requires": [],
+			"expectFailingBaseline": false,
+			"heal": false,
+			"prompt": "Create sum.mjs exporting a function sum(a, b) that returns a + b, and test/sum.test.mjs that tests it using Node's built-in node:test module and node:assert. Use ES modules.",
+			"assertions": [
+				{ "type": "files_exist", "paths": ["sum.mjs", "test/sum.test.mjs"] },
+				{ "type": "content_absent", "path": "test/sum.test.mjs", "pattern": "t\\.assert\\s*\\(" },
+				{ "type": "content_absent", "path": "sum.mjs", "pattern": "\\brequire\\s*\\(" }
+			]
+		}
+	]
+}

@@ -49,12 +49,26 @@ These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
+### Trap-Provoking Measurement Fixtures (the redirect from 124)
+
+Phase 124 built the guidance A/B (`--no-language-guidance` + `evals/code-quality.json`)
+and got a clean **null** on simple greenfield tasks: gpt-oss and devstral write
+clean ESM and real `node:test` with the block on *or* off. The traps from the
+117–121 record live in messier conditions — heal-loop repair context, larger or
+multi-file edits, multi-turn second-guessing — not first-shot single-file
+generation. So the next measurement needs **trap-provoking** fixtures: brownfield
+edit cases and heal-pressure cases that actually elicit `require.main`/`t.assert()`,
+run through the existing A/B apparatus. Only once a case shows a real mistake
+rate can the shared block (or any per-family addition) demonstrate a delta. This
+is the gating measurement for the Per-Model-Family work below.
+Evidence: `process/failures.jsonl` phase 124-validation.
+
 ### Per-Model-Family Targeted Guidance
 
 Phases 121/122 shipped the shared Node/ESM contract (now the builtin `lang:node`
-skill) and the `node --check` syntax gate. The remaining class: feed the
-*recurring per-model* mistake patterns back as targeted guidance injected only
-for those model families. gpt-oss has a CJS habit even with the ESM block;
+skill) and the `node --check` syntax gate; phase 124 showed it has no measurable
+effect on easy tasks. The remaining class: feed the *recurring per-model* mistake
+patterns back as targeted guidance injected only for those model families. gpt-oss has a CJS habit even with the ESM block;
 devstral still has argv-parse and `t.assert()` tendencies; qwen has off-by-one
 count logic. Phase 122 makes the shape obvious: a per-family guidance snippet is
 another auto-applied skill (e.g. `model:gpt-oss`) resolved from a model-family
