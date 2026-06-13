@@ -143,15 +143,16 @@ describe('extractJson — E3: duplicate key detection at all depths', () => {
 		assert.throws(() => extractJson('{"a":1,"a":2}'), /Duplicate JSON key: a/u);
 	});
 
-	it('rejects duplicate keys nested inside an array element object', () => {
-		// Greenfield logstats failure: a files[] entry had two "path" keys.
-		assert.throws(
-			() =>
-				extractJson(
-					'{"files":[{"path":"a.mjs","path":"b.mjs","content":"x"}]}',
-				),
-			/Duplicate JSON key: path/u,
+	it('repairs duplicate keys nested inside an array element object (R3 split rule)', () => {
+		// Phase 118: the qwen duplicate-key-cluster split rule (R3) converts
+		// {"path":"a.mjs","path":"b.mjs","content":"x"} into two separate objects.
+		// extractJson now repairs rather than rejecting this pattern.
+		const result = extractJson(
+			'{"files":[{"path":"a.mjs","path":"b.mjs","content":"x"}]}',
 		);
+		assert.deepEqual(result, {
+			files: [{ path: 'a.mjs' }, { path: 'b.mjs', content: 'x' }],
+		});
 	});
 
 	it('rejects duplicate keys in nested objects', () => {
@@ -654,5 +655,107 @@ describe('DECODE_ARTIFACT_RULES — exported rule ordering', () => {
 		const ids = DECODE_ARTIFACT_RULES.map((r) => r.ruleId);
 		const unique = new Set(ids);
 		assert.equal(unique.size, ids.length, 'all ruleIds should be unique');
+	});
+
+	it('qwen-duplicate-key-cluster is in the rule list between gpt-oss rules and blanket rules', () => {
+		const ids = DECODE_ARTIFACT_RULES.map((r) => r.ruleId);
+		const clusterIdx = ids.indexOf('qwen-duplicate-key-cluster');
+		const blanketIdx = ids.indexOf('blanket-quote-token');
+		assert.ok(
+			clusterIdx !== -1,
+			'qwen-duplicate-key-cluster should be in rules',
+		);
+		assert.ok(
+			clusterIdx < blanketIdx,
+			'qwen-duplicate-key-cluster must precede blanket rules',
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// T5 — R3: qwen duplicate-key-cluster split rule
+// Provenance: qwen/qwen3.6-35b-a3b phase-117 validation run.
+// Fixture: test/fixtures/qwen-duplicate-path-key.txt
+// (extracted from ~/src/kodr-testing/phase-117/greenfield-wordfreq-qwen/
+//  .kodr/runs/2026-06-13T01-09-47.682Z/raw-response.json —
+//  responses[-1].choices[0].message.content)
+// ---------------------------------------------------------------------------
+describe('R3: qwen duplicate-key-cluster split rule', () => {
+	it('splits a simple two-key duplicate into two objects', () => {
+		const result = extractProposal(
+			'{"files":[{"path":"a.mjs","content":"aaa","path":"b.mjs","content":"bbb"}]}',
+		);
+		assert.ok(result !== null, 'should extract a proposal');
+		assert.equal(result.files.length, 2);
+		assert.equal(result.files[0].path, 'a.mjs');
+		assert.equal(result.files[0].content, 'aaa');
+		assert.equal(result.files[1].path, 'b.mjs');
+		assert.equal(result.files[1].content, 'bbb');
+		// ruleId recorded in repairs
+		assert.ok(
+			result._extractionMeta.repairs?.some(
+				(r) => r.ruleId === 'qwen-duplicate-key-cluster',
+			),
+			'qwen-duplicate-key-cluster repair should be recorded',
+		);
+	});
+
+	it('no-false-positive: string value containing ,"path": is untouched', () => {
+		// The pattern ,"path": inside a string value must not be split.
+		const input =
+			'{"files":[{"path":"a.mjs","content":"the key ,\\"path\\": is inside the value"}]}';
+		const result = extractProposal(input);
+		assert.ok(result !== null, 'should extract a proposal');
+		assert.equal(result.files.length, 1);
+		assert.equal(result.files[0].path, 'a.mjs');
+		assert.match(result.files[0].content, /inside the value/u);
+	});
+
+	it('no-false-positive: same key in different (sibling) objects is not split', () => {
+		// Two separate objects in the files array both have "path" — that is valid.
+		const input =
+			'{"files":[{"path":"a.mjs","content":"x"},{"path":"b.mjs","content":"y"}]}';
+		const result = extractProposal(input);
+		assert.ok(result !== null, 'should extract a proposal');
+		assert.equal(result.files.length, 2);
+		// No repair needed
+		assert.ok(
+			!result._extractionMeta.repairs?.some(
+				(r) => r.ruleId === 'qwen-duplicate-key-cluster',
+			),
+			'qwen-duplicate-key-cluster should NOT fire on separate sibling objects',
+		);
+	});
+
+	it('offline replay: qwen fixture extracts both files with expected paths', async () => {
+		// Provenance: ~/src/kodr-testing/phase-117/greenfield-wordfreq-qwen/
+		//   .kodr/runs/2026-06-13T01-09-47.682Z/raw-response.json
+		// responses[-1].choices[0].message.content — embedded as a test fixture.
+		const content = await readFile(
+			fixturePath('qwen-duplicate-path-key.txt'),
+			'utf8',
+		);
+		const result = extractProposal(content);
+		assert.ok(
+			result !== null,
+			'should extract a proposal from the qwen fixture',
+		);
+		const paths = result.files.map((f) => f.path);
+		assert.ok(
+			paths.includes('wordfreq.mjs'),
+			`expected wordfreq.mjs in extracted paths, got: ${paths.join(', ')}`,
+		);
+		assert.ok(
+			paths.includes('test/wordfreq.test.mjs'),
+			`expected test/wordfreq.test.mjs in extracted paths, got: ${paths.join(', ')}`,
+		);
+		assert.equal(result.files.length, 2, 'should extract exactly 2 files');
+		// R3 repair should be recorded
+		assert.ok(
+			result._extractionMeta.repairs?.some(
+				(r) => r.ruleId === 'qwen-duplicate-key-cluster',
+			),
+			'qwen-duplicate-key-cluster repair should be recorded for the qwen fixture',
+		);
 	});
 });

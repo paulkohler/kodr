@@ -526,6 +526,141 @@ const STRUCTURAL_RULES = [
 	},
 ];
 
+// R3: qwen duplicate-key-cluster split rule.
+//
+// The qwen array-element collapse: both files[] entries are emitted inside a
+// single object literal with duplicate keys:
+//   {"path":"a.mjs","content":...,"path":"b.mjs","content":...}
+// This must become:
+//   {"path":"a.mjs","content":...},{"path":"b.mjs","content":...}
+//
+// A naive regex cannot know object depth — `,"path":` may appear legitimately
+// inside a string value or in a *different* object. The position-aware scanner
+// below tracks string/escape state and object depth so it only splits when:
+//   1. The repeat key appears at the SAME object depth (depth == 1 means we
+//      are inside exactly one object, i.e. the potential array element).
+//   2. The same key was already seen in the current object at this depth.
+//   3. The key matches the conservative JSON_KEY_RE charset.
+//
+// Provenance: qwen/qwen3.6-35b-a3b on LM Studio, phase-117 validation run.
+// Artifact: ~/src/kodr-testing/phase-117/greenfield-wordfreq-qwen/
+//            .kodr/runs/2026-06-13T01-09-47.682Z/raw-response.json
+// Decision: position-aware scan chosen over regex because object-depth tracking
+//   is required to avoid false positives in string values or sibling objects.
+//   (See process/decisions.jsonl phase 118 entry.)
+const DUPLICATE_KEY_CLUSTER_RULE_ID = 'qwen-duplicate-key-cluster';
+
+function applyDuplicateKeyClusterRule(text) {
+	// Track per-depth key sets. Index = depth (1-based for outermost object).
+	// Cleared on } that closes an object at that depth.
+	const keySets = []; // keySets[depth-1] = Set of keys seen at that depth
+	let depth = 0; // current object nesting depth (objects only; arrays transparent)
+	let inString = false;
+	let escaped = false;
+	let result = '';
+	let splitCount = 0;
+
+	for (let i = 0; i < text.length; i += 1) {
+		const char = text[i];
+
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+				result += char;
+				continue;
+			}
+			if (char === '\\') {
+				escaped = true;
+				result += char;
+				continue;
+			}
+			if (char === '"') {
+				inString = false;
+				result += char;
+				continue;
+			}
+			result += char;
+			continue;
+		}
+
+		if (char === '"') {
+			// Peek ahead: is this a key? A key is a quoted string followed by `:`.
+			// Read the string content, then check the next non-whitespace char.
+			let end = i + 1;
+			let esc = false;
+			while (end < text.length) {
+				const c = text[end];
+				if (esc) {
+					esc = false;
+				} else if (c === '\\') {
+					esc = true;
+				} else if (c === '"') {
+					break;
+				}
+				end += 1;
+			}
+			const keyCandidate = text.slice(i + 1, end);
+			// Find next non-whitespace after closing quote
+			let next = end + 1;
+			while (next < text.length && /\s/u.test(text[next])) {
+				next += 1;
+			}
+			const isKey =
+				text[next] === ':' &&
+				depth > 0 &&
+				JSON_KEY_RE.test(keyCandidate) &&
+				// Ensure full match (no extra chars)
+				keyCandidate === keyCandidate.match(JSON_KEY_RE)?.[0];
+
+			if (isKey && depth > 0) {
+				const keySet = keySets[depth - 1];
+				if (keySet) {
+					if (keySet.has(keyCandidate)) {
+						// Duplicate key at this depth — inject },{ before this key.
+						// Remove trailing comma/whitespace from result to avoid double comma.
+						result = result.replace(/,\s*$/u, '');
+						result += '},{';
+						splitCount += 1;
+						// Reset the key set for this new (split) object, seeding with the key.
+						keySets[depth - 1] = new Set([keyCandidate]);
+					} else {
+						keySet.add(keyCandidate);
+					}
+				}
+			}
+
+			inString = true;
+			result += char;
+			continue;
+		}
+
+		if (char === '{') {
+			depth += 1;
+			if (keySets.length < depth) {
+				keySets.push(new Set());
+			} else {
+				keySets[depth - 1] = new Set();
+			}
+			result += char;
+			continue;
+		}
+
+		if (char === '}') {
+			if (depth > 0) {
+				keySets[depth - 1] = new Set();
+				depth -= 1;
+			}
+			result += char;
+			continue;
+		}
+
+		// Arrays don't affect object depth tracking.
+		result += char;
+	}
+
+	return { text: result, splitCount };
+}
+
 // Blanket token rules applied character-by-character (replaceAll).
 const BLANKET_RULES = [
 	{
@@ -540,10 +675,11 @@ const BLANKET_RULES = [
 // Exported for tests so they can verify rule ordering and IDs.
 export const DECODE_ARTIFACT_RULES = [
 	...STRUCTURAL_RULES.map((r) => ({ ruleId: r.ruleId, type: 'structural' })),
+	{ ruleId: DUPLICATE_KEY_CLUSTER_RULE_ID, type: 'structural' },
 	...BLANKET_RULES.map((r) => ({ ruleId: r.ruleId, type: 'blanket' })),
 ];
 
-// Apply structural rules (regex-based) and return {text, repairs}.
+// Apply structural rules (regex-based + position-aware) and return {text, repairs}.
 // Structural rules MUST only run in the repair path — they risk corrupting
 // valid string values that happen to contain the pattern.
 function applyStructuralRules(text) {
@@ -555,6 +691,13 @@ function applyStructuralRules(text) {
 			repairs.push({ ruleId: rule.ruleId, count: matches.length });
 			result = result.replace(rule.pattern, rule.replacement);
 		}
+	}
+	// R3: position-aware duplicate-key-cluster split (qwen array-element collapse).
+	// Applied after regex rules so R2a/R2b handle gpt-oss patterns first.
+	const { text: splitText, splitCount } = applyDuplicateKeyClusterRule(result);
+	if (splitCount > 0) {
+		repairs.push({ ruleId: DUPLICATE_KEY_CLUSTER_RULE_ID, count: splitCount });
+		result = splitText;
 	}
 	return { text: result, repairs };
 }

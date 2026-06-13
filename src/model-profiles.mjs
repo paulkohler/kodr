@@ -4,6 +4,10 @@ import { normalizeEditFormat } from './edit-formats.mjs';
 import { LMSTUDIO_BASE_URL, OLLAMA_BASE_URL } from './model-specs.mjs';
 import { OPENROUTER_BASE_URL } from './completion.mjs';
 import { loadRoutingTableSync } from './bench.mjs';
+import {
+	loadProbeResultsSync,
+	resolveToolWritesMode,
+} from './probe-persistence.mjs';
 
 export const DEFAULT_CONTEXT_WINDOW = 32768;
 export const DEFAULT_COMPLETION_RESERVE = 4096;
@@ -19,6 +23,15 @@ const VALID_STRUCTURED_OUTPUT_MODES = new Set([
 	'json_object',
 	'none',
 ]);
+
+// Valid toolWrites modes (phase 118).
+//   'native'   — capture tools are the primary write path; prompt makes them explicit.
+//   'envelope' — capture tools NOT declared; pre-117 prompt surface (for models
+//                the measurements say are confused by tools).
+//   'auto'     — 117 behaviour (both channels, neutral wording) when no probe.json
+//                measurement; resolves to 'native' when probe.json says native for
+//                this (baseUrl, model).
+const VALID_TOOL_WRITES_MODES = new Set(['native', 'envelope', 'auto']);
 
 // Providers whose server rejects json_object with HTTP 400.
 const NO_JSON_OBJECT_PROVIDERS = new Set(['local', 'lmstudio']);
@@ -188,6 +201,16 @@ export function applyModelProfileDefaults(
 	if (routingTable !== null) {
 		next.routingTable = routingTable;
 	}
+	// T3: resolve toolWrites mode. Profile declares 'native'|'envelope'|'auto';
+	// auto is resolved against probe.json if present. The resolved mode is stored
+	// as toolWritesMode (the profile's raw setting stays in modelProfile.toolWrites).
+	const probeData = loadProbeResultsSync(cwd);
+	next.toolWritesMode = resolveToolWritesMode(
+		profile.toolWrites,
+		probeData,
+		options.baseUrl || '',
+		options.model || '',
+	);
 	return next;
 }
 
@@ -225,6 +248,10 @@ function normalizeProfile(profile, source) {
 		profile.toolAliases && typeof profile.toolAliases === 'object'
 			? { ...profile.toolAliases }
 			: null;
+	// toolWrites: channel preference — 'native' | 'envelope' | 'auto' (default).
+	const toolWrites = VALID_TOOL_WRITES_MODES.has(profile.toolWrites)
+		? profile.toolWrites
+		: 'auto';
 	return {
 		baseUrl: stringValue(profile.baseUrl || defaultBaseUrl(provider)),
 		completionReserve: positiveInteger(
@@ -247,6 +274,7 @@ function normalizeProfile(profile, source) {
 		source,
 		structuredOutput,
 		timeoutMs: positiveInteger(profile.timeoutMs, DEFAULT_TIMEOUT_MS),
+		toolWrites,
 		...(toolAliases !== null ? { toolAliases } : {}),
 	};
 }
@@ -340,6 +368,7 @@ function serializeProfile(profile) {
 		source: profile.source,
 		structuredOutput: profile.structuredOutput,
 		timeoutMs: profile.timeoutMs,
+		toolWrites: profile.toolWrites,
 	};
 	if (profile.toolAliases) {
 		serialized.toolAliases = profile.toolAliases;

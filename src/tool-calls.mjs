@@ -742,8 +742,12 @@ export function createBuiltinRegistry(cwd, options = {}) {
 	});
 
 	// W1: capture tools — record proposed file changes without touching disk.
+	// T3/T4: envelope mode omits capture tools entirely (pre-117 surface).
 	// Path is validated at capture time with the same jail rules as apply.
 	// Violations return a steering error result (not a throw) so the model can recover.
+	if (options.toolWritesMode === 'envelope') {
+		return registry;
+	}
 	registry.register('write_file', {
 		description:
 			'Propose writing a complete file. Records the path and content as a proposal entry — nothing is written to disk until the task completes and the harness applies the changes.',

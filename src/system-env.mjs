@@ -85,12 +85,18 @@ export function renderBehavioursBlock() {
 
 /**
  * Returns the `# Tools` section. Only include this when tools are enabled.
- * Pure and constant within a session.
+ * The wording adapts to the resolved toolWritesMode (T4, phase 118):
+ *   'native'   — capture tools are the primary write channel; make them explicit.
+ *   'envelope' — capture tools not declared; no write-tool lines shown.
+ *   'auto'     — 117 neutral wording (both channels described).
  *
+ * Byte-stable per session when called with the same mode each time.
+ *
+ * @param {'native'|'envelope'|'auto'} [toolWritesMode='auto']
  * @returns {string}
  */
-export function renderToolsBlock() {
-	return [
+export function renderToolsBlock(toolWritesMode = 'auto') {
+	const baseTools = [
 		'# Tools',
 		'- `inspect_symbols` — compact structural map of the workspace; use first to orient.',
 		'- `find_references` — symbol references across files.',
@@ -98,6 +104,36 @@ export function renderToolsBlock() {
 		'- `read_skill_resource` — declared skill resource content.',
 		'- `run_skill_command` — declared skill helper commands (explicit approval required).',
 		'- `run_command` — allowlisted verification commands only.',
+	];
+
+	if (toolWritesMode === 'native') {
+		// T4 native: capture tools are the primary write path. Envelope carries
+		// status/messages only — files/patches arrays may be empty.
+		return [
+			...baseTools,
+			'- `write_file {path, content}` — write a complete file. Use this for every file change.',
+			'- `edit_file {path, search, replace}` — search-and-replace edit. Use this for every file change.',
+			'',
+			'Use write_file or edit_file for every file change. The final JSON envelope carries status and messages only — files/patches arrays may be empty.',
+			'Workflow: inspect → read → write_file/edit_file → the harness applies and verifies.',
+			'You have a limited number of tool turns; finish writing before they run out.',
+		].join('\n');
+	}
+
+	if (toolWritesMode === 'envelope') {
+		// T4 envelope: capture tools not declared; no write-tool lines.
+		return [
+			...baseTools,
+			'',
+			'Return a final JSON envelope with files/patches arrays containing all file changes.',
+			'Workflow: inspect → read → return JSON envelope → the harness applies and verifies.',
+			'You have a limited number of tool turns; finish reading before they run out.',
+		].join('\n');
+	}
+
+	// 'auto': 117 neutral wording (both channels described).
+	return [
+		...baseTools,
 		'- `write_file {path, content}` — propose a complete file write; recorded as a proposal entry, applied after verification.',
 		'- `edit_file {path, search, replace}` — propose a search-and-replace edit; recorded as a proposal entry, applied after verification.',
 		'',

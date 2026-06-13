@@ -118,16 +118,16 @@ contain `,"path":` is untouched, and that legitimately-duplicate keys in
 
 ## Done criteria
 
-- [ ] T1: probe classifies tool support with evidence snippet.
-- [ ] T2: probe reports management-API facts and warns on context mismatch.
-- [ ] T3: probe.json persistence; toolWrites native|envelope|auto with auto
+- [x] T1: probe classifies tool support with evidence snippet.
+- [x] T2: probe reports management-API facts and warns on context mismatch.
+- [x] T3: probe.json persistence; toolWrites native|envelope|auto with auto
       resolution; mode in summary.json.
-- [ ] T4: channel-aware prompt wording per resolved mode.
-- [ ] T5: duplicate-key-cluster split rule, offline replay of the qwen
+- [x] T4: channel-aware prompt wording per resolved mode.
+- [x] T5: duplicate-key-cluster split rule, offline replay of the qwen
       response extracts both files.
-- [ ] `process/failures.jsonl` / `process/decisions.jsonl` updated.
-- [ ] Blog post `blog/118-tool-support-probe-and-channel-profiles.md`.
-- [ ] NEXT.md entries shipped by this phase deleted (FIFO) — the "Probe
+- [x] `process/failures.jsonl` / `process/decisions.jsonl` updated.
+- [x] Blog post `blog/118-tool-support-probe-and-channel-profiles.md`.
+- [x] NEXT.md entries shipped by this phase deleted (FIFO) — the "Probe
       Reads The Management API" entry and the 117-findings paragraph of the
       arc entry.
 - [ ] Version bumped to 0.0.118; suite green; committed.

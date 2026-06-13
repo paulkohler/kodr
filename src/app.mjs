@@ -155,6 +155,7 @@ import {
 	renderForensicsCli,
 	resolveRunDir,
 } from './forensics.mjs';
+import { saveProbeResult } from './probe-persistence.mjs';
 
 export { VERSION };
 
@@ -1310,6 +1311,27 @@ export async function main(argv, io) {
 			io.stdout.write(`Model: ${result.model}\n`);
 			io.stdout.write(`Structured output: ${result.structuredOutputMode}\n`);
 			io.stdout.write(`Reply: ${result.reply}\n`);
+			// T1: tool-support classification.
+			io.stdout.write(`Tool support: ${result.toolSupport}\n`);
+			if (result.evidenceSnippet) {
+				io.stdout.write(`Evidence: ${result.evidenceSnippet.slice(0, 120)}\n`);
+			}
+			// T2: management API facts.
+			if (result.managementApi) {
+				const { instances = [], warnings = [], note } = result.managementApi;
+				if (note) {
+					io.stdout.write(`Management API: ${note}\n`);
+				} else {
+					for (const inst of instances) {
+						io.stdout.write(
+							`  ${inst.id}: context_length=${inst.context_length ?? '?'} parallel=${inst.parallel ?? '?'} trained_for_tool_use=${inst.trained_for_tool_use ?? '?'}\n`,
+						);
+					}
+					for (const warn of warnings) {
+						io.stdout.write(`  WARN: ${warn}\n`);
+					}
+				}
+			}
 		}
 		return { ok: true, command: 'probe', result };
 	}
@@ -2347,6 +2369,102 @@ function assignValue(options, flag, value) {
 	}
 }
 
+// T1: classify the reply from a tool-support probe.
+// Returns 'native' | 'fallback' | 'none' and a short evidence snippet.
+function classifyToolSupport(chatBody) {
+	const choice = chatBody?.choices?.[0];
+	// Native: structured tool_calls in the response.
+	if (
+		Array.isArray(choice?.message?.tool_calls) &&
+		choice.message.tool_calls.length > 0
+	) {
+		const call = choice.message.tool_calls[0];
+		const snippet = JSON.stringify(call).slice(0, 200);
+		return { toolSupport: 'native', evidenceSnippet: snippet };
+	}
+	// Fallback: tool-call-like syntax leaked into text content.
+	const text = choice?.message?.content || '';
+	if (
+		text.includes('<tool_call') ||
+		text.includes('"function"') ||
+		text.includes('probe_echo')
+	) {
+		return { toolSupport: 'fallback', evidenceSnippet: text.slice(0, 200) };
+	}
+	// None: no tool-call signal.
+	return { toolSupport: 'none', evidenceSnippet: text.slice(0, 200) };
+}
+
+// T2: detect whether the baseUrl is an LM Studio endpoint (ends with /v1).
+// Returns the management API host or null if this isn't lmstudio.
+function lmstudioManagementHost(baseUrl) {
+	if (!baseUrl) return null;
+	// LM Studio base URLs end with /v1 (the OpenAI-compat path prefix).
+	if (!baseUrl.endsWith('/v1')) return null;
+	return baseUrl.slice(0, -3); // strip /v1 → the management host
+}
+
+// T2: query the LM Studio management API.
+// Returns null when unreachable (graceful degradation — never a probe failure).
+async function queryLmStudioManagement(host, profileContextWindow, timeoutMs) {
+	const url = `${host}/api/v1/models`;
+	const controller = new AbortController();
+	const timer = setTimeout(
+		() => controller.abort(),
+		Math.min(timeoutMs || 10000, 10000),
+	);
+	let response;
+	try {
+		response = await fetch(url, { signal: controller.signal });
+	} catch {
+		return { note: `Management API unreachable at ${url}`, instances: [] };
+	} finally {
+		clearTimeout(timer);
+	}
+	if (!response.ok) {
+		return {
+			note: `Management API ${url} returned HTTP ${response.status}`,
+			instances: [],
+		};
+	}
+	let body;
+	try {
+		body = await response.json();
+	} catch {
+		return { note: `Management API ${url} returned non-JSON`, instances: [] };
+	}
+	// Body is typically { data: [...] } or an array.
+	const items = Array.isArray(body?.data)
+		? body.data
+		: Array.isArray(body)
+			? body
+			: [];
+	const instances = items.map((item) => {
+		const instance = {
+			id: item.id || item.modelKey || '(unknown)',
+			context_length: item.context_length ?? null,
+			parallel: item.parallel ?? null,
+			trained_for_tool_use: item.capabilities?.trained_for_tool_use ?? null,
+		};
+		return instance;
+	});
+	// Warn on context_length mismatch.
+	const warnings = [];
+	if (profileContextWindow) {
+		for (const instance of instances) {
+			if (
+				instance.context_length !== null &&
+				instance.context_length !== profileContextWindow
+			) {
+				warnings.push(
+					`context_length mismatch for ${instance.id}: loaded ${instance.context_length}, profile assumes ${profileContextWindow}`,
+				);
+			}
+		}
+	}
+	return { instances, warnings };
+}
+
 async function probe(options, io) {
 	const runDir = await createRunArtifacts(io.cwd);
 
@@ -2361,6 +2479,7 @@ async function probe(options, io) {
 		);
 	}
 
+	// Existing connectivity probe (original purpose).
 	const chatBody = {
 		messages: [
 			{
@@ -2388,6 +2507,60 @@ async function probe(options, io) {
 		);
 	}
 
+	// T1: tool-support check via the existing transport.
+	// Send a trivial tool declaration and classify the response.
+	const PROBE_ECHO_TOOL = {
+		type: 'function',
+		function: {
+			name: 'probe_echo',
+			description: 'Echo back a value. Call this immediately.',
+			parameters: {
+				type: 'object',
+				properties: {
+					value: { type: 'string', description: 'Any string value.' },
+				},
+				required: ['value'],
+				additionalProperties: false,
+			},
+		},
+	};
+	const toolProbeBody = {
+		messages: [
+			{
+				role: 'user',
+				content: 'Call probe_echo with value "ok".',
+			},
+		],
+		model,
+		temperature: 0,
+		tools: [PROBE_ECHO_TOOL],
+		tool_choice: 'auto',
+	};
+
+	await writeJson(join(runDir, 'tool-probe-request.json'), {
+		body: toolProbeBody,
+		url: `${options.baseUrl}/chat/completions`,
+	});
+
+	const toolProbeResponse = await createChatCompletion(options, toolProbeBody);
+
+	await writeJson(join(runDir, 'tool-probe-response.json'), toolProbeResponse);
+
+	const { toolSupport, evidenceSnippet } = classifyToolSupport(
+		toolProbeResponse.body,
+	);
+
+	// T2: management API query (LM Studio only; skip silently for other providers).
+	const mgmtHost = lmstudioManagementHost(options.baseUrl);
+	let managementApi = null;
+	if (mgmtHost) {
+		managementApi = await queryLmStudioManagement(
+			mgmtHost,
+			options.contextWindow || null,
+			options.timeoutMs,
+		);
+	}
+
 	const result = {
 		baseUrl: options.baseUrl,
 		model,
@@ -2396,9 +2569,23 @@ async function probe(options, io) {
 		reply,
 		runDir,
 		structuredOutputMode: options.structuredOutputMode || 'none',
+		// T1
+		toolSupport,
+		evidenceSnippet,
+		// T2
+		...(managementApi ? { managementApi } : {}),
 	};
 
 	await writeJson(join(runDir, 'result.json'), result);
+
+	// T3: persist to .kodr/probe.json keyed by (baseUrl, model).
+	await saveProbeResult(io.cwd, options.baseUrl, model, {
+		toolSupport,
+		evidenceSnippet,
+		structuredOutputMode: options.structuredOutputMode || 'none',
+		...(managementApi ? { managementApi } : {}),
+	});
+
 	return result;
 }
 
@@ -2643,6 +2830,8 @@ export async function runPrompt(options, io) {
 					timeoutMs: options.timeoutMs,
 					// W2: pass profile-level tool aliases (overrides built-in defaults).
 					toolAliases: options.profileToolAliases || undefined,
+					// T3: envelope mode omits capture tools (write_file/edit_file).
+					toolWritesMode: options.toolWritesMode || 'auto',
 				})
 			: null;
 		const responsePath = join(runDir, 'response.md');
@@ -3017,6 +3206,8 @@ export async function runPrompt(options, io) {
 			sessionCompaction: sessionCompaction?.summary || null,
 			sessionId,
 			timestamp: new Date().toISOString(),
+			// T3: resolved channel mode (native|envelope|auto) for forensics correlation.
+			toolWritesMode: options.toolWritesMode || 'auto',
 			usage: usageFromBudget(completion.loopBudget),
 			workspaceFileCount: contextFileCount(context),
 		};
@@ -3974,6 +4165,8 @@ function workspaceContextOptions(options) {
 		completionReserve: options.completionReserve,
 		contextWindow: options.contextWindow,
 		editFormat: options.editFormat,
+		// T4: pass resolved toolWritesMode so context-packer uses channel-aware wording.
+		toolWritesMode: options.toolWritesMode || 'auto',
 		...(options.contextBudgetChars
 			? { totalBytes: options.contextBudgetChars }
 			: {}),

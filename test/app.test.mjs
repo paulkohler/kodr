@@ -621,13 +621,30 @@ describe('probe', () => {
 			const output = JSON.parse(stdout.text);
 			assert.equal(output.ok, true);
 			assert.equal(output.model, 'qwen/qwen3.6-35b-a3b');
-
-			assert.deepEqual(
-				server.recordings.map((recording) => {
-					return `${recording.method} ${recording.url}`;
-				}),
-				['GET /v1/models', 'POST /v1/chat/completions'],
+			// T1: toolSupport classification present in JSON output.
+			assert.ok(
+				['native', 'fallback', 'none'].includes(output.toolSupport),
+				`toolSupport should be native|fallback|none, got: ${output.toolSupport}`,
 			);
+
+			// T1: two chat completions (connectivity + tool-support probe).
+			const chatRequests = server.recordings.filter(
+				(r) => r.method === 'POST' && r.url === '/v1/chat/completions',
+			);
+			assert.equal(
+				chatRequests.length,
+				2,
+				'expected two chat/completions calls',
+			);
+
+			// The tool-probe request includes a tools array.
+			const toolProbeRequest = chatRequests[1].requestBody;
+			assert.ok(
+				Array.isArray(toolProbeRequest.tools),
+				'tool-probe request should include tools array',
+			);
+			assert.equal(toolProbeRequest.tools[0].function.name, 'probe_echo');
+
 			assert.equal(
 				server.recordings[0].requestHeaders.authorization,
 				'[redacted]',
@@ -650,11 +667,24 @@ describe('probe', () => {
 			);
 			assert.equal(artifact.ok, true);
 			assert.equal(artifact.reply, 'kodr-probe-ok');
+			// T1: toolSupport in artifact.
+			assert.ok(['native', 'fallback', 'none'].includes(artifact.toolSupport));
 
 			const chatResponse = JSON.parse(
 				await readFile(join(output.runDir, 'chat-response.json'), 'utf8'),
 			);
 			assert.equal(chatResponse.status, 200);
+
+			// T3: probe.json persisted.
+			const probeJson = JSON.parse(
+				await readFile(join(cwd, '.kodr', 'probe.json'), 'utf8'),
+			);
+			const probeEntry = Object.values(probeJson)[0];
+			assert.ok(probeEntry, 'probe.json should have at least one entry');
+			assert.equal(probeEntry.model, 'qwen/qwen3.6-35b-a3b');
+			assert.ok(
+				['native', 'fallback', 'none'].includes(probeEntry.toolSupport),
+			);
 		} finally {
 			await server.close();
 		}
@@ -687,6 +717,250 @@ describe('probe', () => {
 					),
 				/invalid JSON/u,
 			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// T1: classification tests — fake server returns native / fallback / none.
+	it('T1: classifies native tool support from structured tool_calls', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				// First POST chat/completions: connectivity probe response.
+				{
+					body: {
+						choices: [
+							{
+								message: { content: 'kodr-probe-ok', role: 'assistant' },
+								finish_reason: 'stop',
+							},
+						],
+						id: 'c1',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Second POST: tool-support probe — native structured tool_calls.
+				{
+					body: {
+						choices: [
+							{
+								message: {
+									role: 'assistant',
+									content: null,
+									tool_calls: [
+										{
+											id: 'call-1',
+											type: 'function',
+											function: {
+												name: 'probe_echo',
+												arguments: '{"value":"ok"}',
+											},
+										},
+									],
+								},
+								finish_reason: 'tool_calls',
+							},
+						],
+						id: 'c2',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-probe-native-'));
+			const stdout = captureStream();
+			const result = await main(
+				[
+					'probe',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout },
+			);
+			assert.equal(result.result.toolSupport, 'native');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('T1: classifies fallback tool support when tool syntax leaks into text', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: {
+						choices: [
+							{
+								message: { content: 'kodr-probe-ok', role: 'assistant' },
+								finish_reason: 'stop',
+							},
+						],
+						id: 'c1',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Tool probe reply: fallback — tool call syntax in text, no tool_calls.
+				{
+					body: {
+						choices: [
+							{
+								message: {
+									role: 'assistant',
+									content:
+										'<tool_call>{"name":"probe_echo","arguments":{"value":"ok"}}</tool_call>',
+								},
+								finish_reason: 'stop',
+							},
+						],
+						id: 'c2',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-probe-fallback-'));
+			const stdout = captureStream();
+			const result = await main(
+				[
+					'probe',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout },
+			);
+			assert.equal(result.result.toolSupport, 'fallback');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('T1: classifies none when no tool signal in response', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: {
+						choices: [
+							{
+								message: { content: 'kodr-probe-ok', role: 'assistant' },
+								finish_reason: 'stop',
+							},
+						],
+						id: 'c1',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Tool probe reply: plain text, no tool signal.
+				{
+					body: {
+						choices: [
+							{
+								message: { role: 'assistant', content: 'I cannot use tools.' },
+								finish_reason: 'stop',
+							},
+						],
+						id: 'c2',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-probe-none-'));
+			const result = await main(
+				[
+					'probe',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+			assert.equal(result.result.toolSupport, 'none');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('T1: evidence snippet recorded in probe.json', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: {
+						choices: [
+							{
+								message: { content: 'kodr-probe-ok', role: 'assistant' },
+								finish_reason: 'stop',
+							},
+						],
+						id: 'c1',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				{
+					body: {
+						choices: [
+							{
+								message: { role: 'assistant', content: 'no signal here' },
+								finish_reason: 'stop',
+							},
+						],
+						id: 'c2',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-probe-snippet-'));
+			await main(
+				[
+					'probe',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'1000',
+					'--json',
+				],
+				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+			);
+			const probeData = JSON.parse(
+				await readFile(join(cwd, '.kodr', 'probe.json'), 'utf8'),
+			);
+			const entry = Object.values(probeData)[0];
+			assert.ok(typeof entry.evidenceSnippet === 'string');
 		} finally {
 			await server.close();
 		}

@@ -192,4 +192,89 @@ describe('model profiles', () => {
 		assert.equal(options.sessionContextChars, 12000);
 		assert.equal(options.modelProfile.timeoutMs, 600000);
 	});
+
+	// T3 (phase 118): toolWrites field in profiles.
+	it('T3: toolWrites defaults to "auto" when not set in profile', () => {
+		const profile = resolveModelProfile(
+			{ model: 'qwen/qwen3.6-35b-a3b', provider: 'local' },
+			{},
+		);
+		assert.equal(profile.toolWrites, 'auto');
+	});
+
+	it('T3: toolWrites from config file is normalized to valid values', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-profiles-toolwrites-'));
+		await mkdir(join(cwd, '.kodr'), { recursive: true });
+		await writeFile(
+			join(cwd, '.kodr/model-profiles.json'),
+			JSON.stringify([
+				{
+					id: 'gemma/gemma-4-27b',
+					provider: 'local',
+					toolWrites: 'envelope',
+				},
+			]),
+		);
+		const profile = resolveModelProfile(
+			{ model: 'gemma/gemma-4-27b', provider: 'local' },
+			{},
+			cwd,
+		);
+		assert.equal(profile.toolWrites, 'envelope');
+	});
+
+	it('T3: invalid toolWrites falls back to "auto"', () => {
+		const profile = resolveModelProfile(
+			{ model: 'somemodel', provider: 'local' },
+			{},
+		);
+		// No profile file, falls back to default which normalizes to 'auto'.
+		assert.equal(profile.toolWrites, 'auto');
+	});
+
+	it('T3: applyModelProfileDefaults sets toolWritesMode to "auto" by default', () => {
+		const options = applyModelProfileDefaults(
+			{
+				model: 'qwen/qwen3.6-35b-a3b',
+				provider: 'local',
+				baseUrl: 'http://localhost:1234/v1',
+			},
+			{},
+		);
+		// No probe.json, so 'auto' stays 'auto'.
+		assert.equal(options.toolWritesMode, 'auto');
+	});
+
+	it('T3: applyModelProfileDefaults resolves to "native" when probe.json says native', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-profiles-probe-resolve-'));
+		const { saveProbeResult } = await import('../src/probe-persistence.mjs');
+		await saveProbeResult(
+			cwd,
+			'http://localhost:1234/v1',
+			'qwen/qwen3.6-35b-a3b',
+			{ toolSupport: 'native' },
+		);
+		const options = applyModelProfileDefaults(
+			{
+				model: 'qwen/qwen3.6-35b-a3b',
+				provider: 'local',
+				baseUrl: 'http://localhost:1234/v1',
+			},
+			{},
+			cwd,
+		);
+		assert.equal(options.toolWritesMode, 'native');
+	});
+
+	it('T3: toolWrites serialized in modelProfile', () => {
+		const options = applyModelProfileDefaults(
+			{
+				model: 'qwen/qwen3.6-35b-a3b',
+				provider: 'local',
+				baseUrl: 'http://localhost:1234/v1',
+			},
+			{},
+		);
+		assert.equal(options.modelProfile.toolWrites, 'auto');
+	});
 });

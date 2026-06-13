@@ -48,18 +48,6 @@ a native `files` tool exclusively and is 0% usable on the envelope. Phase
 tools, per-profile aliases, and verification-derived status, strictly
 additively. The rest of the arc:
 
-**118 — Tool-Support Probe And Channel Profiles.** LM Studio distinguishes
-native tool support (chat template formats the tools array; server parses
-tool-call syntax into structured `tool_calls`) from a generic fallback —
-reliability is a property of the (model, server, template) triple. Probe
-empirically: toy tool request → structured `tool_calls` (native) vs leaked
-tool syntax in text (fallback); record `toolSupport` in the model profile;
-fold in the management-API context_length check (absorbs the "Probe Reads
-The Management API" entry when built). Add `toolWrites:
-native|envelope|auto` per profile, auto resolved from probe data — gemma
-stays envelope-first until measured otherwise. If 117 shows aliasing isn't
-enough, advertise model-native tool names directly in the declared schema.
-
 **119 — Envelope Demotion.** The gut, done last with evidence in hand: for
 native-channel profiles the system prompt drops the envelope JSON contract
 entirely (large prompt-budget and failure-surface win), final output is
@@ -72,18 +60,6 @@ Out of scope but designed for: Ollama (Modelfile templates) and vLLM
 (explicit `--tool-call-parser`) have the same template/parse layer; channel
 choice per (model, server) profile transfers unchanged.
 
-117-validation findings feeding 118: gpt-oss adopted write_file immediately
-(corruption class structurally gone, multi-KB tool args clean, phase-112
-stall question closed) — but qwen ignored the declared tools entirely and
-failed on a NEW envelope class: array-element collapse, both files[]
-objects merged into one object literal with duplicate `path` keys
-(rejected by phase-111 duplicate-key detection, repaired by nothing).
-118 should cover (a) why a natively-tool-supported model declines the
-channel — probe + prompt-side tool nudging per profile, and (b) the
-duplicate-key-cluster split rule (`,"path":` after a prior `path` at the
-same depth → `},{"path":` — the inverse of the gpt-oss missing-brace
-rule), evidence `~/src/kodr-testing/phase-117/greenfield-wordfreq-qwen/`.
-
 ### Inter-Chunk Idle Deadline
 
 Phase 113 bounds time-to-first-token (120s, one retry), but a stream that
@@ -92,26 +68,6 @@ gemma's validation stall received a first chunk on retry then hung for the
 remaining ~480s. An inter-chunk idle deadline (no SSE data for Ns after
 streaming began) would fail such stalls fast with a distinct error, same
 pattern as T2.
-
-### Probe Reads The Management API
-
-LM Studio's management API (`GET /api/v1/models`) reports the *actual* loaded
-`context_length`/`parallel` per instance — the GUI had gemma at 8,192 while
-kodr's profile assumed 32,768. `kodr probe` could warn on the mismatch (and
-`load`/`unload` endpoints exist for future model-flipping in bench).
-
-Extension (2026-06-13): probe tool-call support empirically. LM Studio docs
-(/docs/developer/openai-compat/tools) distinguish "native" tool support (chat
-template formats the tools array; LM Studio parses the model's tool-call
-syntax into structured `tool_calls`) from a generic fallback — and the seam
-explains observed failures (leaked `<tool_call|>`/pseudo-token artifacts,
-devstral's `arguments:""` crash). Reliability is a property of the
-(model, server, template) triple, not the model. Probe: send a one-tool toy
-request, check whether the reply carries structured `tool_calls` or tool-call
-syntax in text, record `toolSupport: native|fallback` in the model profile.
-Same layer exists in Ollama (Modelfile templates) and vLLM (explicit
-`--tool-call-parser` flag), so the measurement transfers when other servers
-arrive.
 
 ### Extraction Metadata Into Run Artifacts
 

@@ -2444,3 +2444,56 @@ describe('normalizeToolCallArguments with large content (W1 regression)', () => 
 		assert.equal(parsed.path, 'big.txt');
 	});
 });
+
+// ---------------------------------------------------------------------------
+// T3 (phase 118): envelope mode — capture tools not declared
+// ---------------------------------------------------------------------------
+
+describe('createBuiltinRegistry — T3 toolWritesMode envelope', () => {
+	it('envelope mode: write_file and edit_file are NOT registered', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-reg-envelope-'));
+		const registry = createBuiltinRegistry(cwd, { toolWritesMode: 'envelope' });
+		const apiTools = registry.toApiTools();
+		const names = apiTools.map((t) => t.function.name);
+		assert.ok(
+			!names.includes('write_file'),
+			'write_file should not be declared in envelope mode',
+		);
+		assert.ok(
+			!names.includes('edit_file'),
+			'edit_file should not be declared in envelope mode',
+		);
+		// Non-write tools should still be present
+		assert.ok(names.includes('read_file'), 'read_file should be present');
+	});
+
+	it('native mode: write_file and edit_file ARE registered', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-reg-native-'));
+		const registry = createBuiltinRegistry(cwd, { toolWritesMode: 'native' });
+		const apiTools = registry.toApiTools();
+		const names = apiTools.map((t) => t.function.name);
+		assert.ok(
+			names.includes('write_file'),
+			'write_file should be declared in native mode',
+		);
+		assert.ok(
+			names.includes('edit_file'),
+			'edit_file should be declared in native mode',
+		);
+	});
+
+	it('auto mode (default): write_file and edit_file ARE registered', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-reg-auto-'));
+		const registry = createBuiltinRegistry(cwd, { toolWritesMode: 'auto' });
+		const apiTools = registry.toApiTools();
+		const names = apiTools.map((t) => t.function.name);
+		assert.ok(
+			names.includes('write_file'),
+			'write_file should be declared in auto mode',
+		);
+		assert.ok(
+			names.includes('edit_file'),
+			'edit_file should be declared in auto mode',
+		);
+	});
+});

@@ -144,7 +144,7 @@ describe('renderBehavioursBlock', () => {
 
 describe('renderToolsBlock', () => {
 	// Phase 117 (W1/W5): now lists eight tools including write_file and edit_file.
-	it('starts with # Tools and lists all eight tools', () => {
+	it('starts with # Tools and lists all eight tools (auto mode)', () => {
 		const block = renderToolsBlock();
 		assert.match(block, /^# Tools/u);
 		assert.match(block, /inspect_symbols/u);
@@ -157,11 +157,48 @@ describe('renderToolsBlock', () => {
 		assert.match(block, /edit_file/u);
 	});
 
-	it('contains positive capture-tool contract and budget reminder', () => {
+	it('contains positive capture-tool contract and budget reminder (auto mode)', () => {
 		const block = renderToolsBlock();
 		// Phase 117 (W5): positive contract replaces the "no write tool" prohibition.
 		assert.match(block, /write_file or edit_file/u);
 		assert.match(block, /limited number of tool turns/u);
+	});
+
+	// T4 (phase 118): channel-aware wording per resolved mode.
+	it('native mode: primary contract says use write_file/edit_file for every change', () => {
+		const block = renderToolsBlock('native');
+		assert.match(block, /^# Tools/u);
+		assert.match(block, /write_file/u);
+		assert.match(block, /edit_file/u);
+		// Native contract: "for every file change"
+		assert.match(block, /every file change/u);
+		// Envelope carries status/messages only
+		assert.match(block, /status and messages only/u);
+		// No "both channels work" phrasing
+		assert.doesNotMatch(block, /both channels work/u);
+	});
+
+	it('envelope mode: no write_file or edit_file lines', () => {
+		const block = renderToolsBlock('envelope');
+		assert.match(block, /^# Tools/u);
+		// No capture tool lines
+		assert.doesNotMatch(block, /write_file/u);
+		assert.doesNotMatch(block, /edit_file/u);
+		// Envelope instruction instead
+		assert.match(block, /JSON envelope/u);
+	});
+
+	it('auto mode (default): neutral 117 wording with both channels', () => {
+		const block = renderToolsBlock('auto');
+		assert.match(block, /write_file/u);
+		assert.match(block, /both channels work/u);
+		assert.match(block, /limited number of tool turns/u);
+	});
+
+	it('auto mode and no-arg produce identical output (byte-stable)', () => {
+		const blockAuto = renderToolsBlock('auto');
+		const blockDefault = renderToolsBlock();
+		assert.equal(blockAuto, blockDefault);
 	});
 });
 
@@ -298,7 +335,9 @@ describe('prompt budget guard', () => {
 	// Phase 117 (W5): two new tool lines (write_file, edit_file) add ~220 chars.
 	// Budget deliberately updated from 2900 → 3200. Stable section grew from two
 	// to four tool-description lines; still well below the 4096-token LM Studio limit.
-	it('standard greenfield system message stays under 3200 chars', async () => {
+	// Phase 118 (T4): native and envelope modes tested explicitly; native stays
+	// under 3200, envelope is shorter (no write_file/edit_file lines).
+	it('standard greenfield system message stays under 3200 chars (auto mode)', async () => {
 		const cwd = await mkWorkspace({
 			'app.mjs': 'export function add(a, b) { return a + b; }',
 		});
@@ -322,6 +361,64 @@ describe('prompt budget guard', () => {
 		assert.ok(
 			promptLen < 3200,
 			`System message must stay under 3200 chars for a greenfield task; got ${promptLen} chars`,
+		);
+	});
+
+	it('native mode stays under 3200 chars', async () => {
+		const cwd = await mkWorkspace({
+			'app.mjs': 'export function add(a, b) { return a + b; }',
+		});
+		const facts = {
+			cwd,
+			date: '2026-06-12',
+			gitBranch: 'main',
+			gitRepo: true,
+			model: 'test-model',
+			nodeVersion: 'v24.16.0',
+			osRelease: 'Darwin 25.5.0',
+			platform: 'darwin',
+			shell: 'zsh',
+		};
+		const context = await buildWorkspaceContext(cwd, {
+			environmentFacts: facts,
+			toolsMode: true,
+			toolWritesMode: 'native',
+		});
+		const promptLen = context.systemPrompt.length;
+		assert.ok(
+			promptLen < 3200,
+			`Native mode system message must stay under 3200 chars; got ${promptLen} chars`,
+		);
+	});
+
+	it('envelope mode is shorter than auto mode (no write tools)', async () => {
+		const cwd = await mkWorkspace({
+			'app.mjs': 'export function add(a, b) { return a + b; }',
+		});
+		const facts = {
+			cwd,
+			date: '2026-06-12',
+			gitBranch: 'main',
+			gitRepo: true,
+			model: 'test-model',
+			nodeVersion: 'v24.16.0',
+			osRelease: 'Darwin 25.5.0',
+			platform: 'darwin',
+			shell: 'zsh',
+		};
+		const autoContext = await buildWorkspaceContext(cwd, {
+			environmentFacts: facts,
+			toolsMode: true,
+			toolWritesMode: 'auto',
+		});
+		const envelopeContext = await buildWorkspaceContext(cwd, {
+			environmentFacts: facts,
+			toolsMode: true,
+			toolWritesMode: 'envelope',
+		});
+		assert.ok(
+			envelopeContext.systemPrompt.length < autoContext.systemPrompt.length,
+			'envelope mode should produce a shorter system prompt than auto mode',
 		);
 	});
 });

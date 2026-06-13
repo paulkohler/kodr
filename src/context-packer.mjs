@@ -41,6 +41,8 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 	const toolsMode = options.toolsMode || false;
 	const editFormat = options.editFormat;
 	const environmentFacts = options.environmentFacts || null;
+	// T4: toolWritesMode determines tools-block wording per resolved channel.
+	const toolWritesMode = options.toolWritesMode || 'auto';
 	const files = await listContextFiles(cwd);
 	const memory = options.memory || { project: null, user: null };
 	const skills = options.skills || { index: [], loaded: [] };
@@ -73,6 +75,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			memory,
 			skills,
 			toolsMode,
+			toolWritesMode,
 		});
 		return {
 			...context,
@@ -118,6 +121,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			inspection,
 			memory,
 			skills,
+			toolWritesMode,
 		});
 		return {
 			...context,
@@ -182,6 +186,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		memory,
 		omittedFiles,
 		skills,
+		toolWritesMode,
 	});
 	return {
 		...context,
@@ -322,7 +327,11 @@ export function renderPromptSections(context = {}) {
 	};
 	return {
 		// stable: identity + envelope + behaviours + tools (tools only when toolsMode)
-		stable: renderStableSection(context?.editFormat, context?.toolsMode),
+		stable: renderStableSection(
+			context?.editFormat,
+			context?.toolsMode,
+			context?.toolWritesMode,
+		),
 		// environment: session-stable facts (cwd, git, node, model, date)
 		environment: context?.environmentFacts
 			? renderEnvironmentBlock(context.environmentFacts)
@@ -498,10 +507,15 @@ export function renderKodrCorePrompt(context = {}, options = {}) {
 // identity + envelope contract + behaviours + tools (tools only in tools mode).
 // 'patch' branch is byte-identical to renderKodrBaseContract() for the contract
 // portion; the behaviours and tools blocks are appended after.
-function renderStableSection(editFormat = 'patch', toolsMode = false) {
+// toolWritesMode (T4): 'native'|'envelope'|'auto' — changes the tools block wording.
+function renderStableSection(
+	editFormat = 'patch',
+	toolsMode = false,
+	toolWritesMode = 'auto',
+) {
 	const parts = [renderKodrBaseContract(editFormat), renderBehavioursBlock()];
 	if (toolsMode) {
-		parts.push(renderToolsBlock());
+		parts.push(renderToolsBlock(toolWritesMode));
 	}
 	return parts.join('\n\n');
 }
