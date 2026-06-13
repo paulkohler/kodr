@@ -171,24 +171,33 @@ export function buildCausalStory(analysis) {
 		const channelSuffix = channels
 			? ` (${channels.captured ?? 0} via write tools, ${channels.envelope ?? 0} via envelope${Object.keys(channels.aliasHits ?? {}).length > 0 ? `, aliases: ${JSON.stringify(channels.aliasHits)}` : ''})`
 			: '';
+		// D5 (phase 119): native-mode legibility — surface toolWritesMode + recoveredVia.
+		const toolWritesMode = summary.toolWritesMode;
+		const recoveredVia = summary.recoveredVia;
+		const nativeSuffix =
+			toolWritesMode === 'native'
+				? recoveredVia && recoveredVia !== 'none'
+					? ` [native mode: recovered via ${recoveredVia}]`
+					: ` [native mode: ${channels?.captured ?? 0} file${(channels?.captured ?? 0) !== 1 ? 's' : ''} via write tools, no fallback needed]`
+				: '';
 		if (!found) {
 			steps.push({
 				artifactPath: join(runDir, 'response.md'),
-				detail: `no proposal found in model response (responseChars=${summary.responseChars ?? '?'})${channelSuffix}`,
+				detail: `no proposal found in model response (responseChars=${summary.responseChars ?? '?'})${channelSuffix}${nativeSuffix}`,
 				phase: 'Proposal Extraction',
 				status: 'fail',
 			});
 		} else if (status !== 'OK') {
 			steps.push({
 				artifactPath: join(runDir, 'response.md'),
-				detail: `proposal found but status=${status} messages=${msgCount}${channelSuffix}`,
+				detail: `proposal found but status=${status} messages=${msgCount}${channelSuffix}${nativeSuffix}`,
 				phase: 'Proposal Extraction',
 				status: 'warn',
 			});
 		} else {
 			steps.push({
 				artifactPath: join(runDir, 'response.md'),
-				detail: `proposal found status=${status} messages=${msgCount}${channelSuffix}`,
+				detail: `proposal found status=${status} messages=${msgCount}${channelSuffix}${nativeSuffix}`,
 				phase: 'Proposal Extraction',
 				status: 'ok',
 			});

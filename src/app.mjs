@@ -78,6 +78,7 @@ import {
 	normalizeEditFormat,
 	extractEditBlocks,
 	mergeBlockPatches,
+	renderEditFormatContract,
 } from './edit-formats.mjs';
 import { captureEnvironmentFacts } from './system-env.mjs';
 import { applyModelProfileDefaults } from './model-profiles.mjs';
@@ -176,6 +177,16 @@ export class CliError extends Error {
 	constructor(message) {
 		super(message);
 		this.name = 'CliError';
+	}
+}
+
+// D3 (phase 119): thrown when native-mode model produces no tool writes and no
+// parseable envelope after one re-prompt. Distinct from ProposalMissingError so
+// callers can distinguish native-mode failure from envelope-mode failure.
+export class NativeNoProposalError extends Error {
+	constructor(message) {
+		super(message);
+		this.name = 'NativeNoProposalError';
 	}
 }
 
@@ -710,7 +721,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 					options._baseUrlSet || options.provider === 'openrouter',
 			}),
 		);
-		Object.assign(options, applyModelProfileDefaults(options, env));
+		Object.assign(options, applyModelProfileDefaults(options, env, cwd));
 		const agentModelEntries = Object.entries(
 			resolveAgentModels(options, env),
 		).map(([agent, modelOptions]) => [
@@ -724,6 +735,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 					timeoutMs: options.timeoutMs,
 				},
 				env,
+				cwd,
 			),
 		]);
 		options.agentModels = Object.fromEntries(agentModelEntries);
@@ -1412,10 +1424,18 @@ export async function main(argv, io) {
 		) {
 			runOptions.applyApprover = makeCliApplyApprover(io);
 		}
-		const result = await handleChannelRequest(
-			{ kind: 'run-turn', options: runOptions },
-			io,
-		);
+		let result;
+		try {
+			result = await handleChannelRequest(
+				{ kind: 'run-turn', options: runOptions },
+				io,
+			);
+		} catch (error) {
+			if (error instanceof NativeNoProposalError) {
+				throw new CliError(error.message);
+			}
+			throw error;
+		}
 		if (options.json) {
 			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 		} else {
@@ -3242,6 +3262,8 @@ export async function runPrompt(options, io) {
 			toolWritesMode: options.toolWritesMode || 'auto',
 			usage: usageFromBudget(completion.loopBudget),
 			workspaceFileCount: contextFileCount(context),
+			// D4 (phase 119): system-prompt length for prompt-budget measurement.
+			systemPromptChars: (context.systemPrompt || '').length,
 		};
 		if (completion.transport) {
 			summary.transport = completion.transport;
@@ -3249,35 +3271,124 @@ export async function runPrompt(options, io) {
 		if (inspectionPlan) {
 			summary.inspectionPlan = inspectionPlan.inspection;
 		}
-		// W3/W4: integrate capture draft from the tool loop.
+		// W3/W4/D2/D3: integrate capture draft from the tool loop.
 		// completion.proposalDraft is the ProposalDraft from the registry (may be null
 		// if tools were not enabled, or if no write_file/edit_file calls were made).
 		const capturedDraft = completion.proposalDraft ?? null;
 		const draftNonEmpty = capturedDraft !== null && !capturedDraft.isEmpty;
 
+		const resolvedToolWritesMode = options.toolWritesMode || 'auto';
+		const isNativeMode = resolvedToolWritesMode === 'native';
+
+		// D5: recoveredVia tracks how a native-mode run recovered (if at all).
+		// 'none' means no recovery was needed (draft was non-empty or not native mode).
+		let recoveredVia = 'none';
+
 		let proposal = null;
 		let proposalError = null;
-		try {
-			proposal = extractProposal(completion.text);
-		} catch (error) {
-			proposalError = {
-				message: error.message,
-				name: error.name,
-			};
-		}
 
-		// W3/W4: merge envelope proposal with captured draft.
-		// - draftNonEmpty + no envelope → synthesize from draft (W3)
-		// - draftNonEmpty + envelope present → merge, envelope wins per path (W4)
-		// - draft empty + envelope → return envelope unchanged (regression guard)
-		// - draft empty + no envelope → proposalError path (unchanged)
-		if (draftNonEmpty || (capturedDraft !== null && proposal !== null)) {
-			// W4 merge (or W3 synthesize when proposal === null).
-			// On proposalError + draftNonEmpty: discard the text-parse error and use
-			// the draft, since the capture channel is always well-formed.
-			if (draftNonEmpty) {
-				proposal = mergeProposalWithDraft(capturedDraft, proposal);
-				proposalError = null;
+		if (isNativeMode && draftNonEmpty) {
+			// D2: native mode, draft non-empty — the draft IS the proposal.
+			// Do NOT attempt JSON parse on the trailing plain-text assistant message.
+			// Status comes from verification (the 117 rule). No ProposalMissingError.
+			proposal = mergeProposalWithDraft(capturedDraft, null);
+			// D2: use the trailing plain-text response as the run message when present.
+			// This replaces the synthetic "N files captured via write tools" message.
+			const trailingText = completion.text?.trim();
+			if (trailingText) {
+				proposal = {
+					...proposal,
+					messages: [{ level: 'info', content: trailingText }],
+				};
+			}
+			proposalError = null;
+		} else if (isNativeMode && !draftNonEmpty) {
+			// D3: native mode, empty draft — safety net in order:
+			//   1. Envelope fallback: parse existing completion.text with extractor.
+			//   2. Single re-prompt re-introducing the envelope contract.
+			//   3. NativeNoProposalError — never a silent empty proposal.
+			let envelopeProposal = null;
+			try {
+				envelopeProposal = extractProposal(completion.text);
+			} catch {
+				envelopeProposal = null;
+			}
+
+			if (envelopeProposal !== null) {
+				// D3 branch 1: model emitted envelope-shaped JSON anyway (e.g. qwen).
+				proposal = envelopeProposal;
+				recoveredVia = 'envelope-fallback';
+			} else {
+				// D3 branch 2: issue EXACTLY ONE re-prompt re-introducing the envelope
+				// contract. Never a loop — mirrors the 113 single-retry discipline.
+				const envelopeReprompt =
+					'You did not use the write_file or edit_file tools. Return your changes as this JSON envelope:\n' +
+					renderEditFormatContract('patch');
+				let repromptCompletion = null;
+				try {
+					repromptCompletion = await completeWithContinuations(
+						runOptions,
+						model,
+						'',
+						context.systemPrompt,
+						{
+							initialMessages: [
+								...completion.messages,
+								{ role: 'user', content: envelopeReprompt },
+							],
+						},
+					);
+				} catch {
+					// Re-prompt model call failed — fall through to NativeNoProposalError.
+				}
+
+				if (repromptCompletion) {
+					let repromptProposal = null;
+					try {
+						repromptProposal = extractProposal(repromptCompletion.text);
+					} catch {
+						repromptProposal = null;
+					}
+					if (repromptProposal !== null) {
+						proposal = repromptProposal;
+						recoveredVia = 'envelope-reprompt';
+						// Merge reprompt responses into completion for artifact accuracy.
+						completion.responses.push(...repromptCompletion.responses);
+						completion.finishReasons.push(...repromptCompletion.finishReasons);
+					}
+				}
+
+				if (proposal === null) {
+					// D3 branch 3: distinct error — never a silent empty proposal.
+					throw new NativeNoProposalError(
+						'native-mode model produced no tool writes and no envelope after one re-prompt',
+					);
+				}
+			}
+		} else {
+			// Envelope mode or auto mode: existing behavior (W3/W4).
+			try {
+				proposal = extractProposal(completion.text);
+			} catch (error) {
+				proposalError = {
+					message: error.message,
+					name: error.name,
+				};
+			}
+
+			// W3/W4: merge envelope proposal with captured draft.
+			// - draftNonEmpty + no envelope → synthesize from draft (W3)
+			// - draftNonEmpty + envelope present → merge, envelope wins per path (W4)
+			// - draft empty + envelope → return envelope unchanged (regression guard)
+			// - draft empty + no envelope → proposalError path (unchanged)
+			if (draftNonEmpty || (capturedDraft !== null && proposal !== null)) {
+				// W4 merge (or W3 synthesize when proposal === null).
+				// On proposalError + draftNonEmpty: discard the text-parse error and use
+				// the draft, since the capture channel is always well-formed.
+				if (draftNonEmpty) {
+					proposal = mergeProposalWithDraft(capturedDraft, proposal);
+					proposalError = null;
+				}
 			}
 		}
 
@@ -3319,6 +3430,9 @@ export async function runPrompt(options, io) {
 			summary.proposalError = proposalError;
 			summary.proposalFound = false;
 			summary.proposalChannels = proposalChannels;
+			if (isNativeMode) {
+				summary.recoveredVia = recoveredVia;
+			}
 			summary.tested = false;
 			summary.writeCount = 0;
 			taskPlan = updateTasksFromRun(taskPlan, summary);
@@ -3655,6 +3769,10 @@ export async function runPrompt(options, io) {
 		summary.proposalFound = proposal !== null;
 		summary.proposalStatus = proposal?.status || '';
 		summary.proposalChannels = proposalChannels;
+		// D5 (phase 119): recoveredVia surfaces how native mode recovered, if at all.
+		if (isNativeMode) {
+			summary.recoveredVia = recoveredVia;
+		}
 		summary.treeState = treeState;
 		if (runError) {
 			summary.runError = runError;

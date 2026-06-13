@@ -113,6 +113,64 @@ describe('renderEditFormatContract', () => {
 		// Same reference value via strict equality
 		assert.equal(withArg, withoutArg);
 	});
+
+	// D1 (phase 119): native-mode contract — no envelope schema, tool-first wording.
+	it("native mode: starts with 'You are Kodr'", () => {
+		assert.match(renderEditFormatContract('patch', 'native'), /^You are Kodr/u);
+	});
+
+	it('native mode: contains write_file / edit_file instruction', () => {
+		const text = renderEditFormatContract('patch', 'native');
+		assert.ok(text.includes('write_file') || text.includes('edit_file'));
+	});
+
+	it('native mode: does NOT contain JSON envelope schema text', () => {
+		const text = renderEditFormatContract('patch', 'native');
+		assert.ok(!text.includes('"status"'));
+		assert.ok(!text.includes('"files"'));
+		assert.ok(!text.includes('"patches"'));
+	});
+
+	it('native mode: instructs plain-text summary reply', () => {
+		const text = renderEditFormatContract('patch', 'native');
+		assert.ok(text.includes('plain-text') || text.includes('summary'));
+	});
+
+	it('native mode: does NOT instruct model to RETURN a JSON envelope', () => {
+		const text = renderEditFormatContract('patch', 'native');
+		// The contract may mention "JSON envelope" in a "do not emit" instruction,
+		// but must not instruct the model to return one (no "return one JSON object" etc.)
+		assert.ok(
+			!text.includes('return one JSON object') &&
+				!text.includes('return one JSON'),
+			`contract should not instruct model to return JSON; got: ${text.slice(0, 200)}`,
+		);
+	});
+
+	// D1 regression: envelope/auto modes are byte-identical to phase 118.
+	it('envelope mode: byte-identical to auto mode (patch)', () => {
+		assert.equal(
+			renderEditFormatContract('patch', 'envelope'),
+			renderEditFormatContract('patch', 'auto'),
+		);
+	});
+
+	it('auto mode: byte-identical to no-toolWritesMode argument (patch)', () => {
+		assert.equal(
+			renderEditFormatContract('patch', 'auto'),
+			renderEditFormatContract('patch'),
+		);
+	});
+
+	it('envelope mode: byte-identical to auto mode (whole)', () => {
+		assert.equal(
+			renderEditFormatContract('whole', 'envelope'),
+			renderEditFormatContract('whole', 'auto'),
+		);
+	});
+
+	// D1: per-mode byte-identity coupling test (edit-formats ↔ context-packer).
+	// Verified by importing both and asserting byte equality per mode.
 });
 
 // ---------------------------------------------------------------------------

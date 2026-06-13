@@ -121,3 +121,9 @@ with duplicate `path` keys. One model adopts eagerly, one conforms to the
 old contract, one ignores the new affordance and invents a new corruption.
 Three different triples. Which is exactly why phase 118 measures instead of
 assumes.
+
+## What 119 finally ran
+
+Phase 119 closed the last gap the validation revealed: the envelope schema paragraph in `renderKodrBaseContract` was opening the system prompt with `files`, `patches`, and `status` — nine occurrences of `files` before the tools-primary wording even appeared. Phase 118's reworded tools block was subordinate to the leading contract it never touched. Gemma and gpt-oss overrode the leading instruction; qwen obeyed it. The experiment of removing the envelope contract had never been run.
+
+Phase 119 ran it. For profiles whose `toolWrites` resolves to `native`, the two-sentence tool-first contract replaces the full schema paragraph. The extractor and all its repair rules stay loaded as an empty-draft safety net: if the model emits envelope JSON anyway, it is parsed as a fallback; if not, one re-prompt re-introduces the envelope contract for that turn; if that also fails, `NativeNoProposalError` — never a silent empty proposal. The live validation decides whether qwen adopts the tool channel or continues to use the fallback. Either outcome is informative; neither strands the run. The arc is structurally complete.

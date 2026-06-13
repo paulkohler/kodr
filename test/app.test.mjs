@@ -8,9 +8,11 @@ import {
 	CliError,
 	handleChannelRequest,
 	main,
+	NativeNoProposalError,
 	parseArgs,
 	parseManagementInstances,
 	renderSkillsListing,
+	runPrompt,
 	usage,
 	VERSION,
 } from '../src/app.mjs';
@@ -5681,5 +5683,551 @@ describe('parseManagementInstances (T2 — real LM Studio shape)', () => {
 	it('returns no instances for an empty or unexpected body', () => {
 		assert.deepEqual(parseManagementInstances({}, 32768).instances, []);
 		assert.deepEqual(parseManagementInstances(null, 32768).instances, []);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 119 — D2, D3, D5: native-mode proposal extraction + recovery
+// ---------------------------------------------------------------------------
+
+// Helper: build a minimal tool_calls response for write_file.
+function makeWriteFileTurn({
+	id = 'call_wf1',
+	path,
+	content,
+	chatId = 'chatcmpl_wf1',
+} = {}) {
+	return {
+		body: {
+			choices: [
+				{
+					finish_reason: 'tool_calls',
+					message: {
+						content: null,
+						role: 'assistant',
+						tool_calls: [
+							{
+								id,
+								type: 'function',
+								function: {
+									name: 'write_file',
+									arguments: JSON.stringify({ path, content }),
+								},
+							},
+						],
+					},
+				},
+			],
+			id: chatId,
+			object: 'chat.completion',
+		},
+		method: 'POST',
+		status: 200,
+		url: '/v1/chat/completions',
+	};
+}
+
+// Helper: build a plain-text stop turn.
+function makeStopTurn(text, chatId = 'chatcmpl_stop') {
+	return {
+		body: {
+			choices: [
+				{
+					finish_reason: 'stop',
+					message: { content: text, role: 'assistant' },
+				},
+			],
+			id: chatId,
+			object: 'chat.completion',
+		},
+		method: 'POST',
+		status: 200,
+		url: '/v1/chat/completions',
+	};
+}
+
+// Helper: build a stop turn whose content is an envelope JSON.
+function makeEnvelopeTurn(envelopeObj, chatId = 'chatcmpl_env') {
+	return makeStopTurn(JSON.stringify(envelopeObj), chatId);
+}
+
+// Helper: write a model-profiles.json that sets toolWrites:native for 'test-model'.
+async function writeNativeProfile(cwd, baseUrl) {
+	const kodrDir = join(cwd, '.kodr');
+	await mkdir(kodrDir, { recursive: true });
+	await writeFile(
+		join(kodrDir, 'model-profiles.json'),
+		JSON.stringify([
+			{
+				id: 'test-model',
+				provider: 'local',
+				baseUrl,
+				contextWindow: 16384,
+				completionReserve: 2048,
+				nativeToolCalls: true,
+				toolWrites: 'native',
+				structuredOutput: 'none',
+				responseEnvelope: 'json',
+				timeoutMs: 30000,
+			},
+		]),
+	);
+}
+
+describe('Phase 119 D2 — native-mode non-empty draft becomes proposal', () => {
+	it('D2: non-empty draft yields proposal; trailing text is the message; no ProposalMissingError', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-d2-'));
+		const server = await startFakeModelServer({
+			responses: [
+				makeWriteFileTurn({
+					id: 'call_d2',
+					path: 'hello.mjs',
+					content: 'export const x = 1;\n',
+					chatId: 'chatcmpl_d2_1',
+				}),
+				makeStopTurn('Added hello.mjs with a simple export.', 'chatcmpl_d2_2'),
+			],
+		});
+
+		try {
+			await writeNativeProfile(cwd, server.baseUrl);
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create hello.mjs',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'test-model',
+					'--out',
+					'd2-out',
+					'--timeout-ms',
+					'10000',
+					'--tools',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'd2-out', 'summary.json'), 'utf8'),
+			);
+
+			// D2: toolWritesMode is native in summary.
+			assert.equal(
+				summary.toolWritesMode,
+				'native',
+				'toolWritesMode should be native',
+			);
+			// D2: proposal found via draft.
+			assert.equal(
+				summary.proposalFound,
+				true,
+				'proposal should be found from draft',
+			);
+			// D2: recoveredVia = none (no recovery needed).
+			assert.equal(
+				summary.recoveredVia,
+				'none',
+				'no recovery needed when draft non-empty',
+			);
+			// D2: proposalChannels.captured > 0.
+			assert.ok(
+				summary.proposalChannels?.captured > 0,
+				'captured should be > 0 in native draft path',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('D2: non-empty draft — no ProposalMissingError even with --yes', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-d2-yes-'));
+		const server = await startFakeModelServer({
+			responses: [
+				makeWriteFileTurn({
+					id: 'call_d2y',
+					path: 'out.mjs',
+					content: 'export const y = 2;\n',
+					chatId: 'chatcmpl_d2y_1',
+				}),
+				makeStopTurn('Done.', 'chatcmpl_d2y_2'),
+			],
+		});
+
+		try {
+			await writeNativeProfile(cwd, server.baseUrl);
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create out.mjs',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'test-model',
+					'--out',
+					'd2y-out',
+					'--timeout-ms',
+					'10000',
+					'--tools',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'd2y-out', 'summary.json'), 'utf8'),
+			);
+
+			// No ProposalMissingError; proposal should be found.
+			assert.equal(summary.proposalFound, true, 'should have proposal');
+			assert.ok(
+				!summary.writeError ||
+					summary.writeError?.name !== 'ProposalMissingError',
+				'should not have ProposalMissingError',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+describe('Phase 119 D3 — native-mode empty draft safety net', () => {
+	it('D3 branch 1: envelope-fallback when model emits envelope JSON despite native mode', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-d3-env-'));
+		const envelopeObj = {
+			status: 'OK',
+			messages: [{ level: 'info', content: 'created via envelope' }],
+			files: [{ path: 'env.mjs', content: 'export const e = 1;\n' }],
+			patches: [],
+			scratchpad: '',
+		};
+		const server = await startFakeModelServer({
+			responses: [
+				// No write_file tool calls — just a stop turn with an envelope JSON.
+				makeEnvelopeTurn(envelopeObj, 'chatcmpl_d3_env'),
+			],
+		});
+
+		try {
+			await writeNativeProfile(cwd, server.baseUrl);
+			await main(
+				[
+					'run',
+					'-p',
+					'Create env.mjs',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'test-model',
+					'--out',
+					'd3env-out',
+					'--timeout-ms',
+					'10000',
+					'--tools',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'd3env-out', 'summary.json'), 'utf8'),
+			);
+
+			// D3 branch 1: proposal found via envelope-fallback.
+			assert.equal(
+				summary.proposalFound,
+				true,
+				'should have proposal from envelope-fallback',
+			);
+			assert.equal(summary.recoveredVia, 'envelope-fallback');
+			// Only one request was sent (no reprompt).
+			const chatReqs = server.recordings.filter(
+				(r) => r.method === 'POST' && r.url === '/v1/chat/completions',
+			);
+			assert.equal(
+				chatReqs.length,
+				1,
+				'envelope-fallback should NOT issue a reprompt',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('D3 branch 2: envelope-reprompt when model produces pure prose (no tools, no envelope)', async () => {
+		const repromptEnvelope = {
+			status: 'OK',
+			messages: [{ level: 'info', content: 'via reprompt' }],
+			files: [{ path: 'rep.mjs', content: 'export const r = 3;\n' }],
+			patches: [],
+			scratchpad: '',
+		};
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-d3-repr-'));
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1: pure prose, no tools, no envelope.
+				makeStopTurn('I will write the file for you.', 'chatcmpl_d3_r1'),
+				// Turn 2 (re-prompt): model returns an envelope.
+				makeEnvelopeTurn(repromptEnvelope, 'chatcmpl_d3_r2'),
+			],
+		});
+
+		try {
+			await writeNativeProfile(cwd, server.baseUrl);
+			await main(
+				[
+					'run',
+					'-p',
+					'Create rep.mjs',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'test-model',
+					'--out',
+					'd3repr-out',
+					'--timeout-ms',
+					'10000',
+					'--tools',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'd3repr-out', 'summary.json'), 'utf8'),
+			);
+
+			assert.equal(
+				summary.proposalFound,
+				true,
+				'should have proposal from reprompt',
+			);
+			assert.equal(summary.recoveredVia, 'envelope-reprompt');
+			// Exactly 2 requests: original + one reprompt.
+			const chatReqs = server.recordings.filter(
+				(r) => r.method === 'POST' && r.url === '/v1/chat/completions',
+			);
+			assert.equal(chatReqs.length, 2, 'should fire reprompt exactly once');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('D3 branch 3: fails with error when reprompt also yields nothing', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-d3-fail-'));
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1: no tools, no envelope.
+				makeStopTurn('Sorry, I cannot help.', 'chatcmpl_d3_f1'),
+				// Turn 2 (reprompt): also just prose.
+				makeStopTurn('Still no JSON.', 'chatcmpl_d3_f2'),
+			],
+		});
+
+		try {
+			await writeNativeProfile(cwd, server.baseUrl);
+			await assert.rejects(
+				() =>
+					main(
+						[
+							'run',
+							'-p',
+							'Create something.',
+							'--base-url',
+							server.baseUrl,
+							'--model',
+							'test-model',
+							'--out',
+							'd3fail-out',
+							'--timeout-ms',
+							'10000',
+							'--tools',
+							'--json',
+						],
+						{
+							cwd,
+							env: {},
+							stderr: { write: () => {} },
+							stdout: { write: () => {} },
+						},
+					),
+				// CliError wraps NativeNoProposalError message
+				(err) =>
+					err.name === 'CliError' &&
+					err.message.includes('native-mode model produced no tool writes'),
+				'should throw CliError wrapping NativeNoProposalError',
+			);
+
+			// Verify re-prompt fired exactly once (2 total requests).
+			const chatReqs = server.recordings.filter(
+				(r) => r.method === 'POST' && r.url === '/v1/chat/completions',
+			);
+			assert.equal(chatReqs.length, 2, 're-prompt should fire AT MOST ONCE');
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+describe('Phase 119 D5 — summary fields: toolWritesMode + recoveredVia + proposalChannels', () => {
+	it('D5: summary.json includes toolWritesMode, recoveredVia, proposalChannels for native-mode runs', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-d5-'));
+		const server = await startFakeModelServer({
+			responses: [
+				makeWriteFileTurn({
+					id: 'call_d5',
+					path: 'x.mjs',
+					content: 'export const x = 5;\n',
+					chatId: 'chatcmpl_d5_1',
+				}),
+				makeStopTurn('Done.', 'chatcmpl_d5_2'),
+			],
+		});
+
+		try {
+			await writeNativeProfile(cwd, server.baseUrl);
+			await main(
+				[
+					'run',
+					'-p',
+					'Create x.mjs',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'test-model',
+					'--out',
+					'd5-out',
+					'--timeout-ms',
+					'10000',
+					'--tools',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summaryPath = join(cwd, 'd5-out', 'summary.json');
+			const summary = JSON.parse(await readFile(summaryPath, 'utf8'));
+			// D5: all three fields present.
+			assert.equal(
+				summary.toolWritesMode,
+				'native',
+				'toolWritesMode should be native',
+			);
+			assert.ok(
+				Object.hasOwn(summary, 'recoveredVia'),
+				'summary should have recoveredVia',
+			);
+			assert.ok(
+				Object.hasOwn(summary, 'proposalChannels'),
+				'summary.json should have proposalChannels',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('D5: kodr why includes native-mode description when toolWritesMode=native and draft non-empty', async () => {
+		// Test buildCausalStory directly with a native-mode summary fixture.
+		const { buildCausalStory } = await import('../src/forensics.mjs');
+		const summary = {
+			ok: true,
+			proposalFound: true,
+			proposalStatus: 'OK',
+			proposalMessageCount: 1,
+			toolWritesMode: 'native',
+			recoveredVia: 'none',
+			proposalChannels: { captured: 2, envelope: 0, aliasHits: {} },
+			responseChars: 50,
+			loopBudget: { turns: 2, tokens: 100 },
+			model: 'test',
+			baseUrl: 'http://localhost:1234/v1',
+			finishReasons: ['stop'],
+		};
+		const story = buildCausalStory({
+			summary,
+			writes: null,
+			tests: null,
+			repairs: null,
+			runDir: '/tmp/test-run',
+			errorJson: null,
+			contextMd: null,
+			promptMd: null,
+			responseMd: null,
+		});
+		const proposalStep = story.find((s) => s.phase === 'Proposal Extraction');
+		assert.ok(proposalStep, 'should have Proposal Extraction step');
+		assert.ok(
+			proposalStep.detail.includes('native mode'),
+			`detail should mention native mode; got: ${proposalStep.detail}`,
+		);
+		assert.ok(
+			proposalStep.detail.includes('2 files via write tools') ||
+				proposalStep.detail.includes('no fallback needed'),
+			`detail should describe no fallback; got: ${proposalStep.detail}`,
+		);
+	});
+
+	it('D5: kodr why includes envelope-fallback description when recoveredVia=envelope-fallback', async () => {
+		const { buildCausalStory } = await import('../src/forensics.mjs');
+		const summary = {
+			ok: true,
+			proposalFound: true,
+			proposalStatus: 'OK',
+			proposalMessageCount: 1,
+			toolWritesMode: 'native',
+			recoveredVia: 'envelope-fallback',
+			proposalChannels: { captured: 0, envelope: 1, aliasHits: {} },
+			responseChars: 200,
+			loopBudget: { turns: 1, tokens: 50 },
+			model: 'test',
+			baseUrl: 'http://localhost:1234/v1',
+			finishReasons: ['stop'],
+		};
+		const story = buildCausalStory({
+			summary,
+			writes: null,
+			tests: null,
+			repairs: null,
+			runDir: '/tmp/test-run-ef',
+			errorJson: null,
+			contextMd: null,
+			promptMd: null,
+			responseMd: null,
+		});
+		const proposalStep = story.find((s) => s.phase === 'Proposal Extraction');
+		assert.ok(proposalStep, 'should have Proposal Extraction step');
+		assert.ok(
+			proposalStep.detail.includes('envelope-fallback'),
+			`detail should mention envelope-fallback; got: ${proposalStep.detail}`,
+		);
 	});
 });

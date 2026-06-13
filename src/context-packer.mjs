@@ -507,25 +507,30 @@ export function renderKodrCorePrompt(context = {}, options = {}) {
 // identity + envelope contract + behaviours + tools (tools only in tools mode).
 // 'patch' branch is byte-identical to renderKodrBaseContract() for the contract
 // portion; the behaviours and tools blocks are appended after.
-// toolWritesMode (T4): 'native'|'envelope'|'auto' — changes the tools block wording.
+// toolWritesMode (T4/D1): 'native'|'envelope'|'auto' — changes both the contract
+// wording (phase 119 D1) and the tools block wording (phase 118).
 function renderStableSection(
 	editFormat = 'patch',
 	toolsMode = false,
 	toolWritesMode = 'auto',
 ) {
-	const parts = [renderKodrBaseContract(editFormat), renderBehavioursBlock()];
+	const parts = [
+		renderKodrBaseContract(editFormat, toolWritesMode),
+		renderBehavioursBlock(),
+	];
 	if (toolsMode) {
 		parts.push(renderToolsBlock(toolWritesMode));
 	}
 	return parts.join('\n\n');
 }
 
-// renderKodrBaseContract returns ONLY the identity + envelope contract.
-// byte-identical to the 'patch' branch of renderEditFormatContract() in
-// edit-formats.mjs (updated together in phase 114 when the tool sentence
-// was extracted into renderToolsBlock()).
-function renderKodrBaseContract(editFormat = 'patch') {
-	return renderEditFormatContract(editFormat);
+// renderKodrBaseContract returns ONLY the identity + contract.
+// byte-identical to renderEditFormatContract() in edit-formats.mjs PER MODE
+// (updated together in phase 114 and phase 119 D1).
+// toolWritesMode (D1, phase 119): 'native' drops the envelope schema;
+// 'envelope' and 'auto' are byte-identical to phase 118.
+function renderKodrBaseContract(editFormat = 'patch', toolWritesMode = 'auto') {
+	return renderEditFormatContract(editFormat, toolWritesMode);
 }
 
 function renderSkillIndexEntry(skill) {

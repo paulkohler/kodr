@@ -212,21 +212,21 @@ mode: 0 tool writes, recovered via envelope fallback (T5 split applied)".
 
 ## Done criteria
 
-- [ ] D1: mode-aware base contract; native drops the envelope schema;
+- [x] D1: mode-aware base contract; native drops the envelope schema;
       envelope/auto-unresolved byte-identical to 118; per-mode coupling test.
-- [ ] D2: native final turn takes the draft as the proposal; trailing text is
+- [x] D2: native final turn takes the draft as the proposal; trailing text is
       the message; status from verification; no ProposalMissingError.
-- [ ] D3: empty-draft safety net — envelope-fallback, single envelope-reprompt,
+- [x] D3: empty-draft safety net — envelope-fallback, single envelope-reprompt,
       then NativeNoProposalError; re-prompt fires at most once.
-- [ ] D4: prompt-budget reduction measured and asserted.
-- [ ] D5: toolWritesMode + recoveredVia + proposalChannels in summary and
+- [x] D4: prompt-budget reduction measured and asserted.
+- [x] D5: toolWritesMode + recoveredVia + proposalChannels in summary and
       `kodr why`.
-- [ ] `process/failures.jsonl` / `process/decisions.jsonl` updated (record the
+- [x] `process/failures.jsonl` / `process/decisions.jsonl` updated (record the
       phase-118 confound finding as the motivation).
-- [ ] Blog post `blog/119-envelope-demotion.md`; update `blog/tool-channel-arc.md`
+- [x] Blog post `blog/119-envelope-demotion.md`; update `blog/tool-channel-arc.md`
       with the arc's conclusion. (`blog/two-channel-realization.md` —
       the conceptual spine — already written during planning.)
-- [ ] NEXT.md: delete the Tool-Channel Arc entry (arc complete; history lives
+- [x] NEXT.md: delete the Tool-Channel Arc entry (arc complete; history lives
       in the phase files and blog).
 - [ ] Version bumped to 0.0.119; suite green; committed.
 - [ ] Live validation (after the commit, sequential, the decisive experiment):

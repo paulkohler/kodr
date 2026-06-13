@@ -10,6 +10,7 @@ import {
 	renderContextMarkdown,
 	renderPromptSections,
 } from '../src/context-packer.mjs';
+import { renderEditFormatContract } from '../src/edit-formats.mjs';
 import {
 	inspectWorkspace,
 	selectInspectionChunks,
@@ -428,6 +429,92 @@ describe('context packing', () => {
 		assert.match(
 			renderContextMarkdown(context),
 			/No symbol-specific chunks selected/u,
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// D1 (phase 119): per-mode byte-identity coupling between edit-formats.mjs and
+// context-packer.mjs. Both must produce byte-identical contract text per mode.
+// ---------------------------------------------------------------------------
+
+describe('D1 (phase 119): per-mode contract coupling (edit-formats ↔ context-packer)', () => {
+	// 'patch' mode with auto toolWritesMode — should match the stable section from context-packer.
+	it('native mode: renderPromptSections stable section contains tool-first contract', () => {
+		const sections = renderPromptSections({
+			editFormat: 'patch',
+			toolWritesMode: 'native',
+		});
+		// Native mode: tool-first wording, no envelope schema.
+		assert.ok(
+			sections.stable.includes('write_file') ||
+				sections.stable.includes('edit_file'),
+		);
+		assert.ok(!sections.stable.includes('"status"'));
+		assert.ok(!sections.stable.includes('"files"'));
+	});
+
+	it('envelope mode: renderPromptSections stable section contains envelope schema', () => {
+		const sections = renderPromptSections({
+			editFormat: 'patch',
+			toolWritesMode: 'envelope',
+		});
+		assert.ok(sections.stable.includes('"status"'));
+		assert.ok(sections.stable.includes('"files"'));
+	});
+
+	it('auto mode: byte-identical to envelope mode for stable section (regression)', () => {
+		const auto = renderPromptSections({
+			editFormat: 'patch',
+			toolWritesMode: 'auto',
+		});
+		const envelope = renderPromptSections({
+			editFormat: 'patch',
+			toolWritesMode: 'envelope',
+		});
+		assert.equal(auto.stable, envelope.stable);
+	});
+
+	it('native mode: renderEditFormatContract byte-matches what context-packer uses in native mode', () => {
+		// The canonical native contract from edit-formats.mjs must equal what
+		// renderStableSection (via renderKodrBaseContract) produces in native mode.
+		const canonicalNative = renderEditFormatContract('patch', 'native');
+		const sections = renderPromptSections({
+			editFormat: 'patch',
+			toolWritesMode: 'native',
+		});
+		// The stable section starts with the contract, so check it starts with canonical.
+		assert.ok(sections.stable.startsWith(canonicalNative));
+	});
+
+	it('envelope mode: renderEditFormatContract byte-matches what context-packer uses in envelope mode', () => {
+		const canonicalEnvelope = renderEditFormatContract('patch', 'envelope');
+		const sections = renderPromptSections({
+			editFormat: 'patch',
+			toolWritesMode: 'envelope',
+		});
+		assert.ok(sections.stable.startsWith(canonicalEnvelope));
+	});
+
+	it('D4: native-mode system prompt is meaningfully shorter than envelope-mode system prompt', async () => {
+		const cwd = await mkWorkspace({
+			'src/app.mjs': 'export const x = 1;',
+		});
+		const nativeContext = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			toolWritesMode: 'native',
+		});
+		const envelopeContext = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			toolWritesMode: 'envelope',
+		});
+		const nativeLen = (nativeContext.systemPrompt || '').length;
+		const envelopeLen = (envelopeContext.systemPrompt || '').length;
+		// Native mode drops the ~600-char envelope schema paragraph.
+		// Assert at least 400 chars shorter (conservative to avoid flakiness).
+		assert.ok(
+			envelopeLen - nativeLen >= 400,
+			`Expected native prompt to be at least 400 chars shorter than envelope; got native=${nativeLen}, envelope=${envelopeLen}, delta=${envelopeLen - nativeLen}`,
 		);
 	});
 });
