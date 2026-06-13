@@ -253,6 +253,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		idleTimeoutMs: '',
 		// Phase 127: kodr trends run archive dir. '' → <cwd>/.kodr/runs.
 		runsDir: '',
+		// Phase 129: kodr trends windowing.
+		trendsSince: '',
+		trendsLast: 0,
 		suitePath: '',
 		record: false,
 		evalCases: [],
@@ -439,6 +442,16 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--runs-dir') {
 			options.runsDir = argv[++index];
+			continue;
+		}
+
+		if (arg === '--since') {
+			options.trendsSince = argv[++index];
+			continue;
+		}
+
+		if (arg === '--last') {
+			options.trendsLast = Number(argv[++index]);
 			continue;
 		}
 
@@ -1005,7 +1018,7 @@ Usage:
   kodr session show <sessionId> [--json]
   kodr session export <sessionId> --format markdown
   kodr replay <run-dir>
-  kodr trends [--json] [--runs-dir .kodr/runs]
+  kodr trends [--json] [--runs-dir .kodr/runs] [--since <run-id>] [--last N]
   kodr watch --test "npm test"
 
 Project config:
@@ -2030,22 +2043,43 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'trends') {
-		const { computeTrends, loadRunSummaries, renderTrendsCli } = await import(
-			'./trends.mjs'
-		);
+		const {
+			computeComparison,
+			computeTrends,
+			loadRunSummaries,
+			renderComparisonCli,
+			renderTrendsCli,
+			windowSummaries,
+		} = await import('./trends.mjs');
 		const runsDir = options.runsDir
 			? options.runsDir.startsWith('/')
 				? options.runsDir
 				: join(io.cwd, options.runsDir)
 			: join(io.cwd, '.kodr', 'runs');
-		const summaries = await loadRunSummaries(runsDir);
-		const report = computeTrends(summaries);
+		const all = await loadRunSummaries(runsDir);
+		const windowed =
+			options.trendsSince || options.trendsLast
+				? windowSummaries(all, {
+						since: options.trendsSince || '',
+						last: options.trendsLast || 0,
+					})
+				: { before: [], window: all };
+		const report = computeTrends(windowed.window);
+		const comparison =
+			windowed.before.length > 0
+				? computeComparison(computeTrends(windowed.before), report)
+				: null;
 		if (options.json) {
-			io.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+			io.stdout.write(
+				`${JSON.stringify({ report, ...(comparison ? { comparison } : {}) }, null, 2)}\n`,
+			);
 		} else {
 			io.stdout.write(renderTrendsCli(report));
+			if (comparison) {
+				io.stdout.write(`\n${renderComparisonCli(comparison)}`);
+			}
 		}
-		return { command: 'trends', ok: true, report, runsDir };
+		return { command: 'trends', ok: true, comparison, report, runsDir };
 	}
 
 	if (options.command === 'watch') {

@@ -155,16 +155,15 @@ it honest).
 
 ## Theme B — Forensics and evals as a flywheel
 
-### Cross-Run Forensics — follow-ons (base SHIPPED in 127)
+### Cross-Run Forensics — follow-ons (base SHIPPED in 127, windowing in 129)
 
-Phase 127 shipped `kodr trends`: cross-run rates, an earliest-broken-step
-failure histogram, and per-model ok-rate over the `.kodr/runs/` archive. Natural
-follow-ons: a `--since <runId>` window so trends can compare *before/after* a
-change (did the edit-format change move the needle? is repair pressure
-converging across the last N runs vs the prior N?); folding the phase-100
-append-only eval results into the same view; and an HTML render to match the
-`kodr why` forensics page. The per-model ok-rate is also a retrospective routing
-signal that could feed phase-105's table once `--since` makes it windowable.
+Phase 127 shipped `kodr trends` (cross-run rates, failure histogram, per-model
+ok-rate) and phase 129 added `--since`/`--last` windowing with a before/after
+ok-rate comparison. Remaining follow-ons: fold the phase-100 append-only eval
+results into the same view; an HTML render to match the `kodr why` forensics
+page; and feeding the windowed per-model ok-rate into phase-105's routing table
+as a retrospective signal (it is now windowable). The per-model ok-rate is the
+natural bridge to **Activate The Routing Table** below.
 
 ### Bench-Driven Suite Growth — code-quality brownfield fixtures (extractor half SHIPPED in 123)
 

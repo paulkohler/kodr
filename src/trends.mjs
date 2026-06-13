@@ -35,6 +35,36 @@ export async function loadRunSummaries(runsDir) {
 	return summaries;
 }
 
+// Phase 129: window the summaries. `since` keeps runs with runId >= since (run
+// ids are ISO timestamps, lexicographically ordered); `last` keeps the most
+// recent N. Returns { window, before } so callers can compare after-vs-before.
+export function windowSummaries(summaries, { since = '', last = 0 } = {}) {
+	let before = [];
+	let window = summaries;
+	if (since) {
+		before = summaries.filter((s) => s.runId < since);
+		window = summaries.filter((s) => s.runId >= since);
+	}
+	if (last && last > 0) {
+		const cut = Math.max(0, window.length - last);
+		before = before.concat(window.slice(0, cut));
+		window = window.slice(cut);
+	}
+	return { before, window };
+}
+
+// Compare two computed reports' ok-rates (before → after). Phase 129: makes the
+// "did this change move the needle?" question first-class in one invocation.
+export function computeComparison(beforeReport, afterReport) {
+	return {
+		beforeRuns: beforeReport.totalRuns,
+		afterRuns: afterReport.totalRuns,
+		beforeOkRate: beforeReport.okRate,
+		afterOkRate: afterReport.okRate,
+		okRateDelta: afterReport.okRate - beforeReport.okRate,
+	};
+}
+
 // Classify the dominant failure step for a single failed run. Ordered by where
 // the pipeline breaks earliest, so each failed run is attributed once.
 export function classifyRunFailure(summary) {
@@ -225,4 +255,19 @@ export function renderTrendsCli(report) {
 	}
 
 	return `${lines.join('\n')}\n`;
+}
+
+// Phase 129: render the before/after ok-rate comparison line.
+export function renderComparisonCli(comparison) {
+	if (comparison.beforeRuns === 0) {
+		return `  (no prior runs to compare against; ${comparison.afterRuns} in window)\n`;
+	}
+	const arrow = comparison.okRateDelta >= 0 ? '▲' : '▼';
+	const deltaPts = Math.round(comparison.okRateDelta * 100);
+	const sign = deltaPts >= 0 ? '+' : '';
+	return (
+		`  ok-rate  before ${pct(comparison.beforeOkRate)} (${comparison.beforeRuns} runs) ` +
+		`→ after ${pct(comparison.afterOkRate)} (${comparison.afterRuns} runs)  ` +
+		`${arrow} ${sign}${deltaPts}pts\n`
+	);
 }

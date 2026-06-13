@@ -5,9 +5,12 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	classifyRunFailure,
+	computeComparison,
 	computeTrends,
 	loadRunSummaries,
+	renderComparisonCli,
 	renderTrendsCli,
+	windowSummaries,
 } from '../src/trends.mjs';
 
 async function makeRuns(runs) {
@@ -200,5 +203,74 @@ describe('renderTrendsCli', () => {
 		assert.match(out, /ok\s+1\/2 \(50%\)/u);
 		assert.match(out, /verification-failed/u);
 		assert.match(out, /a\s+1\/2 ok \(50%\)/u);
+	});
+});
+
+describe('windowing (phase 129)', () => {
+	const s = (id) => ({ runId: id, summary: { ok: id !== 'r2' } });
+	const all = [s('r1'), s('r2'), s('r3'), s('r4'), s('r5')];
+
+	it('splits before/window by --since (runId >= since)', () => {
+		const { before, window } = windowSummaries(all, { since: 'r3' });
+		assert.deepEqual(
+			before.map((x) => x.runId),
+			['r1', 'r2'],
+		);
+		assert.deepEqual(
+			window.map((x) => x.runId),
+			['r3', 'r4', 'r5'],
+		);
+	});
+
+	it('keeps the last N and moves the rest to before with --last', () => {
+		const { before, window } = windowSummaries(all, { last: 2 });
+		assert.deepEqual(
+			window.map((x) => x.runId),
+			['r4', 'r5'],
+		);
+		assert.deepEqual(
+			before.map((x) => x.runId),
+			['r1', 'r2', 'r3'],
+		);
+	});
+
+	it('no window options keeps everything in window', () => {
+		const { before, window } = windowSummaries(all, {});
+		assert.equal(before.length, 0);
+		assert.equal(window.length, 5);
+	});
+
+	it('computeComparison reports before/after ok-rate and delta', () => {
+		const before = computeTrends([s('r1'), s('r2')]); // 1/2 ok = 0.5
+		const after = computeTrends([s('r3'), s('r4'), s('r5')]); // 3/3 ok = 1.0
+		const cmp = computeComparison(before, after);
+		assert.equal(cmp.beforeRuns, 2);
+		assert.equal(cmp.afterRuns, 3);
+		assert.equal(cmp.beforeOkRate, 0.5);
+		assert.equal(cmp.afterOkRate, 1);
+		assert.equal(cmp.okRateDelta, 0.5);
+	});
+
+	it('renderComparisonCli shows the before→after line with delta', () => {
+		const out = renderComparisonCli({
+			beforeRuns: 2,
+			afterRuns: 3,
+			beforeOkRate: 0.5,
+			afterOkRate: 1,
+			okRateDelta: 0.5,
+		});
+		assert.match(out, /before 50% \(2 runs\) → after 100% \(3 runs\)/u);
+		assert.match(out, /\+50pts/u);
+	});
+
+	it('renderComparisonCli handles no prior runs', () => {
+		const out = renderComparisonCli({
+			beforeRuns: 0,
+			afterRuns: 4,
+			beforeOkRate: 0,
+			afterOkRate: 1,
+			okRateDelta: 1,
+		});
+		assert.match(out, /no prior runs/u);
 	});
 });
