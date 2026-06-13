@@ -104,14 +104,17 @@ the prompt turn was silently abandoned (no request line, no run dir, exit 0)
 when buffered /quit hit. The line loop should queue input during a turn and
 drain before exiting on EOF.
 
-### Activate The Routing Table
+### Per-Task Model Routing (default-model activation SHIPPED in 131)
 
-Phase 105's blog states the routing table is advisory and names the follow-up
-directly: "A future `/model auto` TUI command can activate the routing table
-interactively." Add `/model auto` plus an opt-in config flag so cheap tasks
-(commit messages, summaries, compaction) route to `cheapModel` and edits to
-`editModel`. Routing decisions should land in the run summary so `kodr why`
-can show which model handled which step.
+Phase 131 shipped `kodr route`: recommend the best edit model from run-history
+ok-rate, and `--apply` sets it as the project default in `.kodr/config.json`.
+That activates the *default* model from history. The remaining ambition from
+phase 105: **per-task** routing — cheap tasks (commit messages, summaries,
+compaction) to `cheapModel`, edits to `editModel` — chosen automatically within a
+run, with the per-step model recorded in the summary so `kodr why` shows which
+model handled which step. This is the bigger, riskier half (it touches several
+internal model-call sites); `kodr route` is the safe, evidence-backed first step
+and the `cheapModel` half of the recommendation can extend `recommendModel`.
 
 ### Watch Meets TUI
 

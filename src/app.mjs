@@ -256,6 +256,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 129: kodr trends windowing.
 		trendsSince: '',
 		trendsLast: 0,
+		// Phase 131: kodr route.
+		routeApply: false,
+		routeMinRuns: 0,
 		suitePath: '',
 		record: false,
 		evalCases: [],
@@ -452,6 +455,16 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--last') {
 			options.trendsLast = Number(argv[++index]);
+			continue;
+		}
+
+		if (arg === '--apply') {
+			options.routeApply = true;
+			continue;
+		}
+
+		if (arg === '--min-runs') {
+			options.routeMinRuns = Number(argv[++index]);
 			continue;
 		}
 
@@ -1019,6 +1032,7 @@ Usage:
   kodr session export <sessionId> --format markdown
   kodr replay <run-dir>
   kodr trends [--json] [--runs-dir .kodr/runs] [--since <run-id>] [--last N]
+  kodr route [--json] [--min-runs N] [--apply]
   kodr watch --test "npm test"
 
 Project config:
@@ -2080,6 +2094,30 @@ export async function main(argv, io) {
 			}
 		}
 		return { command: 'trends', ok: true, comparison, report, runsDir };
+	}
+
+	if (options.command === 'route') {
+		const { computeTrends, loadRunSummaries } = await import('./trends.mjs');
+		const { recommendModel, renderRouteCli } = await import('./routing.mjs');
+		const runsDir = options.runsDir
+			? options.runsDir.startsWith('/')
+				? options.runsDir
+				: join(io.cwd, options.runsDir)
+			: join(io.cwd, '.kodr', 'runs');
+		const report = computeTrends(await loadRunSummaries(runsDir));
+		const minRuns = options.routeMinRuns > 0 ? options.routeMinRuns : 3;
+		const rec = recommendModel(report, { minRuns });
+		let applied = false;
+		if (options.routeApply && rec.recommended) {
+			await applyRecommendedModel(io.cwd, rec.recommended);
+			applied = true;
+		}
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify({ ...rec, applied }, null, 2)}\n`);
+		} else {
+			io.stdout.write(renderRouteCli(rec, { applied }));
+		}
+		return { command: 'route', ok: true, recommendation: rec, applied };
 	}
 
 	if (options.command === 'watch') {
@@ -4579,6 +4617,25 @@ function resolvedAgentsDirs(options, cwd) {
 	return (options.agentsDirs || []).map((dir) =>
 		dir.startsWith('/') ? dir : join(cwd, dir),
 	);
+}
+
+// Phase 131: merge the recommended model into .kodr/config.json, preserving any
+// existing keys. Config writes only set the allowed `model` key; gate keys are
+// never touched. Used by `kodr route --apply`.
+async function applyRecommendedModel(cwd, model) {
+	const configPath = join(cwd, '.kodr/config.json');
+	let config = {};
+	try {
+		config = JSON.parse(await readFile(configPath, 'utf8'));
+		if (!config || typeof config !== 'object' || Array.isArray(config)) {
+			config = {};
+		}
+	} catch {
+		config = {};
+	}
+	config.model = model;
+	await mkdir(dirname(configPath), { recursive: true });
+	await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
 }
 
 // Phase 128: compact extraction metadata for summary.json / forensics. Returns
