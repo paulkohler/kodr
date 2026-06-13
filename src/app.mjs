@@ -3283,6 +3283,12 @@ export async function runPrompt(options, io) {
 		// D5: recoveredVia tracks how a native-mode run recovered (if at all).
 		// 'none' means no recovery was needed (draft was non-empty or not native mode).
 		let recoveredVia = 'none';
+		// Forensics fidelity: when D3 recovers via envelope-reprompt, the proposal
+		// comes from a SECOND model response. Capture it so response.md/responseChars
+		// reflect what actually produced the proposal, and note any envelope-shaped
+		// JSON the extractor rejected on the first pass (a near-miss is worth seeing).
+		let repromptText = null;
+		let recoveryNote = null;
 
 		let proposal = null;
 		let proposalError = null;
@@ -3310,8 +3316,11 @@ export async function runPrompt(options, io) {
 			let envelopeProposal = null;
 			try {
 				envelopeProposal = extractProposal(completion.text);
-			} catch {
+			} catch (error) {
+				// Envelope-shaped JSON that failed validation/extraction — a near-miss
+				// is more diagnostic than pure prose. Record it before falling through.
 				envelopeProposal = null;
+				recoveryNote = `envelope-fallback rejected: ${error.message}`;
 			}
 
 			if (envelopeProposal !== null) {
@@ -3346,12 +3355,21 @@ export async function runPrompt(options, io) {
 					let repromptProposal = null;
 					try {
 						repromptProposal = extractProposal(repromptCompletion.text);
-					} catch {
+					} catch (error) {
 						repromptProposal = null;
+						recoveryNote = `envelope-reprompt rejected: ${error.message}`;
 					}
 					if (repromptProposal !== null) {
 						proposal = repromptProposal;
 						recoveredVia = 'envelope-reprompt';
+						repromptText = repromptCompletion.text;
+						// The proposal came from this SECOND response. Append it to
+						// completion.text (with a marker) so response.md and responseChars
+						// reflect what actually produced the proposal instead of the
+						// prose-only first turn; record the reprompt size separately.
+						completion.text = `${completion.text}\n\n--- envelope re-prompt response ---\n${repromptText}`;
+						summary.responseChars = completion.text.length;
+						summary.repromptResponseChars = repromptText.length;
 						// Merge reprompt responses into completion for artifact accuracy.
 						completion.responses.push(...repromptCompletion.responses);
 						completion.finishReasons.push(...repromptCompletion.finishReasons);
@@ -3432,6 +3450,9 @@ export async function runPrompt(options, io) {
 			summary.proposalChannels = proposalChannels;
 			if (isNativeMode) {
 				summary.recoveredVia = recoveredVia;
+				if (recoveryNote) {
+					summary.recoveryNote = recoveryNote;
+				}
 			}
 			summary.tested = false;
 			summary.writeCount = 0;
@@ -3772,6 +3793,9 @@ export async function runPrompt(options, io) {
 		// D5 (phase 119): recoveredVia surfaces how native mode recovered, if at all.
 		if (isNativeMode) {
 			summary.recoveredVia = recoveredVia;
+			if (recoveryNote) {
+				summary.recoveryNote = recoveryNote;
+			}
 		}
 		summary.treeState = treeState;
 		if (runError) {

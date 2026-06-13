@@ -6032,6 +6032,27 @@ describe('Phase 119 D3 — native-mode empty draft safety net', () => {
 				(r) => r.method === 'POST' && r.url === '/v1/chat/completions',
 			);
 			assert.equal(chatReqs.length, 2, 'should fire reprompt exactly once');
+			// Artifact fidelity: the proposal came from the SECOND response, so
+			// response.md must contain it (not just the prose-only first turn) and
+			// the reprompt size must be recorded distinctly.
+			const responseMd = await readFile(
+				join(cwd, 'd3repr-out', 'response.md'),
+				'utf8',
+			);
+			assert.match(
+				responseMd,
+				/envelope re-prompt response/,
+				'response.md marks the reprompt response',
+			);
+			assert.match(
+				responseMd,
+				/via reprompt/,
+				'response.md contains the reprompt envelope content',
+			);
+			assert.ok(
+				summary.repromptResponseChars > 0,
+				'reprompt response size recorded',
+			);
 		} finally {
 			await server.close();
 		}
