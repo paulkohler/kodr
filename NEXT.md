@@ -35,18 +35,15 @@ the task or prior proposal is suspect, not healed. Evidence:
 `~/src/kodr-testing/phase-113/greenfield-logstats-1/`.
 
 
-### Tool-Channel Arc (phases 118–119; 117 is in phases/)
+### Tool-Channel Arc (phase 119; 117 and 118 shipped)
 
 Thesis: file content has been riding the least-constrained channel (JSON
 string values in free-decoded text — the source of ten phases of decode
 artifacts and extraction repair) while the most-constrained channel
 (grammar-constrained, server-parsed tool calls) is the one agentic-trained
-models keep reaching for. gpt-oss corrupted its envelope 4-for-4 while its
-hallucinated `write_file` calls were well-formed every time; devstral calls
-a native `files` tool exclusively and is 0% usable on the envelope. Phase
-117 (Proposal-Capturing Write Tools — see the phase file) adds capture
-tools, per-profile aliases, and verification-derived status, strictly
-additively. The rest of the arc:
+models keep reaching for. Phase 117 added capture tools + verification-derived
+status; phase 118 added the tool-support probe, per-profile `toolWrites`
+channel selection, and the duplicate-key-cluster repair rule. Final phase:
 
 **119 — Envelope Demotion.** The gut, done last with evidence in hand: for
 native-channel profiles the system prompt drops the envelope JSON contract
@@ -55,6 +52,19 @@ plain text, status is fully verification-derived, and repair/heal turns run
 on the tool channel. The extractor and envelope prompt remain for
 envelope-mode profiles — fallback, not deleted. Interacts with Heal Task
 Anchoring (the repair-context fixes may fold in here).
+
+118-validation finding for 119 to resolve: the probe's toy-request
+classification predicts *capability*, not *preference*. All three models
+classified `native`, but under a full task prompt gpt-oss adopts the tool
+channel, gemma adopts it, and qwen declines it and falls back to the
+envelope (rescued only by the T5 split rule). Before 119 demotes the
+envelope for a profile, the signal must reflect what the model actually
+does on a real task — e.g. a fuller probe that issues a write-shaped task,
+or a per-profile preference override seeded from observed runs. Demoting
+qwen's envelope on the strength of the current optimistic `native`
+classification would strand it. Evidence:
+`~/src/kodr-testing/phase-118/` (qwen greenfield used envelope despite
+`toolWritesMode: native`).
 
 Out of scope but designed for: Ollama (Modelfile templates) and vLLM
 (explicit `--tool-call-parser`) have the same template/parse layer; channel

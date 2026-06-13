@@ -120,6 +120,12 @@ contain `,"path":` is untouched, and that legitimately-duplicate keys in
 
 - [x] T1: probe classifies tool support with evidence snippet.
 - [x] T2: probe reports management-API facts and warns on context mismatch.
+      (Live validation found the shipped parser read `body.data`; the real
+      LM Studio response is `{models:[...]}` with config under
+      `loaded_instances[].config` — fixed via exported
+      `parseManagementInstances`, unit-tested against the real shape; the
+      original T2 test had used a wrong-shaped fixture. See
+      failures.jsonl 118-validation.)
 - [x] T3: probe.json persistence; toolWrites native|envelope|auto with auto
       resolution; mode in summary.json.
 - [x] T4: channel-aware prompt wording per resolved mode.
@@ -130,8 +136,8 @@ contain `,"path":` is untouched, and that legitimately-duplicate keys in
 - [x] NEXT.md entries shipped by this phase deleted (FIFO) — the "Probe
       Reads The Management API" entry and the 117-findings paragraph of the
       arc entry.
-- [ ] Version bumped to 0.0.118; suite green; committed.
-- [ ] Live validation (after the commit, sequential): `kodr probe` against
+- [x] Version bumped to 0.0.118; suite green; committed.
+- [x] Live validation (after the commit, sequential): `kodr probe` against
       qwen, gpt-oss, and gemma — record each triple's classification and
       management-API facts in probe.json; then a qwen greenfield re-run
       with its measured channel — the adoption question: does
@@ -140,3 +146,21 @@ contain `,"path":` is untouched, and that legitimately-duplicate keys in
       (either outcome recorded; a run that succeeds by *either* path
       validates the phase); gemma quick regression check that its resolved
       mode leaves the envelope path untouched.
+      RESULT — probe classified all three triples `native` (structured
+      tool_calls on the toy request); probe.json written keyed by
+      baseUrl::model. qwen: still emitted the envelope under tools-primary
+      wording (did NOT adopt the capture tools) and reproduced the
+      duplicate-key collapse — but the T5 split rule fired in the repair
+      path, extracted both files, and the run reached disk and tests (12/15
+      pass; the 3 failures are qwen code-quality bugs, not extraction). The
+      phase validates via the rescue path. gemma: NO regression — it went
+      further and FULLY ADOPTED native tool calls (proposalChannels
+      {captured: 2}, 4/4 tests), an upgrade from its phase-117 envelope
+      path. T2 was BROKEN in the shipped build (instances:[] always) and is
+      fixed in the follow-up commit (parseManagementInstances). One honest
+      caveat: the probe's toy-request classification is optimistic for qwen
+      — it reports `native` yet qwen defaults to the envelope under a full
+      task prompt; the classification predicts capability, not preference.
+      Noted for phase 119 (a fuller probe or a preference signal).
+      Evidence: `~/src/kodr-testing/phase-118/` (OPERATOR-REPORT.md),
+      `process/failures.jsonl` phase 118-validation.

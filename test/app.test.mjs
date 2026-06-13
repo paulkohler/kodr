@@ -9,6 +9,7 @@ import {
 	handleChannelRequest,
 	main,
 	parseArgs,
+	parseManagementInstances,
 	renderSkillsListing,
 	usage,
 	VERSION,
@@ -5603,5 +5604,82 @@ describe('kodr skills command', () => {
 
 		assert.match(output, /fooskill/u);
 		assert.match(output, /\[project\]/u);
+	});
+});
+
+describe('parseManagementInstances (T2 — real LM Studio shape)', () => {
+	// Fixture shape captured live from GET /api/v1/models on LM Studio 0.3.x
+	// (2026-06-13): top-level { models: [...] }, per-instance config under
+	// loaded_instances[].config, capabilities.trained_for_tool_use on the model.
+	const realBody = {
+		models: [
+			{
+				type: 'llm',
+				key: 'qwen/qwen3.6-35b-a3b',
+				capabilities: { vision: false, trained_for_tool_use: true },
+				max_context_length: 262144,
+				loaded_instances: [
+					{
+						id: 'qwen/qwen3.6-35b-a3b',
+						config: { context_length: 8192, parallel: 4 },
+					},
+				],
+			},
+			{
+				type: 'llm',
+				key: 'google/gemma-4-26b-a4b',
+				capabilities: { trained_for_tool_use: true },
+				// Present in the catalog but not loaded — must contribute nothing.
+				loaded_instances: [],
+			},
+		],
+	};
+
+	it('reads instances from models[].loaded_instances[].config', () => {
+		const { instances } = parseManagementInstances(realBody, 32768);
+		assert.equal(instances.length, 1, 'only the loaded model reports');
+		assert.deepEqual(instances[0], {
+			id: 'qwen/qwen3.6-35b-a3b',
+			context_length: 8192,
+			parallel: 4,
+			trained_for_tool_use: true,
+		});
+	});
+
+	it('warns when loaded context_length differs from the profile assumption', () => {
+		const { warnings } = parseManagementInstances(realBody, 32768);
+		assert.equal(warnings.length, 1);
+		assert.match(warnings[0], /context_length mismatch/u);
+		assert.match(warnings[0], /loaded 8192/u);
+		assert.match(warnings[0], /profile assumes 32768/u);
+	});
+
+	it('does not warn when context_length matches', () => {
+		const matched = {
+			models: [
+				{
+					key: 'm',
+					loaded_instances: [{ id: 'm', config: { context_length: 32768 } }],
+				},
+			],
+		};
+		const { instances, warnings } = parseManagementInstances(matched, 32768);
+		assert.equal(instances.length, 1);
+		assert.equal(warnings.length, 0);
+	});
+
+	it('falls back to OpenAI-style data[] / flat items', () => {
+		const flat = {
+			data: [{ id: 'x', context_length: 4096, parallel: 1 }],
+		};
+		const { instances } = parseManagementInstances(flat, null);
+		assert.equal(instances.length, 1);
+		assert.equal(instances[0].id, 'x');
+		assert.equal(instances[0].context_length, 4096);
+	});
+
+	it('returns no instances for an empty or unexpected body', () => {
+		assert.deepEqual(parseManagementInstances({}, 32768).instances, []);
+		assert.deepEqual(parseManagementInstances(null, 32768).instances, []);
 	});
 });

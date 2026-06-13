@@ -2433,21 +2433,53 @@ async function queryLmStudioManagement(host, profileContextWindow, timeoutMs) {
 	} catch {
 		return { note: `Management API ${url} returned non-JSON`, instances: [] };
 	}
-	// Body is typically { data: [...] } or an array.
-	const items = Array.isArray(body?.data)
-		? body.data
-		: Array.isArray(body)
-			? body
-			: [];
-	const instances = items.map((item) => {
-		const instance = {
-			id: item.id || item.modelKey || '(unknown)',
-			context_length: item.context_length ?? null,
-			parallel: item.parallel ?? null,
-			trained_for_tool_use: item.capabilities?.trained_for_tool_use ?? null,
-		};
-		return instance;
-	});
+	return parseManagementInstances(body, profileContextWindow);
+}
+
+// Parse an LM Studio management API (`GET /api/v1/models`) body into the loaded
+// instances kodr reports. The real response shape is { models: [...] }, where
+// each model entry carries `loaded_instances` (only non-empty when the model is
+// actually loaded) and the per-instance context_length/parallel live under
+// `loaded_instances[].config`. trained_for_tool_use is on the model entry's
+// `capabilities`. We fall back to OpenAI-style `data`/bare-array shapes and to
+// flat per-item fields so non-LM-Studio or older servers still parse.
+export function parseManagementInstances(body, profileContextWindow) {
+	const items = Array.isArray(body?.models)
+		? body.models
+		: Array.isArray(body?.data)
+			? body.data
+			: Array.isArray(body)
+				? body
+				: [];
+	const instances = [];
+	for (const item of items) {
+		const trainedForToolUse = item.capabilities?.trained_for_tool_use ?? null;
+		const loaded = Array.isArray(item.loaded_instances)
+			? item.loaded_instances
+			: null;
+		if (loaded && loaded.length > 0) {
+			// Real LM Studio shape: report each loaded instance.
+			for (const inst of loaded) {
+				instances.push({
+					id: inst.id || item.key || item.id || '(unknown)',
+					context_length: inst.config?.context_length ?? null,
+					parallel: inst.config?.parallel ?? null,
+					trained_for_tool_use: trainedForToolUse,
+				});
+			}
+		} else if (loaded) {
+			// Model present in the catalog but not loaded — nothing to report.
+			continue;
+		} else {
+			// Flat fallback (OpenAI-style or older servers).
+			instances.push({
+				id: item.id || item.key || item.modelKey || '(unknown)',
+				context_length: item.context_length ?? null,
+				parallel: item.parallel ?? null,
+				trained_for_tool_use: trainedForToolUse,
+			});
+		}
+	}
 	// Warn on context_length mismatch.
 	const warnings = [];
 	if (profileContextWindow) {
