@@ -22,6 +22,33 @@ These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
+### Mid-Session Write Visibility (the tool-channel arc's top follow-up)
+
+The devstral circle-back (after the arc) surfaced the deepest remaining
+tension. In native two-channel mode the model is encouraged to verify its own
+work, and devstral did: it called `write_file` (captured into the proposal,
+not written), then ran `run_command: node --test` — which got
+`ENOENT: no such file`, because Kodr defers writes until task completion for
+its dry-run/review safety. The model saw its own files "missing," burned all
+8 turns confused, and declared success without real verification. This is the
+direct cost of the grounded write→run→observe→fix loop the arc celebrated:
+that loop requires the model to see its own writes, but proposal-safety hides
+them. Two options, smallest first:
+(a) **steer** — `run_command`/`read_file` touching a captured-but-unapplied
+path returns "pending write — appears at task completion" instead of raw
+ENOENT, so the model stops thrashing; cheap, keeps the safety model intact,
+but mid-session tests still can't actually run.
+(b) **materialize** — apply the ProposalDraft to a scratch/working copy (a
+temp dir or git worktree) so the model's own `run_command` sees its writes and
+real mid-session verification works, while the actual workspace stays gated by
+review/apply. This is the real fix and restores grounded iteration; it
+intersects the existing sandbox/worktree machinery (phases 60/76/94). Evidence:
+`~/src/kodr-testing/phase-119-devstral/` (OPERATOR-REPORT.md, the write_file →
+ENOENT sequence), `process/failures.jsonl` phase 119-devstral. Note: devstral
+is otherwise now usable via the arc — it calls `write_file` directly (the 117
+`files` alias stayed dormant), a second confirmation (after qwen) that the
+"native tool" problem was a prompt artifact.
+
 ### Heal Task Anchoring (anti goal-substitution)
 
 Round 3's worst failure mode: a run reported ok/healed while the requested
