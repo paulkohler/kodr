@@ -120,7 +120,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 118 Tool-Support Probe And Channel Profiles
 - [x] 119 Envelope Demotion
 - [x] 120 Live Apply Mode
-- [ ] 121 Model Code Quality
+- [x] 121 Model Code Quality
 
 ## Phase Contract
 

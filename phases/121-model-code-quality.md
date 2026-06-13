@@ -127,8 +127,8 @@ extra field needed.
 - [x] NEXT.md: trim the "Model Code Quality" entry — syntax gate + ESM
       contract ship here; leave the per-model-family targeted-guidance half
       (option c) as the remaining candidate.
-- [ ] Version bumped to 0.0.121; suite green; committed.
-- [ ] Live validation (after the commit, sequential): devstral
+- [x] Version bumped to 0.0.121; suite green; committed.
+- [x] Live validation (after the commit, sequential): devstral
       `--apply-mode live` greenfield — does the syntax gate catch its illegal
       `return` / bad `node:test` API and feed the heal loop a named error
       (vs the 120 run where the SyntaxError surfaced only via the model's own
@@ -137,3 +137,21 @@ extra field needed.
       and does the gate catch it if not? Record the mistake-class delta vs the
       117/120 runs (the metric is fewer mechanical failures reaching the user,
       not necessarily a green run).
+      RESULT — C1 syntax gate PASSES: a devstral proposal run wrote an
+      illegal top-level `return`; `node --check` caught it, `summary.syntaxCheck`
+      named `{path, "Illegal return statement"}`, run ok:false, and the named
+      SyntaxError feeds the heal loop when `--test` is set (without a test
+      command the gate catches+names but can't heal — real runs pass --test).
+      C3 forensics shape PASSES. C2 found a real GAP and it was fixed in the
+      validation window: the ESM block never fired on greenfield (empty
+      workspace = no .mjs/package.json signal yet) — defeating its primary
+      first-generation purpose. Fixed by detecting ESM from the task prompt
+      naming a `.mjs`/`.cjs` target (precise; not bare `node`/`.js`); verified
+      end-to-end (greenfield .mjs prompt → block present; Python/empty →
+      absent). The block's mistake-REDUCTION effect is still unmeasured (the
+      operator's runs predated the fix, so the block was absent) — a bench
+      measurement is the follow-up. Honest note: `node --check` cannot catch
+      CJS-in-ESM (`require.main` in .mjs is valid syntax, a runtime error) —
+      the ESM block is that class's preventive layer, now that it fires on
+      greenfield. Evidence: `~/src/kodr-testing/phase-121/` (OPERATOR-REPORT.md),
+      `process/failures.jsonl` phase 121-validation.

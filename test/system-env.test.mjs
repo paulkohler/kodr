@@ -549,6 +549,27 @@ describe('detectNodeEsm', () => {
 		const cwd = await mkWorkspace({});
 		assert.equal(await detectNodeEsm(cwd, []), false);
 	});
+
+	it('detects ESM from a greenfield task prompt naming a .mjs target', async () => {
+		const cwd = await mkWorkspace({});
+		assert.equal(
+			await detectNodeEsm(cwd, [], 'Create wordfreq.mjs that counts words'),
+			true,
+		);
+	});
+
+	it('detects ESM from a prompt naming a .cjs target', async () => {
+		const cwd = await mkWorkspace({});
+		assert.equal(await detectNodeEsm(cwd, [], 'add a build.cjs script'), true);
+	});
+
+	it('does not fire on a prompt that only says "node" or names a .js file', async () => {
+		const cwd = await mkWorkspace({});
+		assert.equal(
+			await detectNodeEsm(cwd, [], 'write a node script in main.js'),
+			false,
+		);
+	});
 });
 
 // ---------------------------------------------------------------------------

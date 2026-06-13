@@ -4439,6 +4439,10 @@ function workspaceContextOptions(options) {
 		editFormat: options.editFormat,
 		// T4: pass resolved toolWritesMode so context-packer uses channel-aware wording.
 		toolWritesMode: options.toolWritesMode || 'auto',
+		// C2 (phase 121): the task text is an ESM signal for greenfield workspaces
+		// (a prompt naming a .mjs/.cjs target triggers the Node/ESM contract block
+		// even before any file exists on disk).
+		taskPrompt: options.prompt || '',
 		...(options.contextBudgetChars
 			? { totalBytes: options.contextBudgetChars }
 			: {}),

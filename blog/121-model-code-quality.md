@@ -139,6 +139,29 @@ system-env, 4 in forensics, 6 already in the C1/heal regression path through
 app.test.mjs). All 1273 pass. The no-JS/non-Node prompt is byte-identical
 to phase 120.
 
-Live validation (devstral `--apply-mode live` and gpt-oss greenfield) is a
-separate operator task. The metric is not "green run" — it's "fewer
-mechanical failures reaching the user before the heal loop names them."
+## What validation showed (and fixed)
+
+The syntax gate works: a devstral proposal run wrote a test file with an
+illegal top-level `return`; `node --check` caught it, `summary.syntaxCheck`
+named `test/wordfreq.test.mjs — Illegal return statement`, the run went
+`ok: false`, and the named error feeds the heal loop when a test command is
+configured. Catch, name, feed — as designed.
+
+The ESM block, though, had a flaw that validation caught and is the more
+interesting lesson: **it never fired on a greenfield task.** The detection
+signal was workspace state — an existing `.mjs` or `package.json`
+`"type":"module"` — but a greenfield run starts with an empty workspace, so
+the block meant to coach the model's *first* `.mjs` generation was absent
+exactly when it mattered most. The fix: detect ESM from the task prompt too,
+precisely — a prompt naming a `.mjs`/`.cjs` target (like "Create wordfreq.mjs")
+now triggers the block, while "node" or ".js" alone do not. Verified
+end-to-end. The block's actual mistake-reduction effect is still unmeasured —
+the operator's runs predated the fix — and that is a bench question, not a
+single-run one.
+
+One honest boundary: `node --check` cannot catch gpt-oss's CJS-in-ESM
+(`require.main === module` in a `.mjs`). Those identifiers parse fine; the
+failure is a runtime `ReferenceError`. The syntax gate was never the layer for
+that — the ESM block is, now that it fires when it should. Two layers, two
+failure classes: the gate for what won't parse, the contract for what parses
+but won't run.

@@ -54,7 +54,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 	const isNodeEsm =
 		options.isNodeEsm !== undefined
 			? options.isNodeEsm
-			: await detectNodeEsm(cwd, files);
+			: await detectNodeEsm(cwd, files, options.taskPrompt || '');
 
 	if (toolsMode) {
 		let agents = null;
@@ -240,9 +240,16 @@ export function planContextBudget(options = {}) {
  * @param {string[]} files  Workspace-relative file list.
  * @returns {Promise<boolean>}
  */
-export async function detectNodeEsm(cwd, files) {
+export async function detectNodeEsm(cwd, files, taskPrompt = '') {
 	// Fast check: any .mjs file is a definitive ESM signal
 	if (files.some((f) => f.endsWith('.mjs'))) {
+		return true;
+	}
+	// Greenfield signal: the task names a .mjs/.cjs target. Without this the block
+	// never fires on an empty workspace — exactly the first-generation case it is
+	// meant to coach (phase 121 validation found this gap). Precise on purpose:
+	// ".mjs"/".cjs" is an unambiguous ESM cue; ".js" and "node" are too broad.
+	if (typeof taskPrompt === 'string' && /\.(mjs|cjs)\b/u.test(taskPrompt)) {
 		return true;
 	}
 	// Check package.json "type":"module"

@@ -49,8 +49,12 @@ off-by-one count logic. A model-family fingerprint (matched from the resolved
 model string) and a per-family guidance snippet would let the harness give a
 more surgical hint than the shared ESM block. Requires live validation to
 measure the mistake-class delta before committing to the signal-to-noise
-tradeoff. Evidence: `process/failures.jsonl` phases 117/119/120-validation;
-phase 121 live validation results (pending).
+tradeoff. Related open measurement: phase-121's shared ESM block now fires on
+greenfield tasks (fixed during 121 validation), but its mistake-REDUCTION
+effect is still unmeasured — the operator's 121 runs predated the fix, so the
+block was absent. A bench run comparing block-present vs block-absent on the
+same task would quantify both the shared block and any per-family additions.
+Evidence: `process/failures.jsonl` phases 117/119/120/121-validation.
 
 ### Mid-Session Write Visibility — worktree materialise (deferred from 120)
 
