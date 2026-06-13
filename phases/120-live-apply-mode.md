@@ -142,12 +142,24 @@ proposal mode keeps its current behaviour (sees only applied files).
 - [x] NEXT.md: trim the "Mid-Session Write Visibility" entry to just the
       deferred materialize/worktree half (option b); the option-(a)/live half
       ships here.
-- [ ] Version bumped to 0.0.120; suite green; committed.
-- [ ] Live validation (after the commit, sequential, devstral now at 131072):
+- [x] Version bumped to 0.0.120; suite green; committed.
+- [x] Live validation (after the commit, sequential, devstral now at 131072):
       devstral greenfield with `--apply-mode live` — does `run_command`
       (`node --test`) now see its own `write_file` output and verify
-      mid-session, instead of the ENODLE thrash from the circle-back? Record
+      mid-session, instead of the ENOENT thrash from the circle-back? Record
       whether it reaches a real test result during the loop. Then a default
       (`proposal`) run to confirm no regression and that read_file read-back
       (L3) reduces confusion. Capture devstral's behaviour delta vs the
       circle-back run.
+      RESULT — the decisive question PASSES. Live: write_file returned
+      "wrote wordfreq.mjs (1209 bytes)", and devstral's next run_command
+      `node --test` returned a REAL result (SyntaxError, 1 fail) instead of
+      the 119 ENOENT — then it called edit_file to fix it. Grounded
+      feedback loop, the opposite of the 119 blind-thrash-then-false-success.
+      "wrote" wording confirmed; `kodr undo` reverted both files cleanly.
+      Proposal run: applyMode "proposal", wording unchanged, no regression
+      (devstral didn't exercise L3 read_file read-back, which rests on the
+      unit tests). Did not converge to green — devstral code-quality limits
+      (bad test code, failed patch search), a model finding not a harness
+      one. Evidence: `~/src/kodr-testing/phase-120/` (OPERATOR-REPORT.md),
+      `process/failures.jsonl` phase 120-validation.

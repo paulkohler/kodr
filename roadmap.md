@@ -119,7 +119,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 117 Proposal-Capturing Write Tools
 - [x] 118 Tool-Support Probe And Channel Profiles
 - [x] 119 Envelope Demotion
-- [ ] 120 Live Apply Mode
+- [x] 120 Live Apply Mode
 
 ## Phase Contract
 

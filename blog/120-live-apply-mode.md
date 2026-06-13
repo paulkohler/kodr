@@ -36,8 +36,10 @@ One constraint: the undo test must not use `--out <name>` to redirect the run di
 
 `summary.applyMode` is recorded for every run. `kodr why` adds an apply-mode note to the Edit Application step in the causal story: `[apply mode: live — writes applied during the run]` or `[apply mode: proposal — applied at completion]`. This makes the undo story legible: if you're reading a `why` report trying to understand why certain files changed, you want to know whether the changes landed live or in batch.
 
-## What live validation will tell us
+## What live validation showed
 
-Live mode's core question is whether the mid-session visibility gain outweighs the loss of the review gate. In proposal mode, a corrupted or badly-structured file is caught at the review step — you see the diff, you say no. In live mode, the model's mistakes land before you see them. The undo path is the recovery, not prevention.
+The decisive run, devstral at 131072 with `--apply-mode live`: `write_file` returned `wrote wordfreq.mjs (1209 bytes)`, and devstral's very next `run_command: node --test` came back with a *real* result — `SyntaxError: Illegal return statement`, one test failing — instead of the ENOENT it hit on every call in the phase-119 circle-back. devstral then called `edit_file` to fix the error. Grounded, feedback-driven behaviour: it saw its own output, ran it, read the failure, and acted. That is categorically different from the proposal-mode run, where it called `list_files`, saw an empty directory, `read_file` (ENOENT again), and declared "Task completed" without verifying anything.
 
-The expected finding is that local models doing iterative code generation (write → test → fix) benefit from live mode because the run actually converges, while models doing single-pass architectural rewrites should stay in proposal mode where you can review the full proposal before committing. The flag makes both workflows available without changing the default.
+The run did not converge to green — devstral's generated test code had its own bugs and its fix patches missed — but that is a model-quality finding, not a harness one. The architectural gap is closed: in live mode the model can see and verify its own writes mid-session. `kodr undo` afterward cleanly reverted both files, confirming the backup path holds. Proposal mode was unchanged: same wording, same deferred apply, no regression.
+
+The shape of the result matches the design intent. Iterative write→test→fix models want live mode because the loop actually closes; single-pass rewrites stay in proposal mode where the full diff is reviewable before anything lands. The flag makes both available without moving the safe default.
