@@ -81,6 +81,10 @@ import {
 	renderEditFormatContract,
 } from './edit-formats.mjs';
 import { captureEnvironmentFacts } from './system-env.mjs';
+import {
+	runSyntaxGateIfNeeded,
+	syntaxResultToVerification,
+} from './syntax-gate.mjs';
 import { applyModelProfileDefaults } from './model-profiles.mjs';
 import {
 	applyProjectConfig,
@@ -3811,19 +3815,29 @@ export async function runPrompt(options, io) {
 			writeResult,
 			options,
 		);
+		// C1 (phase 121): syntax gate — run node --check on every written JS file
+		// BEFORE the test command. A file that does not parse cannot be meaningfully
+		// tested; a syntax failure is named and fed to the heal loop directly so the
+		// model gets a precise signal, not a confusing downstream ENOENT/SyntaxError.
+		const verifyCwd = await verificationCwd(io.cwd, options);
+		const syntaxResult =
+			shouldApply && !writeError && !runError
+				? await runSyntaxGateIfNeeded(verifyCwd, writeResult)
+				: null;
+		// If syntax fails, synthesise a verification-shaped result for the heal loop.
+		// The test command is skipped — there is no point running node --test against
+		// a file that node --check rejects.
 		let testResult =
 			options.testCommand && shouldApply && !writeError && !runError
-				? await runVerification(
-						await verificationCwd(io.cwd, options),
-						options.testCommand,
-						{
+				? syntaxResult && !syntaxResult.ok
+					? syntaxResultToVerification(syntaxResult)
+					: await runVerification(verifyCwd, options.testCommand, {
 							runner: commandRunner,
 							timeoutMs: options.timeoutMs,
-						},
-					)
+						})
 				: null;
 		const healingResult = await runHealingIfNeeded({
-			cwd: await verificationCwd(io.cwd, options),
+			cwd: verifyCwd,
 			commandRunner,
 			model,
 			options: { ...options, yes: shouldApply },
@@ -3852,8 +3866,20 @@ export async function runPrompt(options, io) {
 		summary.healed = healingResult ? healingResult.healed : false;
 		summary.healStopReason = healingResult?.stopReason || '';
 		summary.installed = installResult !== null;
+		// C1 (phase 121): a syntax failure makes the run's ok false even when there
+		// is no testCommand — a file that does not parse is not a passing run.
+		// Exception: if the heal loop fixed it (testResult.ok is now true), the
+		// syntax error was resolved and the run is ok.
+		const syntaxFailed =
+			syntaxResult !== null &&
+			!syntaxResult.ok &&
+			!(testResult && testResult.ok);
 		summary.ok =
-			writeError || runError ? false : testResult ? testResult.ok : true;
+			writeError || runError || syntaxFailed
+				? false
+				: testResult
+					? testResult.ok
+					: true;
 		summary.proposalMessageCount = proposalMessages.length;
 		summary.proposalFound = proposal !== null;
 		summary.proposalStatus = proposal?.status || '';
@@ -3868,6 +3894,10 @@ export async function runPrompt(options, io) {
 		summary.treeState = treeState;
 		if (runError) {
 			summary.runError = runError;
+		}
+		// C3 (phase 121): syntaxCheck omitted when no JS files were written (null).
+		if (syntaxResult !== null) {
+			summary.syntaxCheck = syntaxResult;
 		}
 		summary.tested = testResult !== null;
 		if (writeError) {

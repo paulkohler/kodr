@@ -609,3 +609,99 @@ describe('buildCausalStory — F4 Model Call honest failure', () => {
 		assert.equal(analysis.errorJson.name, 'CliError');
 	});
 });
+
+// ---------------------------------------------------------------------------
+// C3 (phase 121) — syntaxCheck in summary.json surfaces in kodr why
+// ---------------------------------------------------------------------------
+
+describe('buildCausalStory — C3 syntaxCheck forensics', () => {
+	let tmp3;
+	before(async () => {
+		tmp3 = join(tmpdir(), `forensics-c3-${Date.now()}`);
+		await mkdir(tmp3, { recursive: true });
+	});
+	after(async () => {
+		await rm(tmp3, { recursive: true, force: true });
+	});
+
+	it('C3: syntaxCheck pass surfaces "syntax check: N files ok" in Verification', async () => {
+		const dir = await makeRunDir(tmp3, 'run-syntax-ok', {
+			'summary.json': {
+				...SUMMARY_OK,
+				syntaxCheck: { ok: true, checked: 2, failures: [] },
+			},
+		});
+		const analysis = await loadRunAnalysis(dir);
+		const story = buildCausalStory(analysis);
+		const verificationSteps = story.filter((s) => s.phase === 'Verification');
+		assert.ok(
+			verificationSteps.length > 0,
+			'should have at least one Verification step',
+		);
+		const syntaxStep = verificationSteps.find(
+			(s) => s.detail && s.detail.includes('syntax check:'),
+		);
+		assert.ok(syntaxStep, 'should have a syntax check step');
+		assert.equal(syntaxStep.status, 'ok');
+		assert.match(syntaxStep.detail, /syntax check: 2 files ok/u);
+	});
+
+	it('C3: syntaxCheck fail surfaces "syntax check FAILED" in Verification with path and message', async () => {
+		const dir = await makeRunDir(tmp3, 'run-syntax-fail', {
+			'summary.json': {
+				...SUMMARY_OK,
+				ok: false,
+				syntaxCheck: {
+					ok: false,
+					checked: 1,
+					failures: [
+						{ path: 'src/x.mjs', message: 'Illegal return statement' },
+					],
+				},
+			},
+		});
+		const analysis = await loadRunAnalysis(dir);
+		const story = buildCausalStory(analysis);
+		const syntaxStep = story
+			.filter((s) => s.phase === 'Verification')
+			.find((s) => s.detail && s.detail.includes('syntax check'));
+		assert.ok(syntaxStep, 'should have a syntax check step');
+		assert.equal(syntaxStep.status, 'fail');
+		assert.match(syntaxStep.detail, /syntax check FAILED/u);
+		assert.match(syntaxStep.detail, /src\/x\.mjs/u);
+		assert.match(syntaxStep.detail, /Illegal return statement/u);
+	});
+
+	it('C3: syntaxCheck absent when summary has no syntaxCheck (non-JS run)', async () => {
+		// SUMMARY_OK has no syntaxCheck field — Verification step should not mention syntax
+		const dir = await makeRunDir(tmp3, 'run-no-syntax-check', {
+			'summary.json': SUMMARY_OK,
+			'tests.json': TESTS_PASS,
+		});
+		const analysis = await loadRunAnalysis(dir);
+		const story = buildCausalStory(analysis);
+		const syntaxStep = story
+			.filter((s) => s.phase === 'Verification')
+			.find((s) => s.detail && s.detail.includes('syntax check'));
+		assert.equal(
+			syntaxStep,
+			undefined,
+			'no syntax check step when not in summary',
+		);
+	});
+
+	it('C3: singular "file" label when checked===1', async () => {
+		const dir = await makeRunDir(tmp3, 'run-syntax-ok-one', {
+			'summary.json': {
+				...SUMMARY_OK,
+				syntaxCheck: { ok: true, checked: 1, failures: [] },
+			},
+		});
+		const analysis = await loadRunAnalysis(dir);
+		const story = buildCausalStory(analysis);
+		const syntaxStep = story
+			.filter((s) => s.phase === 'Verification')
+			.find((s) => s.detail && s.detail.includes('syntax check'));
+		assert.match(syntaxStep.detail, /syntax check: 1 file ok/u);
+	});
+});

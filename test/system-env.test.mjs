@@ -7,10 +7,12 @@ import {
 	captureEnvironmentFacts,
 	renderBehavioursBlock,
 	renderEnvironmentBlock,
+	renderLanguageGuidanceBlock,
 	renderToolsBlock,
 } from '../src/system-env.mjs';
 import {
 	buildWorkspaceContext,
+	detectNodeEsm,
 	renderPromptSections,
 } from '../src/context-packer.mjs';
 
@@ -335,9 +337,11 @@ describe('prompt budget guard', () => {
 	// Phase 117 (W5): two new tool lines (write_file, edit_file) add ~220 chars.
 	// Budget deliberately updated from 2900 → 3200. Stable section grew from two
 	// to four tool-description lines; still well below the 4096-token LM Studio limit.
-	// Phase 118 (T4): native and envelope modes tested explicitly; native stays
-	// under 3200, envelope is shorter (no write_file/edit_file lines).
-	it('standard greenfield system message stays under 3200 chars (auto mode)', async () => {
+	// Phase 118 (T4): native and envelope modes tested explicitly.
+	// Phase 121 (C2): Node/ESM workspaces gain ~393 chars for the ESM contract
+	// block. Budget updated to 3600 for Node/ESM greenfield (one .mjs file).
+	// Non-Node workspaces (no .mjs, no type:module) stay under 3200.
+	it('standard Node/ESM greenfield system message stays under 3600 chars (auto mode)', async () => {
 		const cwd = await mkWorkspace({
 			'app.mjs': 'export function add(a, b) { return a + b; }',
 		});
@@ -352,7 +356,33 @@ describe('prompt budget guard', () => {
 			platform: 'darwin',
 			shell: 'zsh',
 		};
-		// Standard greenfield: tools mode (most expensive), patch format, one file.
+		// Standard greenfield: tools mode (most expensive), patch format, one .mjs file.
+		const context = await buildWorkspaceContext(cwd, {
+			environmentFacts: facts,
+			toolsMode: true,
+		});
+		const promptLen = context.systemPrompt.length;
+		assert.ok(
+			promptLen < 3600,
+			`Node/ESM system message must stay under 3600 chars for a greenfield task; got ${promptLen} chars`,
+		);
+	});
+
+	it('non-Node workspace stays under 3200 chars (no ESM block)', async () => {
+		const cwd = await mkWorkspace({
+			'main.py': 'def add(a, b): return a + b\n',
+		});
+		const facts = {
+			cwd,
+			date: '2026-06-12',
+			gitBranch: 'main',
+			gitRepo: true,
+			model: 'google/gemma-4-26b-a4b',
+			nodeVersion: 'v24.16.0',
+			osRelease: 'Darwin 25.5.0',
+			platform: 'darwin',
+			shell: 'zsh',
+		};
 		const context = await buildWorkspaceContext(cwd, {
 			environmentFacts: facts,
 			toolsMode: true,
@@ -360,11 +390,11 @@ describe('prompt budget guard', () => {
 		const promptLen = context.systemPrompt.length;
 		assert.ok(
 			promptLen < 3200,
-			`System message must stay under 3200 chars for a greenfield task; got ${promptLen} chars`,
+			`Non-Node system message must stay under 3200 chars; got ${promptLen} chars`,
 		);
 	});
 
-	it('native mode stays under 3200 chars', async () => {
+	it('native mode stays under 3600 chars (Node/ESM workspace)', async () => {
 		const cwd = await mkWorkspace({
 			'app.mjs': 'export function add(a, b) { return a + b; }',
 		});
@@ -386,8 +416,8 @@ describe('prompt budget guard', () => {
 		});
 		const promptLen = context.systemPrompt.length;
 		assert.ok(
-			promptLen < 3200,
-			`Native mode system message must stay under 3200 chars; got ${promptLen} chars`,
+			promptLen < 3600,
+			`Native mode system message must stay under 3600 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -419,6 +449,225 @@ describe('prompt budget guard', () => {
 		assert.ok(
 			envelopeContext.systemPrompt.length < autoContext.systemPrompt.length,
 			'envelope mode should produce a shorter system prompt than auto mode',
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// renderLanguageGuidanceBlock — C2 (phase 121)
+// ---------------------------------------------------------------------------
+
+describe('renderLanguageGuidanceBlock', () => {
+	it('returns empty string when isNodeEsm is false', () => {
+		assert.equal(renderLanguageGuidanceBlock({ isNodeEsm: false }), '');
+	});
+
+	it('returns empty string when facts is undefined', () => {
+		assert.equal(renderLanguageGuidanceBlock(undefined), '');
+	});
+
+	it('returns empty string when facts is null', () => {
+		assert.equal(renderLanguageGuidanceBlock(null), '');
+	});
+
+	it('returns block starting with # Node.js / ESM Contract when isNodeEsm true', () => {
+		const block = renderLanguageGuidanceBlock({ isNodeEsm: true });
+		assert.match(block, /^# Node\.js \/ ESM Contract/u);
+	});
+
+	it('contains the ESM-only rule', () => {
+		const block = renderLanguageGuidanceBlock({ isNodeEsm: true });
+		assert.match(block, /import.*export/u);
+		assert.match(block, /require/u);
+		assert.match(block, /top-level `return`/u);
+	});
+
+	it('contains the node:test API rule', () => {
+		const block = renderLanguageGuidanceBlock({ isNodeEsm: true });
+		assert.match(block, /node:test/u);
+		assert.match(block, /t\.assert/u);
+	});
+
+	it('contains the argv token rule', () => {
+		const block = renderLanguageGuidanceBlock({ isNodeEsm: true });
+		assert.match(block, /argv/u);
+		assert.match(block, /separate tokens/u);
+	});
+
+	it('has exactly 4 lines (header + 3 bullet lines)', () => {
+		const block = renderLanguageGuidanceBlock({ isNodeEsm: true });
+		const lines = block.split('\n');
+		assert.equal(lines.length, 4, `expected 4 lines, got ${lines.length}`);
+	});
+
+	it('is byte-stable when called twice with same facts', () => {
+		const facts = { isNodeEsm: true };
+		assert.equal(
+			renderLanguageGuidanceBlock(facts),
+			renderLanguageGuidanceBlock(facts),
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// detectNodeEsm — C2 (phase 121)
+// ---------------------------------------------------------------------------
+
+describe('detectNodeEsm', () => {
+	it('returns true when any .mjs file is in the file list', async () => {
+		const cwd = await mkWorkspace({ 'src/app.mjs': 'export const x = 1;\n' });
+		assert.equal(await detectNodeEsm(cwd, ['src/app.mjs']), true);
+	});
+
+	it('returns true when package.json has "type":"module"', async () => {
+		const cwd = await mkWorkspace({
+			'package.json': JSON.stringify({ name: 'test', type: 'module' }),
+		});
+		assert.equal(await detectNodeEsm(cwd, ['package.json']), true);
+	});
+
+	it('returns false when package.json has no type field', async () => {
+		const cwd = await mkWorkspace({
+			'package.json': JSON.stringify({ name: 'test' }),
+		});
+		assert.equal(await detectNodeEsm(cwd, ['package.json']), false);
+	});
+
+	it('returns false when package.json has type:commonjs', async () => {
+		const cwd = await mkWorkspace({
+			'package.json': JSON.stringify({ type: 'commonjs' }),
+		});
+		assert.equal(await detectNodeEsm(cwd, ['package.json']), false);
+	});
+
+	it('returns false for a Python workspace with no .mjs or package.json', async () => {
+		const cwd = await mkWorkspace({ 'main.py': 'print("hello")\n' });
+		assert.equal(await detectNodeEsm(cwd, ['main.py']), false);
+	});
+
+	it('returns false for empty file list', async () => {
+		const cwd = await mkWorkspace({});
+		assert.equal(await detectNodeEsm(cwd, []), false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// renderPromptSections — isNodeEsm integration (C2)
+// ---------------------------------------------------------------------------
+
+describe('renderPromptSections — isNodeEsm (C2)', () => {
+	it('stable section contains ESM contract when isNodeEsm:true', () => {
+		const sections = renderPromptSections({
+			editFormat: 'patch',
+			isNodeEsm: true,
+			toolsMode: false,
+		});
+		assert.match(sections.stable, /# Node\.js \/ ESM Contract/u);
+	});
+
+	it('stable section does NOT contain ESM contract when isNodeEsm:false', () => {
+		const sections = renderPromptSections({
+			editFormat: 'patch',
+			isNodeEsm: false,
+			toolsMode: false,
+		});
+		assert.doesNotMatch(sections.stable, /# Node\.js \/ ESM Contract/u);
+	});
+
+	it('stable section does NOT contain ESM contract when isNodeEsm absent (default)', () => {
+		const sections = renderPromptSections({
+			editFormat: 'patch',
+			toolsMode: false,
+		});
+		assert.doesNotMatch(sections.stable, /# Node\.js \/ ESM Contract/u);
+	});
+
+	it('stableHash differs between isNodeEsm:true and isNodeEsm:false', () => {
+		const withEsm = renderPromptSections({ isNodeEsm: true });
+		const withoutEsm = renderPromptSections({ isNodeEsm: false });
+		assert.notEqual(withEsm.stable, withoutEsm.stable);
+	});
+
+	it('non-Node workspace prompt is byte-identical to phase-120 baseline (no ESM block)', () => {
+		// Regression: a workspace with isNodeEsm:false must produce the same
+		// stable section as before phase 121. Compare to a call with no isNodeEsm.
+		const baseline = renderPromptSections({
+			editFormat: 'patch',
+			toolsMode: false,
+		});
+		const nonNode = renderPromptSections({
+			editFormat: 'patch',
+			isNodeEsm: false,
+			toolsMode: false,
+		});
+		assert.equal(
+			baseline.stable,
+			nonNode.stable,
+			'non-Node workspace stable section must be byte-identical to baseline',
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// buildWorkspaceContext — isNodeEsm detection in Node/ESM workspace (C2)
+// ---------------------------------------------------------------------------
+
+describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
+	it('includes ESM contract in system prompt for workspace with .mjs file', async () => {
+		const cwd = await mkWorkspace({
+			'app.mjs': 'export function add(a, b) { return a + b; }',
+		});
+		const context = await buildWorkspaceContext(cwd);
+		assert.match(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
+	});
+
+	it('includes ESM contract for package.json with type:module', async () => {
+		const cwd = await mkWorkspace({
+			'package.json': JSON.stringify({ type: 'module' }),
+			'index.js': 'console.log("hi");\n',
+		});
+		const context = await buildWorkspaceContext(cwd);
+		assert.match(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
+	});
+
+	it('omits ESM contract for Python workspace', async () => {
+		const cwd = await mkWorkspace({
+			'main.py': 'print("hello")\n',
+		});
+		const context = await buildWorkspaceContext(cwd);
+		assert.doesNotMatch(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
+	});
+
+	it('respects isNodeEsm:false override even when .mjs present', async () => {
+		const cwd = await mkWorkspace({
+			'app.mjs': 'export function add(a, b) { return a + b; }',
+		});
+		const context = await buildWorkspaceContext(cwd, { isNodeEsm: false });
+		assert.doesNotMatch(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
+	});
+
+	it('prompt budget guard still holds with ESM block (Node workspace under 3200 chars)', async () => {
+		const cwd = await mkWorkspace({
+			'app.mjs': 'export function add(a, b) { return a + b; }',
+		});
+		const facts = {
+			cwd,
+			date: '2026-06-12',
+			gitBranch: 'main',
+			gitRepo: true,
+			model: 'qwen/qwen3.6-35b-a3b',
+			nodeVersion: 'v24.16.0',
+			osRelease: 'Darwin 25.5.0',
+			platform: 'darwin',
+			shell: 'zsh',
+		};
+		const context = await buildWorkspaceContext(cwd, {
+			environmentFacts: facts,
+			toolsMode: true,
+		});
+		assert.ok(
+			context.systemPrompt.length < 3600,
+			`System message must stay under 3600 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });

@@ -38,23 +38,19 @@ These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
-### Model Code Quality Is The New Bottleneck (highest-signal direction)
+### Per-Model-Family Targeted Guidance
 
-The tool-channel arc fixed the plumbing: across 117–120 the harness reliably
-captures, applies, verifies, and reports — but the *runs still fail*, now on
-the code the local models write, not on the harness. Recurring signatures
-worth a dedicated phase: gpt-oss emits `require.main === module` (CJS) in
-`.mjs` ESM files (117); devstral wrote a test with an illegal top-level
-`return` and used invalid `node:test` APIs (`t.assert()`), and its `--top`
-argv parse used a regex that never matched separate argv tokens (119/120);
-qwen produced off-by-one word counts (117). Candidate mitigations, cheap
-first: (a) a behaviours/edit-format line that states the ESM + Node-24 target
-explicitly and names the common traps (no `require`, `import` only, real
-`node:test` API); (b) a pre-completion `node --check` on every written `.mjs`
-so syntax errors are caught and fed back before the run ends; (c) feed the
-recurring mistakes back as targeted prompt guidance per model family. This is
-the natural successor to the arc — the water now matters more than the pipe.
-Evidence: `process/failures.jsonl` phases 117/119/120-validation.
+Phase 121 shipped the ESM/Node-24 contract block (applies to all Node/ESM
+workspaces) and the `node --check` syntax gate. The remaining class: feed
+the *recurring per-model* mistake patterns back as targeted guidance injected
+only for those model families. gpt-oss has a CJS habit even with the ESM
+block; devstral still has argv-parse and `t.assert()` tendencies; qwen has
+off-by-one count logic. A model-family fingerprint (matched from the resolved
+model string) and a per-family guidance snippet would let the harness give a
+more surgical hint than the shared ESM block. Requires live validation to
+measure the mistake-class delta before committing to the signal-to-noise
+tradeoff. Evidence: `process/failures.jsonl` phases 117/119/120-validation;
+phase 121 live validation results (pending).
 
 ### Mid-Session Write Visibility — worktree materialise (deferred from 120)
 

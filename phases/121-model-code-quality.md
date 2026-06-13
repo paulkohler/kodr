@@ -116,15 +116,15 @@ extra field needed.
 
 ## Done criteria
 
-- [ ] C1: `node --check` syntax gate on written `.mjs`/`.cjs`/`.js`, before the
+- [x] C1: `node --check` syntax gate on written `.mjs`/`.cjs`/`.js`, before the
       test, failures named and fed to the heal loop, run `ok` false on syntax
       error.
-- [ ] C2: conditional ESM/Node-24 guidance block (Node/ESM workspaces only),
+- [x] C2: conditional ESM/Node-24 guidance block (Node/ESM workspaces only),
       pure/byte-stable, budget-guarded, prefix fixtures updated.
-- [ ] C3: `summary.syntaxCheck` + `kodr why` surfacing.
-- [ ] `process/failures.jsonl` / `process/decisions.jsonl` updated.
-- [ ] Blog post `blog/121-model-code-quality.md`.
-- [ ] NEXT.md: trim the "Model Code Quality" entry — syntax gate + ESM
+- [x] C3: `summary.syntaxCheck` + `kodr why` surfacing.
+- [x] `process/failures.jsonl` / `process/decisions.jsonl` updated.
+- [x] Blog post `blog/121-model-code-quality.md`.
+- [x] NEXT.md: trim the "Model Code Quality" entry — syntax gate + ESM
       contract ship here; leave the per-model-family targeted-guidance half
       (option c) as the remaining candidate.
 - [ ] Version bumped to 0.0.121; suite green; committed.

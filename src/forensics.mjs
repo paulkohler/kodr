@@ -255,7 +255,32 @@ export function buildCausalStory(analysis) {
 
 	// ------------------------------------------------------------------
 	// 5. Verification
+	// C3 (phase 121): surface syntaxCheck before the test-command result.
 	// ------------------------------------------------------------------
+	const syntaxCheck = summary?.syntaxCheck;
+	if (syntaxCheck !== undefined && syntaxCheck !== null) {
+		const syntaxOk = syntaxCheck.ok === true;
+		const checked = syntaxCheck.checked ?? 0;
+		if (syntaxOk) {
+			steps.push({
+				artifactPath: join(runDir, 'summary.json'),
+				detail: `syntax check: ${checked} file${checked !== 1 ? 's' : ''} ok`,
+				phase: 'Verification',
+				status: 'ok',
+			});
+		} else {
+			const failLines = (syntaxCheck.failures || [])
+				.map((f) => `${f.path} — ${f.message}`)
+				.join('; ');
+			steps.push({
+				artifactPath: join(runDir, 'summary.json'),
+				detail: `syntax check FAILED: ${failLines}`,
+				phase: 'Verification',
+				status: 'fail',
+			});
+		}
+	}
+
 	if (tests !== null && tests !== undefined) {
 		if (typeof tests === 'object' && tests !== null && 'ok' in tests) {
 			const ok = tests.ok === true;

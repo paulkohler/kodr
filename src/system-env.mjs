@@ -84,6 +84,35 @@ export function renderBehavioursBlock() {
 }
 
 /**
+ * Returns the `# Node.js / ESM Contract` block when the workspace signals
+ * a Node/ESM project, otherwise returns ''.
+ *
+ * Signal: `package.json` with `"type":"module"`, OR any `.mjs` file in the
+ * workspace file list. Both conditions are computed once at session start and
+ * captured in `facts.isNodeEsm` (byte-stable per session).
+ *
+ * Content is terse and evidence-traceable (≤4 lines):
+ * 1. ESM only — import/export; no require/module.exports; no top-level return.
+ *    (gpt-oss CJS-in-ESM, devstral illegal return — phases 117/119-validation)
+ * 2. Tests use the real node:test API — no invented methods.
+ *    (devstral t.assert() — phase 119-devstral)
+ * 3. CLI argv arrives as separate tokens — parse flags accordingly.
+ *    (devstral --top regex — phase 119/120-validation)
+ *
+ * @param {{ isNodeEsm?: boolean }} [facts]
+ * @returns {string}
+ */
+export function renderLanguageGuidanceBlock(facts) {
+	if (!facts?.isNodeEsm) return '';
+	return [
+		'# Node.js / ESM Contract',
+		'- ESM only: use `import`/`export`; never `require` or `module.exports`; no top-level `return` outside a function.',
+		"- Tests: `import { test } from 'node:test'` and `node:assert` — do not invent methods like `t.assert()`.",
+		'- CLI argv: `process.argv` entries are separate tokens (`--top` and `3` are two entries); parse flags with a token loop, not a single-string regex.',
+	].join('\n');
+}
+
+/**
  * Returns the `# Tools` section. Only include this when tools are enabled.
  * The wording adapts to the resolved toolWritesMode (T4, phase 118):
  *   'native'   — capture tools are the primary write channel; make them explicit.

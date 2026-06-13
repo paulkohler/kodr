@@ -3,6 +3,7 @@ import { renderEditFormatContract } from './edit-formats.mjs';
 import {
 	renderBehavioursBlock,
 	renderEnvironmentBlock,
+	renderLanguageGuidanceBlock,
 	renderToolsBlock,
 } from './system-env.mjs';
 import {
@@ -48,6 +49,12 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 	const skills = options.skills || { index: [], loaded: [] };
 	// K2: agent persona from --agent; passed through to renderProjectPromptSection.
 	const agentPersona = options.agentPersona || null;
+	// C2 (phase 121): detect Node/ESM once per session — byte-stable prefix signal.
+	// options.isNodeEsm can override (for testing or forced-false non-Node workspaces).
+	const isNodeEsm =
+		options.isNodeEsm !== undefined
+			? options.isNodeEsm
+			: await detectNodeEsm(cwd, files);
 
 	if (toolsMode) {
 		let agents = null;
@@ -72,6 +79,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			environmentFacts,
 			fileMap,
 			files: [],
+			isNodeEsm,
 			memory,
 			skills,
 			toolsMode,
@@ -119,6 +127,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			environmentFacts,
 			files: packedFiles,
 			inspection,
+			isNodeEsm,
 			memory,
 			skills,
 			toolWritesMode,
@@ -183,6 +192,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		editFormat,
 		environmentFacts,
 		files: packedFiles,
+		isNodeEsm,
 		memory,
 		omittedFiles,
 		skills,
@@ -219,6 +229,35 @@ export function planContextBudget(options = {}) {
 		packedChars: 0,
 		requestedChars,
 	};
+}
+
+/**
+ * Detect whether the workspace is a Node.js ESM project.
+ * Signal: package.json with "type":"module", OR any .mjs file in the file list.
+ * Reads up to 4 KB of package.json — enough for the type field.
+ *
+ * @param {string} cwd  Absolute workspace path.
+ * @param {string[]} files  Workspace-relative file list.
+ * @returns {Promise<boolean>}
+ */
+export async function detectNodeEsm(cwd, files) {
+	// Fast check: any .mjs file is a definitive ESM signal
+	if (files.some((f) => f.endsWith('.mjs'))) {
+		return true;
+	}
+	// Check package.json "type":"module"
+	if (files.includes('package.json')) {
+		const content = await readTextPrefix(`${cwd}/package.json`, 4096);
+		if (content !== null) {
+			try {
+				const pkg = JSON.parse(content);
+				if (pkg.type === 'module') return true;
+			} catch {
+				// Not valid JSON — not a reliable signal
+			}
+		}
+	}
+	return false;
 }
 
 async function loadAgents(cwd, files, perFileBytes) {
@@ -327,10 +366,12 @@ export function renderPromptSections(context = {}) {
 	};
 	return {
 		// stable: identity + envelope + behaviours + tools (tools only when toolsMode)
+		// + language guidance for Node/ESM workspaces (C2, phase 121).
 		stable: renderStableSection(
 			context?.editFormat,
 			context?.toolsMode,
 			context?.toolWritesMode,
+			context?.isNodeEsm ?? false,
 		),
 		// environment: session-stable facts (cwd, git, node, model, date)
 		environment: context?.environmentFacts
@@ -504,15 +545,19 @@ export function renderKodrCorePrompt(context = {}, options = {}) {
 }
 
 // renderStableSection builds the fully stable part of the system prompt:
-// identity + envelope contract + behaviours + tools (tools only in tools mode).
+// identity + envelope contract + behaviours + tools (tools only in tools mode)
+// + language guidance (only for Node/ESM workspaces, C2 phase 121).
 // 'patch' branch is byte-identical to renderKodrBaseContract() for the contract
 // portion; the behaviours and tools blocks are appended after.
 // toolWritesMode (T4/D1): 'native'|'envelope'|'auto' — changes both the contract
 // wording (phase 119 D1) and the tools block wording (phase 118).
+// isNodeEsm (C2, phase 121): adds the ESM contract block when true. Non-Node
+// workspaces receive an identical prompt to phase 120 (byte-stable regression).
 function renderStableSection(
 	editFormat = 'patch',
 	toolsMode = false,
 	toolWritesMode = 'auto',
+	isNodeEsm = false,
 ) {
 	const parts = [
 		renderKodrBaseContract(editFormat, toolWritesMode),
@@ -520,6 +565,10 @@ function renderStableSection(
 	];
 	if (toolsMode) {
 		parts.push(renderToolsBlock(toolWritesMode));
+	}
+	const langBlock = renderLanguageGuidanceBlock({ isNodeEsm });
+	if (langBlock) {
+		parts.push(langBlock);
 	}
 	return parts.join('\n\n');
 }
