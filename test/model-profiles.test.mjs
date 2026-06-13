@@ -232,7 +232,10 @@ describe('model profiles', () => {
 		assert.equal(profile.toolWrites, 'auto');
 	});
 
-	it('T3: applyModelProfileDefaults sets toolWritesMode to "auto" by default', () => {
+	it('T3: applyModelProfileDefaults sets toolWritesMode to "auto" by default', async () => {
+		// Isolated cwd so the developer's real .kodr/probe.json can't resolve
+		// 'auto' to 'native' (test must not read the repo's local artifacts).
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-profiles-auto-default-'));
 		const options = applyModelProfileDefaults(
 			{
 				model: 'qwen/qwen3.6-35b-a3b',
@@ -240,6 +243,7 @@ describe('model profiles', () => {
 				baseUrl: 'http://localhost:1234/v1',
 			},
 			{},
+			cwd,
 		);
 		// No probe.json, so 'auto' stays 'auto'.
 		assert.equal(options.toolWritesMode, 'auto');
