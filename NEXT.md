@@ -72,6 +72,18 @@ Out of scope but designed for: Ollama (Modelfile templates) and vLLM
 (explicit `--tool-call-parser`) have the same template/parse layer; channel
 choice per (model, server) profile transfers unchanged.
 
+117-validation findings feeding 118: gpt-oss adopted write_file immediately
+(corruption class structurally gone, multi-KB tool args clean, phase-112
+stall question closed) — but qwen ignored the declared tools entirely and
+failed on a NEW envelope class: array-element collapse, both files[]
+objects merged into one object literal with duplicate `path` keys
+(rejected by phase-111 duplicate-key detection, repaired by nothing).
+118 should cover (a) why a natively-tool-supported model declines the
+channel — probe + prompt-side tool nudging per profile, and (b) the
+duplicate-key-cluster split rule (`,"path":` after a prior `path` at the
+same depth → `},{"path":` — the inverse of the gpt-oss missing-brace
+rule), evidence `~/src/kodr-testing/phase-117/greenfield-wordfreq-qwen/`.
+
 ### Inter-Chunk Idle Deadline
 
 Phase 113 bounds time-to-first-token (120s, one retry), but a stream that

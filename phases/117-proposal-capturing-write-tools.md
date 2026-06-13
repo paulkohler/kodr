@@ -139,8 +139,8 @@ the proposal (`channels: {captured: N, envelope: M, merged: K}`).
 - [x] Blog post `blog/117-proposal-capturing-write-tools.md` (the inversion
       story: ten phases fighting the wrong channel).
 - [x] NEXT.md entries shipped by this phase deleted (FIFO), if any apply.
-- [ ] Version bumped to 0.0.117; suite green; committed.
-- [ ] Live validation (after the commit, sequential, three models —
+- [x] Version bumped to 0.0.117; suite green; committed.
+- [x] Live validation (after the commit, sequential, three models —
       gpt-oss and qwen favoured by user decision 2026-06-13; devstral
       deferred for a later circle-back since it is new and unfamiliar):
       `openai/gpt-oss-20b` greenfield — does content via tool args make
@@ -155,3 +155,21 @@ the proposal (`channels: {captured: N, envelope: M, merged: K}`).
       whether LM Studio's tool-argument constrained decoding handles
       multi-KB content strings without the json_schema-style stalls (open
       question from phase 112).
+      RESULT — gpt-oss: the headline holds. It routed both files through
+      write_file on its own (proposalChannels {captured: 2, envelope: 0}),
+      multi-KB content strings arrived intact, TTFT under 2s per turn —
+      the 4-for-4 boundary-corruption class is structurally eliminated and
+      the phase-112 constrained-decoding question is closed (no stalls).
+      The run itself failed on generated-code quality (CJS idiom in ESM +
+      a test assertion bug) and verification honestly said so — the
+      synthesized-status rule working as designed. gemma: regression guard
+      PASSED — ignored the new tools, returned its envelope, 4/4 tests
+      (better than the 114 baseline), after one SSE stall cleared by
+      reload. qwen: did NOT adopt the tool channel and failed on a NEW
+      envelope class — both files[] objects collapsed into one object
+      literal with duplicate `path` keys, correctly rejected by phase-111
+      duplicate-key detection, repaired by nothing (reasoning-then-silence
+      did not recur). Both qwen questions queued for phase 118 in NEXT.md
+      (tool-adoption nudging; duplicate-key-cluster split rule). Evidence:
+      `~/src/kodr-testing/phase-117/` (OPERATOR-REPORT.md),
+      `process/failures.jsonl` phase 117-validation.

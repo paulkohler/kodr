@@ -116,7 +116,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 114 Environment-Aware System Prompt
 - [x] 115 Structural Decode-Artifact Rules
 - [x] 116 Dot-Folder Skill And Agent Discovery
-- [ ] 117 Proposal-Capturing Write Tools
+- [x] 117 Proposal-Capturing Write Tools
 
 ## Phase Contract
 
