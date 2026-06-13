@@ -35,19 +35,42 @@ the task or prior proposal is suspect, not healed. Evidence:
 `~/src/kodr-testing/phase-113/greenfield-logstats-1/`.
 
 
-### Devstral Compatibility (native write-tool models)
+### Tool-Channel Arc (phases 118–119; 117 is in phases/)
 
-Phase-115 validation established devstral-small-2-2512's baseline: it runs
-cleanly (after the empty-arguments normalization fix) but never conforms to
-the envelope — it calls a nonexistent `files` write tool 4–5 times per run,
-ignores unknown-tool steering and the repeat-call detector, and exhausts the
-turn budget with an empty stop. This is a class, not a model: models trained
-around native write tools won't be prompted out of them. Candidates: accept
-the model's native tool by mapping a recognized write-tool call (`files`,
-`write_file`) onto the proposal files[] path instead of erroring (the gpt-oss
-write_file habit would benefit too); or a per-profile steering message tuned
-to the model family. Evidence: `~/src/kodr-testing/phase-115/`
-(OPERATOR-REPORT.md), `process/failures.jsonl` phase 115-validation.
+Thesis: file content has been riding the least-constrained channel (JSON
+string values in free-decoded text — the source of ten phases of decode
+artifacts and extraction repair) while the most-constrained channel
+(grammar-constrained, server-parsed tool calls) is the one agentic-trained
+models keep reaching for. gpt-oss corrupted its envelope 4-for-4 while its
+hallucinated `write_file` calls were well-formed every time; devstral calls
+a native `files` tool exclusively and is 0% usable on the envelope. Phase
+117 (Proposal-Capturing Write Tools — see the phase file) adds capture
+tools, per-profile aliases, and verification-derived status, strictly
+additively. The rest of the arc:
+
+**118 — Tool-Support Probe And Channel Profiles.** LM Studio distinguishes
+native tool support (chat template formats the tools array; server parses
+tool-call syntax into structured `tool_calls`) from a generic fallback —
+reliability is a property of the (model, server, template) triple. Probe
+empirically: toy tool request → structured `tool_calls` (native) vs leaked
+tool syntax in text (fallback); record `toolSupport` in the model profile;
+fold in the management-API context_length check (absorbs the "Probe Reads
+The Management API" entry when built). Add `toolWrites:
+native|envelope|auto` per profile, auto resolved from probe data — gemma
+stays envelope-first until measured otherwise. If 117 shows aliasing isn't
+enough, advertise model-native tool names directly in the declared schema.
+
+**119 — Envelope Demotion.** The gut, done last with evidence in hand: for
+native-channel profiles the system prompt drops the envelope JSON contract
+entirely (large prompt-budget and failure-surface win), final output is
+plain text, status is fully verification-derived, and repair/heal turns run
+on the tool channel. The extractor and envelope prompt remain for
+envelope-mode profiles — fallback, not deleted. Interacts with Heal Task
+Anchoring (the repair-context fixes may fold in here).
+
+Out of scope but designed for: Ollama (Modelfile templates) and vLLM
+(explicit `--tool-call-parser`) have the same template/parse layer; channel
+choice per (model, server) profile transfers unchanged.
 
 ### Inter-Chunk Idle Deadline
 
