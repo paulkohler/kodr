@@ -161,14 +161,16 @@ it honest).
 
 ## Theme B — Forensics and evals as a flywheel
 
-### Cross-Run Forensics
+### Cross-Run Forensics — follow-ons (base SHIPPED in 127)
 
-`kodr why` (106) is per-run. The `.kodr/runs/` directory plus the append-only
-eval results (100) now hold enough history for aggregate questions: which
-pipeline step fails most often, is repair pressure (103) actually converging,
-did the edit-format change (102) move the needle. A `kodr trends` or
-`kodr why --all` over the run archive would turn the audit trail into the
-feedback instrument the harness-engineering arc has been pointing at.
+Phase 127 shipped `kodr trends`: cross-run rates, an earliest-broken-step
+failure histogram, and per-model ok-rate over the `.kodr/runs/` archive. Natural
+follow-ons: a `--since <runId>` window so trends can compare *before/after* a
+change (did the edit-format change move the needle? is repair pressure
+converging across the last N runs vs the prior N?); folding the phase-100
+append-only eval results into the same view; and an HTML render to match the
+`kodr why` forensics page. The per-model ok-rate is also a retrospective routing
+signal that could feed phase-105's table once `--since` makes it windowable.
 
 ### Bench-Driven Suite Growth — code-quality brownfield fixtures (extractor half SHIPPED in 123)
 

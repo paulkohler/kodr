@@ -251,6 +251,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		firstTokenTimeoutMs: '',
 		// Phase 126: inter-chunk idle deadline. '' → model-client default.
 		idleTimeoutMs: '',
+		// Phase 127: kodr trends run archive dir. '' → <cwd>/.kodr/runs.
+		runsDir: '',
 		suitePath: '',
 		record: false,
 		evalCases: [],
@@ -432,6 +434,11 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		if (arg === '--idle-timeout-ms') {
 			options.idleTimeoutMs = Number(argv[++index]);
 			options._idleTimeoutSet = true;
+			continue;
+		}
+
+		if (arg === '--runs-dir') {
+			options.runsDir = argv[++index];
 			continue;
 		}
 
@@ -998,6 +1005,7 @@ Usage:
   kodr session show <sessionId> [--json]
   kodr session export <sessionId> --format markdown
   kodr replay <run-dir>
+  kodr trends [--json] [--runs-dir .kodr/runs]
   kodr watch --test "npm test"
 
 Project config:
@@ -2019,6 +2027,25 @@ export async function main(argv, io) {
 			io.stdout.write(renderForensicsCli(analysis, story));
 		}
 		return { command: 'why', ok: true, runDir, story };
+	}
+
+	if (options.command === 'trends') {
+		const { computeTrends, loadRunSummaries, renderTrendsCli } = await import(
+			'./trends.mjs'
+		);
+		const runsDir = options.runsDir
+			? options.runsDir.startsWith('/')
+				? options.runsDir
+				: join(io.cwd, options.runsDir)
+			: join(io.cwd, '.kodr', 'runs');
+		const summaries = await loadRunSummaries(runsDir);
+		const report = computeTrends(summaries);
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+		} else {
+			io.stdout.write(renderTrendsCli(report));
+		}
+		return { command: 'trends', ok: true, report, runsDir };
 	}
 
 	if (options.command === 'watch') {
