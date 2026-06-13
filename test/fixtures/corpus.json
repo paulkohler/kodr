@@ -1,0 +1,52 @@
+[
+	{
+		"id": "gptoss-stray-quote",
+		"file": "gptoss-stray-quote.txt",
+		"model": "openai/gpt-oss-20b",
+		"phase": "113-validation",
+		"provenance": "~/src/kodr-testing/phase-113/transport-validation-gptoss/.kodr/runs/2026-06-12T11-41-44.327Z/raw-response.json (responses[-1].choices[0].message.content)",
+		"failureMode": "stray quote before second files[] element: },\"{\"path\":",
+		"expectedPaths": ["wordfreq.mjs", "test/wordfreq.test.mjs"],
+		"expectedRepairs": ["gpt-oss-stray-quote"]
+	},
+	{
+		"id": "gptoss-missing-brace-1",
+		"file": "gptoss-missing-brace-1.txt",
+		"model": "openai/gpt-oss-20b",
+		"phase": "114-validation",
+		"provenance": "~/src/kodr-testing/phase-114/ab-gptoss-newprompt/.kodr/runs/2026-06-12T12-07-32.733Z/raw-response.json (responses[-1].choices[0].message.content)",
+		"failureMode": "missing closing brace at files[] element boundary: },\"path\":",
+		"expectedPaths": ["wordfreq.mjs", "test/wordfreq.test.mjs"],
+		"expectedRepairs": ["gpt-oss-missing-brace"]
+	},
+	{
+		"id": "gptoss-missing-brace-2",
+		"file": "gptoss-missing-brace-2.txt",
+		"model": "openai/gpt-oss-20b",
+		"phase": "114-validation",
+		"provenance": "~/src/kodr-testing/phase-114/ab2-gptoss/.kodr/runs/2026-06-12T12-25-15.658Z/raw-response.json (responses[-1].choices[0].message.content)",
+		"failureMode": "missing closing brace at files[] element boundary: },\"path\":",
+		"expectedPaths": ["wordfreq.mjs", "test/wordfreq.test.mjs"],
+		"expectedRepairs": ["gpt-oss-missing-brace"]
+	},
+	{
+		"id": "gemma-collapsed-key",
+		"file": "gemma-collapsed-key.txt",
+		"model": "google/gemma-4-26b-a4b",
+		"phase": "113-dogfood",
+		"provenance": "~/src/kodr-testing/phase-113/greenfield-logstats-1/.kodr/runs/2026-06-12T09-22-36.855Z/raw-response.json (responses[-1].choices[0].message.content)",
+		"failureMode": "collapsed content key with pseudo-token: \"content:<|\"|>",
+		"expectedPaths": ["logstats.mjs"],
+		"expectedRepairs": ["gemma-collapsed-key"]
+	},
+	{
+		"id": "gemma-pseudo-token-multiblock",
+		"file": "gemma-pseudo-token-multiblock.txt",
+		"model": "google/gemma-4-26b-a4b",
+		"phase": "111-dogfood",
+		"provenance": "~/src/kodr-testing/phase-111/gemma-smoke-2/.kodr/runs/2026-06-12T06-54-00.966Z/raw-response.json (responses[-1].choices[0].message.content)",
+		"failureMode": "two ```json blocks (multi-block narration) plus <|\"|> pseudo-tokens terminating message content",
+		"expectedPaths": ["wordfreq.mjs", "test/wordfreq.test.mjs"],
+		"expectedRepairs": ["blanket-quote-token", "gemma-collapsed-key"]
+	}
+]

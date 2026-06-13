@@ -516,108 +516,50 @@ describe('extractProposal — R3: _extractionMeta.repairs', () => {
 	});
 });
 
-// R5 — offline replay tests from real saved responses
-describe('extractProposal — R5: offline replay of real corrupt responses', () => {
-	it('gptoss-stray-quote: extracts both files after R2a repair', async () => {
-		// Provenance: ~/src/kodr-testing/phase-113/transport-validation-gptoss/.kodr/runs/2026-06-12T11-41-44.327Z/raw-response.json
-		// responses.at(-1).choices[0].message.content — corrupt pattern: },"{"path":
-		const content = await readFile(
-			fixturePath('gptoss-stray-quote.txt'),
-			'utf8',
-		);
-		const proposal = extractProposal(content);
-		assert.ok(proposal, 'proposal should not be null');
-		const paths = proposal.files.map((f) => f.path);
-		assert.ok(
-			paths.includes('wordfreq.mjs'),
-			'wordfreq.mjs should be in proposal',
-		);
-		assert.ok(
-			paths.includes('test/wordfreq.test.mjs'),
-			'test/wordfreq.test.mjs should be in proposal',
-		);
-		assert.ok(
-			proposal._extractionMeta.repairs?.some(
-				(r) => r.ruleId === 'gpt-oss-stray-quote',
-			),
-			'gpt-oss-stray-quote repair should be recorded',
-		);
+// R5 — offline replay of real corrupt responses, driven by the corpus manifest.
+// Each fixture is a verbatim model response captured under ~/src/kodr-testing/;
+// the manifest (test/fixtures/corpus.json) records its provenance, failure mode,
+// expected recovered paths, and expected repair ruleIds. Growth = drop a .txt
+// and add a manifest row — no new test code (phase 123).
+const replayCorpus = JSON.parse(
+	await readFile(fixturePath('corpus.json'), 'utf8'),
+);
+
+describe('extractProposal — R5: offline replay corpus (manifest-driven)', () => {
+	it('manifest is honest: every fixture file exists and ids are unique', async () => {
+		const ids = new Set();
+		for (const entry of replayCorpus) {
+			assert.ok(!ids.has(entry.id), `duplicate corpus id: ${entry.id}`);
+			ids.add(entry.id);
+			const content = await readFile(fixturePath(entry.file), 'utf8');
+			assert.ok(content.length > 0, `${entry.file} should be non-empty`);
+		}
+		assert.ok(replayCorpus.length >= 5, 'corpus should hold at least 5 cases');
 	});
 
-	it('gptoss-missing-brace-1: extracts both files after R2b repair', async () => {
-		// Provenance: ~/src/kodr-testing/phase-114/ab-gptoss-newprompt/.kodr/runs/2026-06-12T12-07-32.733Z/raw-response.json
-		// responses.at(-1).choices[0].message.content — corrupt pattern: },"path":
-		const content = await readFile(
-			fixturePath('gptoss-missing-brace-1.txt'),
-			'utf8',
-		);
-		const proposal = extractProposal(content);
-		assert.ok(proposal, 'proposal should not be null');
-		const paths = proposal.files.map((f) => f.path);
-		assert.ok(
-			paths.includes('wordfreq.mjs'),
-			'wordfreq.mjs should be in proposal',
-		);
-		assert.ok(
-			paths.includes('test/wordfreq.test.mjs'),
-			'test/wordfreq.test.mjs should be in proposal',
-		);
-		assert.ok(
-			proposal._extractionMeta.repairs?.some(
-				(r) => r.ruleId === 'gpt-oss-missing-brace',
-			),
-			'gpt-oss-missing-brace repair should be recorded',
-		);
-	});
-
-	it('gptoss-missing-brace-2: extracts both files after R2b repair', async () => {
-		// Provenance: ~/src/kodr-testing/phase-114/ab2-gptoss/.kodr/runs/2026-06-12T12-25-15.658Z/raw-response.json
-		// responses.at(-1).choices[0].message.content — corrupt pattern: },"path":
-		const content = await readFile(
-			fixturePath('gptoss-missing-brace-2.txt'),
-			'utf8',
-		);
-		const proposal = extractProposal(content);
-		assert.ok(proposal, 'proposal should not be null');
-		const paths = proposal.files.map((f) => f.path);
-		assert.ok(
-			paths.includes('wordfreq.mjs'),
-			'wordfreq.mjs should be in proposal',
-		);
-		assert.ok(
-			paths.includes('test/wordfreq.test.mjs'),
-			'test/wordfreq.test.mjs should be in proposal',
-		);
-		assert.ok(
-			proposal._extractionMeta.repairs?.some(
-				(r) => r.ruleId === 'gpt-oss-missing-brace',
-			),
-			'gpt-oss-missing-brace repair should be recorded',
-		);
-	});
-
-	it('gemma-collapsed-key: extracts file after R1 repair', async () => {
-		// Provenance: ~/src/kodr-testing/phase-113/greenfield-logstats-1/.kodr/runs/2026-06-12T09-22-36.855Z/raw-response.json
-		// responses.at(-1).choices[0].message.content — collapse: "content:<|"|>
-		const content = await readFile(
-			fixturePath('gemma-collapsed-key.txt'),
-			'utf8',
-		);
-		const proposal = extractProposal(content);
-		assert.ok(proposal, 'proposal should not be null');
-		const paths = proposal.files.map((f) => f.path);
-		// logstats.mjs is the block where R1 repair is sufficient to recover content.
-		assert.ok(
-			paths.includes('logstats.mjs'),
-			'logstats.mjs should be in proposal',
-		);
-		assert.ok(
-			proposal._extractionMeta.repairs?.some(
-				(r) => r.ruleId === 'gemma-collapsed-key',
-			),
-			'gemma-collapsed-key repair should be recorded',
-		);
-	});
+	for (const entry of replayCorpus) {
+		it(`${entry.id}: recovers ${entry.expectedPaths.join(', ')} (${entry.failureMode})`, async () => {
+			const content = await readFile(fixturePath(entry.file), 'utf8');
+			const proposal = extractProposal(content);
+			assert.ok(proposal, `${entry.id}: proposal should not be null`);
+			const paths = proposal.files.map((f) => f.path);
+			for (const expected of entry.expectedPaths) {
+				assert.ok(
+					paths.includes(expected),
+					`${entry.id}: expected ${expected} in [${paths.join(', ')}]`,
+				);
+			}
+			const repairIds = (proposal._extractionMeta?.repairs || []).map(
+				(r) => r.ruleId,
+			);
+			for (const expected of entry.expectedRepairs) {
+				assert.ok(
+					repairIds.includes(expected),
+					`${entry.id}: expected repair ${expected} in [${repairIds.join(', ')}]`,
+				);
+			}
+		});
+	}
 });
 
 // DECODE_ARTIFACT_RULES export — rule ordering

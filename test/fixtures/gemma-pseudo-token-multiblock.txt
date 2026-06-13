@@ -1,0 +1,140 @@
+```json
+{"status":"OK","messages":[{"level":"info","content":"Creating wordfreq.mjs and test/wordfreq.test.mjs.<|"|>}],"files":[],"patches":[],"scratchpad":""}
+```json
+{"status":"OK","messages":[{"level":"info","content":"Creating wordfreq.mjs.<|"|>}],"files":[{"path":"wordfreq.mjs","content":"import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+/**
+ * Processes text to get word frequencies.
+ * @param {string} text 
+ * @returns {Map<string, number>}
+ */
+export function getWordFrequencies(text) {
+  const words = text.toLowerCase().match(/[a-z0-9]+/g) || [];
+  const counts = new Map();
+  for (const word of words) {
+    counts.set(word, (counts.get(word) || 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Sorts and formats the word frequencies.
+ * @param {Map<string, number>} counts 
+ * @param {number} topN 
+ * @returns {string[]}
+ */
+export function formatFrequencies(counts, topN) {
+  const sortedWords = Array.from(counts.entries()).sort((a, b) => {
+    if (b[1] !== a[1]) {
+      return b[1] - a[1]; // count descending
+    }
+    return a[0].localeCompare(b[0]); // alphabetical ascending
+  });
+
+  return sortedWords.slice(0, topN).map(([word, count]) => `${word} ${count}`);
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.length === 0) {
+    console.error('Usage: node wordfreq.mjs <file_path> [--top N]');
+    process.exit(1);
+  }
+
+  const filePath = args[0];
+  let topN = 10;
+
+  const topIndex = args.indexOf('--top');
+  if (topIndex !== -1 && args[topIndex + 1]) {
+    const val = parseInt(args[topIndex + 1], 10);
+    if (!isNaN(val)) {
+      topN = val;
+    }
+  }
+
+  try {
+    const content = await fs.readFile(filePath, 'utf8');
+    const counts = getWordFrequencies(content);
+    const lines = formatFrequencies(counts, topN);
+    for (const line of lines) {
+      console.log(line);
+    }
+  } catch (err) {
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+// Check if this module is being run directly
+const modulePath = fileURLToPath(import.meta.url);
+const isMain = process.argv[1] === modulePath || 
+               process.argv[1].endsWith(path.basename(modulePath));
+
+if (isMain) {
+  main();
+}
+<|"|>}],"patches":[],"scratchpad":""}
+```json
+{"status":"OK","messages":[{"level":"info","content":"Creating test/wordfreq.test.mjs.<|"|>}],"files":[],"patches":[],"scratchpad":""}
+```json
+{"status":"OK","messages":[{"level":"info","content":"Creating test/wordfreq.test.mjs.<|"|>}],"files":[{"path":"test/wordfreq.test.mjs","content:<|"|>import { test, describe } from 'node:test';
+import assert from 'node:assert';
+import { getWordFrequencies, formatFrequencies } from '../wordfreq.mjs';
+
+describe('wordfreq logic', () => {
+  test('getWordFrequencies should count words correctly and strip punctuation', () => {
+    const text = 'Hello world! Hello, world. HELLO?';
+    const counts = getWordFrequencies(text);
+    
+    assert.strictEqual(counts.get('hello'), 3);
+    assert.strictEqual(counts.get('world'), 2);
+    assert.strictEqual(counts.size, 2);
+  });
+
+  test('getWordFrequencies should handle empty text', () => {
+    const counts = getWordFrequencies('');
+    assert.strictEqual(counts.size, 0);
+  });
+
+  test('getWordFrequencies should handle alphanumeric characters', () => {
+    const text = 'User123 is here. User123!';
+    const counts = getWordFrequencies(text);
+    assert.strictEqual(counts.get('user123'), 2);
+  });
+
+  test('formatFrequencies should sort by count descending then alphabetically', () => {
+    const counts = new Map([
+      ['apple', 5],
+      ['banana', 10],
+      ['cherry', 10],
+      ['date', 2]
+    ]);
+    // Expected order: banana (10), cherry (10), apple (5), date (2)
+    // Note: banana comes before cherry alphabetically.
+    const result = formatFrequencies(counts, 10);
+    assert.deepStrictEqual(result, [
+      'banana 10',
+      'cherry 10',
+      'apple 5',
+      'date 2'
+    ]);
+  });
+
+  test('formatFrequencies should respect topN limit', () => {
+    const counts = new Map([
+      ['a', 1],
+      ['b', 2],
+      ['c', 3]
+    ]);
+    const result = formatFrequencies(counts, 2);
+    assert.strictEqual(result.length, 2);
+    assert.strictEqual(result[0], 'c 3');
+    assert.strictEqual(result[1], 'b 2');
+  });
+});
+<|"|>}],"patches":[],"scratchpad":""}
+```json
+{"status":"OK","messages":[{"level":"info","content":"Files created successfully.<|"|>}],"files":[],"patches":[],"scratchpad":""}
+```

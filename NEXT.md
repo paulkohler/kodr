@@ -162,19 +162,22 @@ did the edit-format change (102) move the needle. A `kodr trends` or
 `kodr why --all` over the run archive would turn the audit trail into the
 feedback instrument the harness-engineering arc has been pointing at.
 
-### Bench-Driven Suite Growth
+### Bench-Driven Suite Growth — code-quality brownfield fixtures (extractor half SHIPPED in 123)
 
-The brownfield suite (100) has eight fixtures. The 109–120 arc generated a
-large real-failure record — gpt-oss files[]-boundary corruption, gemma
-`<|"|>` pseudo-tokens, qwen duplicate-key collapse, devstral empty-arguments
-and mid-session ENOENT, plus the recurring code-quality bugs — and most of
-those are still only prose in `process/failures.jsonl`, not executable
-fixtures. Promote them: an extractor-replay corpus (the saved raw responses
-already exist under `~/src/kodr-testing/`) and brownfield fixtures for the
-code-quality traps. This keeps the suite an honest record of what the local
-models actually get wrong (the phase-100 pattern) and feeds bench (105)
-routing scores for free. Now one of the higher-value Theme B items given how
-much real evidence accumulated.
+Phase 123 shipped the **extractor-replay** half: `test/fixtures/corpus.json` is
+now a manifest-driven, growable corpus of real corrupt responses (gpt-oss
+boundary, gemma pseudo-tokens/collapsed keys), self-documenting and offline.
+
+The remaining half: **brownfield fixtures for the code-quality traps** — plant
+the recurring model mistakes (CJS-in-ESM `require.main` in `.mjs`, illegal
+top-level `return`, `t.assert()`, argv-as-single-string regex, off-by-one
+counts) as eval fixtures in the phase-100 suite, and run them as an A/B bench:
+guidance-present vs guidance-absent on the same task, measuring the
+mistake-class delta. This is the measurement 121/122 explicitly defer to, and
+it unblocks Per-Model-Family Targeted Guidance. It feeds bench (105) routing
+scores for free. Still-open captures worth fixturing later: devstral
+empty-arguments (a tool_calls-shape case, belongs in a tool-call normalization
+corpus, not the extractor corpus) and qwen duplicate-key clusters.
 
 ## Theme C — The web channel, for real
 
