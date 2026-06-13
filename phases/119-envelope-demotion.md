@@ -1,7 +1,58 @@
-# Phase 119 — Envelope Demotion
+# Phase 119 — Envelope Demotion (Adopt The Two-Channel Model)
 
 Final phase of the tool-channel arc (117 capture tools; 118 probe + channel
-profiles; this phase demotes the envelope for native-channel profiles).
+profiles; this phase completes the migration to a two-channel model for
+native-tool profiles, with the envelope retained as the fallback).
+
+## Framing: this is a migration to two channels, not a deletion
+
+The real name for this phase is *adopt the architecture a native-tool harness
+(e.g. Claude Code) uses*, scoped to the profiles 118 measured as capable of
+it. That architecture has **two channels per turn and computes status from
+neither**:
+
+- **Tool calls** — structured, schema-constrained, server-parsed. The
+  *actions*: reads, and (in Kodr) `write_file`/`edit_file` capture calls.
+  File content rides here — the most-constrained channel.
+- **Assistant text** — free-form prose (the markdown a user reads). The
+  *narration*: what changed and why. Never parsed for control flow.
+- **Status** is *computed by the harness* from tool results + the
+  verification runner — declared by neither channel. The model never reports
+  success; the harness observes it. (This is the 117 rule, now load-bearing:
+  demotion removes the model's last self-report field, which is the point —
+  it is what structurally kills the goal-substitution failure class.)
+
+Kodr's original envelope conflated all three onto one free-text JSON object:
+actions as JSON string values (least-constrained channel for the content that
+needs the most constraint), narration in `messages[]`, and a self-declared
+`status`. Each was on the wrong channel. The arc has been migrating each to
+the right one: 117 moved actions to tools and status to verification; this
+phase moves narration to plain text and removes the envelope as the primary
+contract.
+
+**The envelope was not wrong — it was the wrong default.** A single JSON
+object over plain text is the correct lowest-common-denominator surface for a
+(model, server, template) triple with *no* native tool support — a real,
+measurable condition (118's `fallback`/`none` classifications). The mistake
+was making the fallback the only path. The end state is therefore strictly
+more general than a Claude-style harness: native triples get the two-channel
+loop; no-tool triples get the envelope; the probe *measures* which per triple
+instead of assuming. Kodr can assume nothing about an arbitrary local model
+on an arbitrary server, so it adapts — that generality is the deliverable, not
+a compromise.
+
+There is also a workflow argument, not just a parsing one: the envelope forces
+the model to emit the whole solution in one blind generation with no feedback
+(exactly why qwen one-shot-dumped 8 KB and got the word-count logic subtly
+wrong). The tool loop is a better cognitive shape — write, run, observe,
+correct — so the migration buys grounded iteration as well as a constrained
+channel. (Full reasoning: `blog/two-channel-realization.md`.)
+
+One thing deliberately NOT copied from Claude Code: its edit tool writes to
+disk immediately. Kodr keeps capture-into-a-proposal + dry-run review (117) —
+the tool result says "recorded, applies after verification," not "written."
+The two-channel model does not require eager disk writes; the safety property
+stays.
 
 ## Motivation, sharpened by a phase-118 investigation
 
@@ -117,6 +168,15 @@ recovery, in order:
 mode for qwen without stranding it: worst case it falls back to exactly the
 118 behaviour (envelope + T5 rescue), best case it adopts the tools.
 
+D3 is not a hack bolted onto the side — it is precisely the **seam between
+the two architectures**. The two-channel (native) path and the envelope
+(fallback) path are the same two paths the probe selects between per triple;
+the empty-draft net is what happens when a profile *measured* native turns
+out to behave like a fallback profile on a given run. The fallback channel
+doing its designed job, in other words. It is also the safety margin for the
+capability-vs-preference uncertainty: until a native run actually adopts the
+tools in the wild, the envelope path is always one re-prompt away.
+
 ### D4 — Prompt-budget win, measured
 
 Demotion should shrink the system prompt (the envelope schema paragraph is
@@ -164,7 +224,8 @@ mode: 0 tool writes, recovered via envelope fallback (T5 split applied)".
 - [ ] `process/failures.jsonl` / `process/decisions.jsonl` updated (record the
       phase-118 confound finding as the motivation).
 - [ ] Blog post `blog/119-envelope-demotion.md`; update `blog/tool-channel-arc.md`
-      with the arc's conclusion.
+      with the arc's conclusion. (`blog/two-channel-realization.md` —
+      the conceptual spine — already written during planning.)
 - [ ] NEXT.md: delete the Tool-Channel Arc entry (arc complete; history lives
       in the phase files and blog).
 - [ ] Version bumped to 0.0.119; suite green; committed.

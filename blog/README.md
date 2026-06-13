@@ -48,5 +48,7 @@ This blog records the build as a learning sequence. Keep posts terse and concret
 42. [Phase 70: Session Compaction And Summaries](./70-session-compaction-and-summaries.md)
 43. [Phase 85: Async HTTP Run Control And Observability](./85-async-http-run-control.md)
 44. [Phase 94: Git-Aware Apply And Revert](./94-git-aware-apply-and-revert.md)
+45. [Arc: The Tool-Channel Arc (117–119)](./tool-channel-arc.md)
+46. [Design Note: The Two-Channel Realization](./two-channel-realization.md)
 
 Future posts should track the roadmap phases and include what changed, why, how it failed, and how it was verified.
