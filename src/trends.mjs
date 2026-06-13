@@ -267,6 +267,93 @@ export function renderTrendsCli(report) {
 	return `${lines.join('\n')}\n`;
 }
 
+function esc(str) {
+	return String(str)
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;');
+}
+
+// Phase 132: a self-contained HTML dashboard for the run archive — same
+// dependency-free, dark-theme shape as the `kodr why` forensics page (106).
+export function renderTrendsHtml(report, comparison = null) {
+	if (report.totalRuns === 0) {
+		return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Kodr trends</title></head><body><p>No runs found under .kodr/runs.</p></body></html>\n';
+	}
+	const bar = (value) => {
+		const w = Math.round(value * 100);
+		return `<div class="bar"><div class="fill" style="width:${w}%"></div><span>${w}%</span></div>`;
+	};
+	const row = (label, count, total, value) =>
+		`<tr><td>${esc(label)}</td><td class="num">${count}/${total}</td><td>${bar(value)}</td></tr>`;
+
+	const failRows = Object.entries(report.failureSteps)
+		.sort((a, b) => b[1] - a[1])
+		.map(
+			([step, n]) => `<tr><td>${esc(step)}</td><td class="num">${n}</td></tr>`,
+		)
+		.join('');
+	const modelRows = Object.entries(report.models)
+		.sort((a, b) => b[1].runs - a[1].runs)
+		.map(
+			([m, v]) =>
+				`<tr><td>${esc(m)}</td><td class="num">${v.ok}/${v.runs}</td><td>${bar(v.okRate)}</td></tr>`,
+		)
+		.join('');
+	const repairRows = Object.entries(report.extractorRepairs || {})
+		.sort((a, b) => b[1] - a[1])
+		.map(([id, n]) => `<tr><td>${esc(id)}</td><td class="num">${n}</td></tr>`)
+		.join('');
+
+	const comparisonHtml = comparison
+		? `<p class="compare">ok-rate before <b>${Math.round(comparison.beforeOkRate * 100)}%</b> (${comparison.beforeRuns}) → after <b>${Math.round(comparison.afterOkRate * 100)}%</b> (${comparison.afterRuns}) — ${comparison.okRateDelta >= 0 ? '▲ +' : '▼ '}${Math.round(comparison.okRateDelta * 100)}pts</p>`
+		: '';
+	const suspectHtml =
+		report.goalSubstitutionSuspectedCount > 0
+			? `<p class="warn">⚠ suspected goal-substitution heals: ${report.goalSubstitutionSuspectedCount}</p>`
+			: '';
+
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kodr trends — ${report.totalRuns} runs</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:ui-monospace,'Cascadia Code',monospace;font-size:13px;background:#0d1117;color:#c9d1d9;padding:24px}
+  h1{font-size:16px;color:#e6edf3;margin-bottom:4px}
+  h2{font-size:13px;color:#e6edf3;margin:20px 0 8px}
+  .meta{color:#8b949e;font-size:12px;margin-bottom:16px}
+  table{border-collapse:collapse;width:100%;max-width:680px;margin-bottom:8px}
+  td{padding:4px 8px;border-bottom:1px solid #21262d;vertical-align:middle}
+  .num{color:#8b949e;text-align:right;white-space:nowrap}
+  .bar{position:relative;background:#161b22;border:1px solid #21262d;border-radius:4px;height:16px;min-width:120px}
+  .fill{position:absolute;top:0;left:0;height:100%;background:#3fb950;border-radius:4px;opacity:.6}
+  .bar span{position:relative;padding-left:6px;font-size:11px;line-height:16px}
+  .compare{margin:8px 0;color:#e6edf3}
+  .warn{color:#d29922;margin:8px 0}
+</style>
+</head>
+<body>
+  <h1>Kodr trends — ${report.totalRuns} runs</h1>
+  <div class="meta">${esc(report.firstRunId || '')} … ${esc(report.lastRunId || '')}</div>
+  ${comparisonHtml}
+  ${suspectHtml}
+  <table>
+    ${row('ok', report.okCount, report.totalRuns, report.okRate)}
+    ${row('proposal', report.proposalFoundCount, report.totalRuns, report.proposalFoundRate)}
+    ${row('applied', report.appliedCount, report.totalRuns, report.appliedRate)}
+  </table>
+  ${failRows ? `<h2>failures by step</h2><table>${failRows}</table>` : ''}
+  ${modelRows ? `<h2>by model</h2><table>${modelRows}</table>` : ''}
+  ${repairRows ? `<h2>extractor repairs</h2><table>${repairRows}</table>` : ''}
+</body>
+</html>
+`;
+}
+
 // Phase 129: render the before/after ok-rate comparison line.
 export function renderComparisonCli(comparison) {
 	if (comparison.beforeRuns === 0) {

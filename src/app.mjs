@@ -256,6 +256,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 129: kodr trends windowing.
 		trendsSince: '',
 		trendsLast: 0,
+		// Phase 132: kodr trends --html dashboard.
+		trendsHtml: false,
 		// Phase 131: kodr route.
 		routeApply: false,
 		routeMinRuns: 0,
@@ -465,6 +467,11 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--min-runs') {
 			options.routeMinRuns = Number(argv[++index]);
+			continue;
+		}
+
+		if (arg === '--html') {
+			options.trendsHtml = true;
 			continue;
 		}
 
@@ -1031,7 +1038,7 @@ Usage:
   kodr session show <sessionId> [--json]
   kodr session export <sessionId> --format markdown
   kodr replay <run-dir>
-  kodr trends [--json] [--runs-dir .kodr/runs] [--since <run-id>] [--last N]
+  kodr trends [--json | --html] [--runs-dir .kodr/runs] [--since <run-id>] [--last N]
   kodr route [--json] [--min-runs N] [--apply]
   kodr watch --test "npm test"
 
@@ -2063,6 +2070,7 @@ export async function main(argv, io) {
 			loadRunSummaries,
 			renderComparisonCli,
 			renderTrendsCli,
+			renderTrendsHtml,
 			windowSummaries,
 		} = await import('./trends.mjs');
 		const runsDir = options.runsDir
@@ -2083,7 +2091,9 @@ export async function main(argv, io) {
 			windowed.before.length > 0
 				? computeComparison(computeTrends(windowed.before), report)
 				: null;
-		if (options.json) {
+		if (options.trendsHtml) {
+			io.stdout.write(renderTrendsHtml(report, comparison));
+		} else if (options.json) {
 			io.stdout.write(
 				`${JSON.stringify({ report, ...(comparison ? { comparison } : {}) }, null, 2)}\n`,
 			);

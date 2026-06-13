@@ -131,6 +131,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 129 Windowed Trends
 - [x] 130 Heal Relevance Judge
 - [x] 131 Routing From History (kodr route)
+- [x] 132 Trends HTML Dashboard
 
 ## Phase Contract
 

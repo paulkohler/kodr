@@ -10,6 +10,7 @@ import {
 	loadRunSummaries,
 	renderComparisonCli,
 	renderTrendsCli,
+	renderTrendsHtml,
 	windowSummaries,
 } from '../src/trends.mjs';
 
@@ -272,5 +273,54 @@ describe('windowing (phase 129)', () => {
 			okRateDelta: 1,
 		});
 		assert.match(out, /no prior runs/u);
+	});
+});
+
+describe('renderTrendsHtml (phase 132)', () => {
+	it('renders a self-contained dashboard with counts and per-model rows', () => {
+		const html = renderTrendsHtml(
+			computeTrends([
+				{
+					runId: 'r1',
+					summary: { ok: true, model: 'qwen', proposalFound: true },
+				},
+				{
+					runId: 'r2',
+					summary: { ok: false, tested: true, model: 'nemotron' },
+				},
+			]),
+		);
+		assert.match(html, /<!DOCTYPE html>/u);
+		assert.match(html, /Kodr trends — 2 runs/u);
+		assert.match(html, /qwen/u);
+		assert.match(html, /nemotron/u);
+		assert.match(html, /verification-failed/u);
+		// self-contained: no external resource references
+		assert.doesNotMatch(html, /<script|src=|href=/u);
+	});
+
+	it('includes the before/after comparison when provided', () => {
+		const report = computeTrends([{ runId: 'r2', summary: { ok: true } }]);
+		const html = renderTrendsHtml(report, {
+			beforeRuns: 4,
+			afterRuns: 1,
+			beforeOkRate: 0.5,
+			afterOkRate: 1,
+			okRateDelta: 0.5,
+		});
+		assert.match(html, /before <b>50%<\/b>/u);
+		assert.match(html, /after <b>100%<\/b>/u);
+	});
+
+	it('escapes HTML-special characters in model names', () => {
+		const html = renderTrendsHtml(
+			computeTrends([{ runId: 'r1', summary: { ok: true, model: 'a<b>&"x' } }]),
+		);
+		assert.match(html, /a&lt;b&gt;&amp;&quot;x/u);
+		assert.doesNotMatch(html, /a<b>&"x/u);
+	});
+
+	it('renders an empty-archive page', () => {
+		assert.match(renderTrendsHtml(computeTrends([])), /No runs found/u);
 	});
 });
