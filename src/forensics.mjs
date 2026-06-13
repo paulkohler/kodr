@@ -377,6 +377,21 @@ export function buildCausalStory(analysis) {
 			phase: 'Healing',
 			status: turns === 0 ? 'skip' : ok ? 'ok' : 'fail',
 		});
+
+		// Phase 130: a heal that passed via writes unrelated to the failing paths
+		// and the original task is a suspected goal-substitution — surface it.
+		if (
+			repairsObj?.goalSubstitutionSuspected ||
+			summary?.goalSubstitutionSuspected
+		) {
+			steps.push({
+				artifactPath: join(runDir, 'repairs', 'repairs.json'),
+				detail:
+					'suspected goal-substitution: verification passed via writes unrelated to the failing paths and the task',
+				phase: 'Healing',
+				status: 'warn',
+			});
+		}
 	} else {
 		steps.push({
 			detail: 'no healing run',

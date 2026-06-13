@@ -96,20 +96,6 @@ This intersects the existing sandbox/worktree machinery (phases 60/76/94).
 Evidence: `~/src/kodr-testing/phase-119-devstral/` (the write_file → ENOENT
 sequence), `process/failures.jsonl` phase 119-devstral.
 
-### Heal Relevance Judging (residual from 125)
-
-Phase 125 shipped the first two mitigations for the heal goal-substitution
-failure: the repair context now inherits the original user prompt (anchored in
-both repair prompts), and a `writeCount: 0` + zero-tests-found run is refused
-entry to the heal loop (`stopReason: nothing-generated`, `ok: false`) instead of
-inventing a passing module. The **residual** mitigation: the subtler case where
-the model writes *something unrelated* — a repair that only creates paths never
-mentioned in the original task or prior proposal should be treated as suspect,
-not healed. The original-task signal is now in the repair context (125), so this
-is judgeable: compare a healed proposal's new paths against task-named targets
-and the prior proposal, and flag/quarantine a heal whose only writes are
-unrelated. Evidence: `~/src/kodr-testing/phase-113/greenfield-logstats-1/`;
-`process/failures.jsonl` phase 113-dogfood.
 
 ### TUI Piped-Input Serialization
 

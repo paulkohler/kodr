@@ -14,6 +14,7 @@ import {
 	renderEscalationPrompt,
 	renderWrongPathWarning,
 	runSelfHealingLoop,
+	writesReferenceTask,
 } from '../src/healing.mjs';
 import { runVerification } from '../src/verification-runner.mjs';
 
@@ -904,6 +905,74 @@ describe('nothing-generated guard (phase 125 C2)', () => {
 		assert.equal(isNothingGenerated(0, someTests), false);
 		// writeCount unknown (null) → guard inert.
 		assert.equal(isNothingGenerated(null, noTests), false);
+	});
+});
+
+describe('heal relevance judge (phase 130)', () => {
+	it('writesReferenceTask matches a written path or basename in the task text', () => {
+		const writes = [{ path: 'src/wordcount.mjs' }];
+		assert.equal(
+			writesReferenceTask(writes, 'Create wordcount.mjs that counts lines'),
+			true,
+		);
+		assert.equal(
+			writesReferenceTask(writes, 'Build an unrelated thing'),
+			false,
+		);
+		assert.equal(writesReferenceTask([], 'wordcount.mjs'), false);
+		assert.equal(writesReferenceTask(writes, ''), false);
+	});
+
+	it('flags goal-substitution when the heal passes via an unrelated write', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-gs-'));
+		const failed = {
+			ok: false,
+			command: 'node --check unrelated.mjs',
+			exitCode: 1,
+			stdout: '',
+			stderr: 'src/wanted.mjs:1 SyntaxError: missing',
+		};
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 1,
+			originalTask: 'Fix the bug in src/wanted.mjs',
+			repairTurn: async () => ({
+				text: JSON.stringify({
+					files: [{ path: 'unrelated.mjs', content: 'export const x = 1;\n' }],
+				}),
+			}),
+			testCommand: 'node --check unrelated.mjs',
+			timeoutMs: 5000,
+		});
+		assert.equal(result.healed, true);
+		assert.equal(result.goalSubstitutionSuspected, true);
+	});
+
+	it('does not flag when the healing write is named in the task', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-gs-ok-'));
+		const failed = {
+			ok: false,
+			command: 'node --check wanted.mjs',
+			exitCode: 1,
+			stdout: '',
+			stderr: 'src/other.mjs:1 SyntaxError: missing',
+		};
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 1,
+			originalTask: 'Create wanted.mjs that does the thing',
+			repairTurn: async () => ({
+				text: JSON.stringify({
+					files: [{ path: 'wanted.mjs', content: 'export const x = 1;\n' }],
+				}),
+			}),
+			testCommand: 'node --check wanted.mjs',
+			timeoutMs: 5000,
+		});
+		assert.equal(result.healed, true);
+		assert.equal(result.goalSubstitutionSuspected, false);
 	});
 });
 

@@ -102,6 +102,8 @@ export function computeTrends(summaries) {
 		// corruption the local models hit most. Empty when no run needed repairs.
 		extractorRepairs: {},
 		mergedExtractionCount: 0,
+		// Phase 130: heals flagged as suspected goal-substitution across the window.
+		goalSubstitutionSuspectedCount: 0,
 		firstTokenRetries: 0,
 		avgPromptTokens: null,
 		avgCompletionTokens: null,
@@ -120,6 +122,9 @@ export function computeTrends(summaries) {
 		if (summary.applied === true) report.appliedCount += 1;
 		if (summary.tested === true) report.testedCount += 1;
 		if (summary.healed === true) report.healedCount += 1;
+		if (summary.goalSubstitutionSuspected === true) {
+			report.goalSubstitutionSuspectedCount += 1;
+		}
 
 		const failStep = classifyRunFailure(summary);
 		if (failStep) {
@@ -203,6 +208,11 @@ export function renderTrendsCli(report) {
 	);
 	lines.push(`  tested       ${report.testedCount}`);
 	lines.push(`  healed       ${report.healedCount}`);
+	if (report.goalSubstitutionSuspectedCount > 0) {
+		lines.push(
+			`  ⚠ suspected goal-substitution heals: ${report.goalSubstitutionSuspectedCount}`,
+		);
+	}
 
 	const failSteps = Object.entries(report.failureSteps).sort(
 		(a, b) => b[1] - a[1],

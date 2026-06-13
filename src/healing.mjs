@@ -93,6 +93,20 @@ export function isNothingGenerated(writeCount, testResult) {
 	return writeCount === 0 && hasNoTestsRun(testResult);
 }
 
+// Phase 130: does any healing write plausibly serve the original task? True if a
+// written path or its basename appears in the task text. Used to distinguish a
+// legitimate new-file repair (task names the file) from goal-substitution (the
+// heal invents an unrelated file whose own test happens to pass).
+export function writesReferenceTask(writes, originalTask) {
+	if (!originalTask || writes.length === 0) return false;
+	const task = originalTask.toLowerCase();
+	return writes.some((w) => {
+		const path = w.path.toLowerCase();
+		const base = path.split('/').at(-1);
+		return task.includes(path) || (base.length > 0 && task.includes(base));
+	});
+}
+
 export function renderWrongPathWarning(writes, failurePaths) {
 	const failureSet = new Set(failurePaths);
 	const writtenPaths = writes.map((w) => w.path);
@@ -175,6 +189,9 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 	let wrongPathWarnings = 0;
 	let previousVerification = failedTest;
 	let stopReason = '';
+	// Phase 130: set when the heal passed via writes that touched no known path
+	// AND don't reference the original task — a likely goal-substitution.
+	let goalSubstitutionSuspected = false;
 
 	await mkdir(artifactDir, { recursive: true });
 	await writeJson(join(artifactDir, 'initial-tests.json'), failedTest);
@@ -449,6 +466,18 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 
 		if (verification.ok) {
 			stopReason = 'healed';
+			// Phase 130: relevance judge. The heal passed, but if the writes that
+			// made it pass touched no known path (failing test / shown sources) and
+			// don't reference the original task, this is a suspected
+			// goal-substitution — verification went green on invented, unrelated
+			// code. Flagged, not failed: a legitimate new-file repair the task names
+			// is exonerated by writesReferenceTask.
+			if (
+				!touchesKnownPath &&
+				!writesReferenceTask(writes.writes, repairContext.originalTask)
+			) {
+				goalSubstitutionSuspected = true;
+			}
 			break;
 		}
 	}
@@ -459,6 +488,7 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 
 	const result = {
 		finalVerification: verification,
+		goalSubstitutionSuspected,
 		healed: verification.ok,
 		repairs,
 		stopReason,

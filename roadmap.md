@@ -129,6 +129,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 127 Cross-Run Forensics (kodr trends)
 - [x] 128 Extraction Metadata Into Run Artifacts
 - [x] 129 Windowed Trends
+- [x] 130 Heal Relevance Judge
 
 ## Phase Contract
 

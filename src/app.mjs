@@ -3179,6 +3179,9 @@ export async function runPrompt(options, io) {
 				}
 				summary.healed = healingResult ? healingResult.healed : false;
 				summary.healStopReason = healingResult?.stopReason || '';
+				if (healingResult?.goalSubstitutionSuspected) {
+					summary.goalSubstitutionSuspected = true;
+				}
 				taskPlan = updateTasksFromRun(taskPlan, summary);
 				summary.taskCounts = taskCounts(taskPlan);
 				summary.harness = buildHarnessManifest({
@@ -3956,6 +3959,9 @@ export async function runPrompt(options, io) {
 		summary.gitCommit = gitCommitResult;
 		summary.healed = healingResult ? healingResult.healed : false;
 		summary.healStopReason = healingResult?.stopReason || '';
+		if (healingResult?.goalSubstitutionSuspected) {
+			summary.goalSubstitutionSuspected = true;
+		}
 		summary.installed = installResult !== null;
 		// C1 (phase 121): a syntax failure makes the run's ok false even when there
 		// is no testCommand — a file that does not parse is not a passing run.
@@ -4394,6 +4400,9 @@ async function runStagedPrompt({
 		finishReasons,
 		healed: healingResult ? healingResult.healed : false,
 		healStopReason: healingResult?.stopReason || '',
+		...(healingResult?.goalSubstitutionSuspected
+			? { goalSubstitutionSuspected: true }
+			: {}),
 		loopBudget,
 		model,
 		modelProfile: options.modelProfile || null,
