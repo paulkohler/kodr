@@ -59,10 +59,13 @@ export function renderEscalationPrompt(repairContext, { index, maxTurns }) {
 	const scratchpad = repairContext.scratchpad
 		? `\n\n## Prior scratchpad\n${repairContext.scratchpad}`
 		: '';
+	const taskSection = repairContext.originalTask
+		? `\n\n## Original task\nThe repair must serve this original request — do not solve a different or simpler problem:\n${repairContext.originalTask}`
+		: '';
 	return `Repair turn ${index} of ${maxTurns} — ESCALATION.
 
 Your previous turn proposed no changes. The failing tests are still unresolved. Restate your repair plan and propose concrete patches or file writes.
-
+${taskSection}
 ## Failing tests (still unresolved)
 \`\`\`json
 ${tests}
@@ -70,6 +73,24 @@ ${tests}
 ${scratchpad}
 
 Propose one small repair as JSON with optional files, patches, and scratchpad fields. You MUST write to the failing path.`;
+}
+
+// C2 (phase 125): true when verification ran zero tests. A node:test / TAP run
+// that found no test files reports "tests 0" (and often "no test files found").
+// A non-zero exit with zero tests is "nothing to repair", not a failing suite.
+export function hasNoTestsRun(testResult) {
+	const text = `${testResult?.stdout || ''}\n${testResult?.stderr || ''}`;
+	if (/(^|\n)#?\s*tests\s+0\b/u.test(text)) return true;
+	if (/no test files found|could not find any test/iu.test(text)) return true;
+	return false;
+}
+
+// C2 (phase 125): the anti-goal-substitution condition. The original run wrote
+// nothing AND verification ran no tests → the model failed to generate, not to
+// pass. Healing here only invents unrelated code with its own passing test
+// (phase-113 logstats). Such a run must be reported honestly, never "healed".
+export function isNothingGenerated(writeCount, testResult) {
+	return writeCount === 0 && hasNoTestsRun(testResult);
 }
 
 export function renderWrongPathWarning(writes, failurePaths) {
@@ -165,6 +186,7 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 		const repairContext = await buildRepairContext(cwd, verification, {
 			scratchpad,
 			diagnostics,
+			originalTask: options.originalTask || '',
 		});
 
 		// Build optional escalation / wrong-path-warning / test-delta extras
@@ -478,6 +500,11 @@ export async function buildRepairContext(cwd, testResult, options = {}) {
 			content,
 			path,
 		})),
+		// Phase 125: anchor the repair to what was actually asked. Without this the
+		// repair prompt carries only "the previous verification failed" + tests +
+		// failing files — enough for a model to drift into fixing the wrong thing
+		// or (greenfield) inventing an unrelated module with its own passing test.
+		originalTask: options.originalTask || '',
 		scratchpad: options.scratchpad || '',
 		tests: testResult,
 	};
@@ -514,6 +541,9 @@ ${file.content}
 	const wrongPathSection = wrongPathWarning
 		? `\n\n## Path warning\n${wrongPathWarning}`
 		: '';
+	const taskSection = repairContext.originalTask
+		? `\n\n## Original task\nThe repair must serve this original request — do not solve a different or simpler problem:\n${repairContext.originalTask}`
+		: '';
 	const testDeltaSection =
 		testDelta && !testDelta.improved && testDelta.before > 0
 			? `\n\n## Test progress\nTests still failing with same count (${testDelta.after} failures). The previous repair did not address the root cause.`
@@ -522,7 +552,7 @@ ${file.content}
 	return `Repair turn ${index} of ${maxTurns}.
 
 The previous verification failed. Propose one small repair as JSON with optional files, patches, and scratchpad fields. Prefer patches. Touch the failing path unless the stack trace clearly points elsewhere.
-${diagnosticsSection}${wrongPathSection}${testDeltaSection}
+${taskSection}${diagnosticsSection}${wrongPathSection}${testDeltaSection}
 ## tests.json
 \`\`\`json
 ${tests}

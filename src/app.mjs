@@ -46,7 +46,7 @@ import {
 	taskCounts,
 	updateTasksFromRun,
 } from './task-plan.mjs';
-import { runSelfHealingLoop } from './healing.mjs';
+import { isNothingGenerated, runSelfHealingLoop } from './healing.mjs';
 import {
 	parseVerificationCommand,
 	runVerification,
@@ -3027,6 +3027,7 @@ export async function runPrompt(options, io) {
 					runDir,
 					systemPrompt: context.systemPrompt,
 					testResult,
+					writeCount: orchestrationResult.writeResult.writes.length,
 				});
 				if (healingResult?.finalVerification) {
 					testResult = healingResult.finalVerification;
@@ -3858,6 +3859,7 @@ export async function runPrompt(options, io) {
 			runDir,
 			systemPrompt: context.systemPrompt,
 			testResult,
+			writeCount: writeResult.writes.length,
 		});
 		if (healingResult?.finalVerification) {
 			testResult = healingResult.finalVerification;
@@ -4247,6 +4249,7 @@ async function runStagedPrompt({
 		runDir,
 		systemPrompt: context.systemPrompt,
 		testResult,
+		writeCount: allWrites.length,
 	});
 	if (healingResult?.finalVerification) {
 		testResult = healingResult.finalVerification;
@@ -4498,6 +4501,7 @@ async function runHealingIfNeeded({
 	runDir,
 	systemPrompt,
 	testResult,
+	writeCount = null,
 }) {
 	if (
 		(options.heal !== true && options.heal !== 'auto') ||
@@ -4506,6 +4510,21 @@ async function runHealingIfNeeded({
 		testResult.ok
 	) {
 		return null;
+	}
+
+	// C2 (phase 125): anti-goal-substitution guard. When the original run produced
+	// nothing AND verification ran no tests, there is no code to repair — the model
+	// failed to generate, not to pass. Entering the heal loop here is what let a
+	// greenfield run "heal" by inventing an unrelated module with its own passing
+	// test (phase-113 logstats). Refuse to heal; report honestly instead.
+	if (isNothingGenerated(writeCount, testResult)) {
+		return {
+			finalVerification: testResult,
+			healed: false,
+			repairs: [],
+			skipped: true,
+			stopReason: 'nothing-generated',
+		};
 	}
 
 	// S2: repair turns follow the profile's structuredOutput mode like every other
@@ -4522,6 +4541,8 @@ async function runHealingIfNeeded({
 		apply: true,
 		artifactDir: join(runDir, 'repairs'),
 		diagnostics: postWriteDiagnostics,
+		// C1 (phase 125): anchor every repair turn to the original task.
+		originalTask: options.prompt || '',
 		maxTurns: Math.max(1, Math.min(options.maxTurns, 3)),
 		repairTurn: async ({ prompt }) => {
 			const completion =

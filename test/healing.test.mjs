@@ -7,7 +7,9 @@ import {
 	buildRepairContext,
 	computeTestDelta,
 	extractFailCount,
+	hasNoTestsRun,
 	HealingTimeoutError,
+	isNothingGenerated,
 	oneShotHeal,
 	renderEscalationPrompt,
 	renderWrongPathWarning,
@@ -816,6 +818,92 @@ describe('buildRepairContext — D6 imported source files', () => {
 			importedCount <= 5,
 			`at most 5 imported files should be added, got ${importedCount}`,
 		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 125 — Heal task anchoring (anti goal-substitution)
+// ---------------------------------------------------------------------------
+
+describe('heal task anchoring (phase 125)', () => {
+	it('buildRepairContext carries the original task', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-anchor-'));
+		const context = await buildRepairContext(
+			cwd,
+			{ ok: false, stdout: '', stderr: '' },
+			{ originalTask: 'Create wordcount.mjs that counts lines.' },
+		);
+		assert.equal(
+			context.originalTask,
+			'Create wordcount.mjs that counts lines.',
+		);
+	});
+
+	it('renderEscalationPrompt includes the Original task section', () => {
+		const prompt = renderEscalationPrompt(
+			{
+				tests: { ok: false },
+				scratchpad: '',
+				originalTask: 'Create wordcount.mjs that counts lines.',
+			},
+			{ index: 2, maxTurns: 3 },
+		);
+		assert.match(prompt, /## Original task/u);
+		assert.match(prompt, /wordcount\.mjs/u);
+	});
+
+	it('loop repair prompt carries the original task to the model', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-anchor-loop-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+		let seenPrompt = '';
+		await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 1,
+			originalTask: 'Fix the export in bad.mjs',
+			repairTurn: async ({ prompt }) => {
+				seenPrompt = prompt;
+				return { text: repairText('bad.mjs') };
+			},
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+		assert.match(seenPrompt, /## Original task/u);
+		assert.match(seenPrompt, /Fix the export in bad\.mjs/u);
+	});
+
+	it('omits the Original task section when no task is provided', async () => {
+		const prompt = renderEscalationPrompt(
+			{ tests: { ok: false }, scratchpad: '', originalTask: '' },
+			{ index: 1, maxTurns: 2 },
+		);
+		assert.doesNotMatch(prompt, /## Original task/u);
+	});
+});
+
+describe('nothing-generated guard (phase 125 C2)', () => {
+	it('hasNoTestsRun detects a zero-test node:test run', () => {
+		assert.equal(hasNoTestsRun({ stdout: '# tests 0\n# pass 0' }), true);
+		assert.equal(
+			hasNoTestsRun({ stderr: 'Could not find any test files' }),
+			true,
+		);
+		assert.equal(hasNoTestsRun({ stdout: '# tests 3\n# fail 1' }), false);
+	});
+
+	it('isNothingGenerated requires both zero writes and no tests run', () => {
+		const noTests = { stdout: '# tests 0' };
+		const someTests = { stdout: '# tests 2\n# fail 1' };
+		assert.equal(isNothingGenerated(0, noTests), true);
+		// Wrote files → not nothing-generated even if tests are zero.
+		assert.equal(isNothingGenerated(2, noTests), false);
+		// Real failing tests with zero writes → legitimate brownfield repair.
+		assert.equal(isNothingGenerated(0, someTests), false);
+		// writeCount unknown (null) → guard inert.
+		assert.equal(isNothingGenerated(null, noTests), false);
 	});
 });
 
