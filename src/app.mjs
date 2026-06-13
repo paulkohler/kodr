@@ -1040,6 +1040,7 @@ Usage:
   kodr replay <run-dir>
   kodr trends [--json | --html] [--runs-dir .kodr/runs] [--since <run-id>] [--last N]
   kodr route [--json] [--min-runs N] [--apply]
+  kodr evals [--json] [--runs-dir evals/results]
   kodr watch --test "npm test"
 
 Project config:
@@ -2128,6 +2129,23 @@ export async function main(argv, io) {
 			io.stdout.write(renderRouteCli(rec, { applied }));
 		}
 		return { command: 'route', ok: true, recommendation: rec, applied };
+	}
+
+	if (options.command === 'evals') {
+		const { loadEvalResults, renderEvalTrendsCli, summarizeEvalResults } =
+			await import('./eval-trends.mjs');
+		const evalsResultsDir = options.runsDir
+			? options.runsDir.startsWith('/')
+				? options.runsDir
+				: join(io.cwd, options.runsDir)
+			: join(io.cwd, 'evals', 'results');
+		const pairs = summarizeEvalResults(await loadEvalResults(evalsResultsDir));
+		if (options.json) {
+			io.stdout.write(`${JSON.stringify(pairs, null, 2)}\n`);
+		} else {
+			io.stdout.write(renderEvalTrendsCli(pairs));
+		}
+		return { command: 'evals', ok: true, pairs };
 	}
 
 	if (options.command === 'watch') {

@@ -147,10 +147,11 @@ it honest).
 ### Cross-Run Forensics — follow-ons (127 base, 129 windowing, 131 routing, 132 HTML)
 
 Shipped: `kodr trends` (127), `--since`/`--last` windowing + before/after (129),
-`kodr route` from per-model ok-rate (131), and a self-contained `--html`
-dashboard (132). Remaining follow-on: fold the phase-100 append-only eval results
-into the same view (eval pass-rate trends alongside run trends), so the suite's
-measured scores and the live archive read from one instrument.
+`kodr route` from per-model ok-rate (131), a self-contained `--html` dashboard
+(132), and `kodr evals` score trends over the eval-result record (133). The
+forensics-as-instrument arc is complete: run archive and eval scores both
+readable the same way. Possible future polish: a combined `kodr trends --html`
+that embeds the eval sparklines, but that is cosmetic, not a gap.
 
 ### Bench-Driven Suite Growth — code-quality brownfield fixtures (extractor half SHIPPED in 123)
 
