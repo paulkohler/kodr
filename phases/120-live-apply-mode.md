@@ -128,25 +128,25 @@ proposal mode keeps its current behaviour (sees only applied files).
 
 ## Done criteria
 
-- [ ] L1: `--apply-mode` flag + `applyMode` config (default proposal),
+- [x] L1: `--apply-mode` flag + `applyMode` config (default proposal),
       threaded + recorded in summary; invalid value rejected.
-- [ ] L2: live write_file/edit_file apply immediately via the jailed,
+- [x] L2: live write_file/edit_file apply immediately via the jailed,
       backup-recording safe-write path; draft marked applied; no double-write
       at end; undo works; review gate skipped in live mode.
-- [ ] L3: proposal-mode read_file reads back captured write_file content with a
+- [x] L3: proposal-mode read_file reads back captured write_file content with a
       pending note; scope limits documented.
-- [ ] L4: applyMode in summary + `kodr why`; `--help`/README note with the
+- [x] L4: applyMode in summary + `kodr why`; `--help`/README note with the
       explicit trade-off.
-- [ ] `process/failures.jsonl` / `process/decisions.jsonl` updated.
-- [ ] Blog post `blog/120-live-apply-mode.md`.
-- [ ] NEXT.md: trim the "Mid-Session Write Visibility" entry to just the
+- [x] `process/failures.jsonl` / `process/decisions.jsonl` updated.
+- [x] Blog post `blog/120-live-apply-mode.md`.
+- [x] NEXT.md: trim the "Mid-Session Write Visibility" entry to just the
       deferred materialize/worktree half (option b); the option-(a)/live half
       ships here.
 - [ ] Version bumped to 0.0.120; suite green; committed.
 - [ ] Live validation (after the commit, sequential, devstral now at 131072):
       devstral greenfield with `--apply-mode live` — does `run_command`
       (`node --test`) now see its own `write_file` output and verify
-      mid-session, instead of the ENOENT thrash from the circle-back? Record
+      mid-session, instead of the ENODLE thrash from the circle-back? Record
       whether it reaches a real test result during the loop. Then a default
       (`proposal`) run to confirm no regression and that read_file read-back
       (L3) reduces confusion. Capture devstral's behaviour delta vs the

@@ -84,6 +84,7 @@ import { captureEnvironmentFacts } from './system-env.mjs';
 import { applyModelProfileDefaults } from './model-profiles.mjs';
 import {
 	applyProjectConfig,
+	APPLY_MODES,
 	defaultConfigPath,
 	loadProjectConfig,
 	ProjectConfigError,
@@ -269,6 +270,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		testCwd: '',
 		timeoutMs: DEFAULT_TIMEOUT_MS,
 		transcriptFile: '',
+		applyMode: 'proposal',
 		maxCostUsd: '',
 		maxRetries: 7,
 		maxThinkingTokens: '',
@@ -278,6 +280,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		version: false,
 		yes: false,
 		_apiKeySet: false,
+		_applyModeSet: false,
 		_baseUrlSet: false,
 		_dryRunSet: false,
 		_editFormatSet: false,
@@ -608,7 +611,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			arg === '--languages' ||
 			arg === '--patch-retries' ||
 			arg === '--prior-scratchpad' ||
-			arg === '--edit-format'
+			arg === '--edit-format' ||
+			arg === '--apply-mode'
 		) {
 			// Consume the next token as the value unconditionally. An empty string
 			// or a value that starts with "--" (e.g. a literal prompt) is still a
@@ -680,6 +684,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		maxTokens: options._maxTokensSet ? 'flag' : 'builtin',
 		maxCostUsd: options._maxCostUsdSet ? 'flag' : 'builtin',
 		protectExisting: options._protectExistingSet ? 'flag' : 'builtin',
+		applyMode: options._applyModeSet ? 'flag' : 'builtin',
 	};
 
 	let loadedProjectConfig;
@@ -762,6 +767,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 	);
 
 	delete options._apiKeySet;
+	delete options._applyModeSet;
 	delete options._baseUrlEnvSet;
 	delete options._baseUrlSet;
 	delete options._completionReserveSet;
@@ -1038,6 +1044,18 @@ OpenRouter:
                          patch  — JSON patches/files envelope (default)
                          whole  — full-file rewrites in the JSON envelope
                          blocks — SEARCH/REPLACE blocks outside JSON (no json_schema)
+  --apply-mode <proposal|live>
+                       When captured writes land on disk. Default: proposal.
+                         proposal — capture during the run, apply at completion
+                                    behind the review/--yes gate (safe default).
+                         live     — apply write_file and edit_file to disk
+                                    immediately during the tool loop, with a
+                                    safe-write backup so "kodr undo" works.
+                                    Trade-off: writes land before end-of-task
+                                    review; undo is available. In envelope mode
+                                    (--no-tools) this flag is accepted but inert.
+                       Configurable via applyMode in .kodr/config.json.
+                       Precedence: flag > config > default (proposal).
   --staged             Force plan-first staged execution for complex work.
   --no-staged          Disable automatic staged execution.
   --subagent-stages    Run planner, implementer, and reviewer as isolated tool agents.
@@ -2386,6 +2404,14 @@ function assignValue(options, flag, value) {
 	} else if (flag === '--edit-format') {
 		options.editFormat = normalizeEditFormat(value);
 		options._editFormatSet = true;
+	} else if (flag === '--apply-mode') {
+		if (!APPLY_MODES.includes(value)) {
+			throw new CliError(
+				`--apply-mode must be one of: ${APPLY_MODES.join(', ')} (got: ${value})`,
+			);
+		}
+		options.applyMode = value;
+		options._applyModeSet = true;
 	}
 }
 
@@ -2884,6 +2910,8 @@ export async function runPrompt(options, io) {
 					toolAliases: options.profileToolAliases || undefined,
 					// T3: envelope mode omits capture tools (write_file/edit_file).
 					toolWritesMode: options.toolWritesMode || 'auto',
+					// L1/L2: applyMode controls whether capture tools write to disk immediately.
+					applyMode: options.applyMode || 'proposal',
 				})
 			: null;
 		const responsePath = join(runDir, 'response.md');
@@ -3268,6 +3296,8 @@ export async function runPrompt(options, io) {
 		if (completion.transport) {
 			summary.transport = completion.transport;
 		}
+		// L4: record resolved applyMode for forensics.
+		summary.applyMode = options.applyMode || 'proposal';
 		if (inspectionPlan) {
 			summary.inspectionPlan = inspectionPlan.inspection;
 		}
@@ -3524,10 +3554,17 @@ export async function runPrompt(options, io) {
 		let taskPlan =
 			inspectionPlan ||
 			createTaskPlan(prompt, proposal ? proposalPaths(proposal) : []);
-		// Resolve how writes will be decided: 'flag' (--yes), 'prompt-accepted',
+
+		// L2: in live mode the user opted in to immediate disk writes — all
+		// write_file/edit_file calls were applied during the tool loop (backed up via
+		// prepareWrites/preparePatches). Skip the interactive gate; treat the run as
+		// already applied. 'live' is a distinct applyDecision for forensics.
+		const isLiveMode = (options.applyMode || 'proposal') === 'live';
+
+		// Resolve how writes will be decided: 'flag' (--yes), 'live', 'prompt-accepted',
 		// 'prompt-declined', or 'none' (no approver / explicit --dry-run).
-		let applyDecision = options.yes ? 'flag' : 'none';
-		let shouldApply = options.yes;
+		let applyDecision = isLiveMode ? 'live' : options.yes ? 'flag' : 'none';
+		let shouldApply = isLiveMode || options.yes;
 		let writeResult = {
 			applied: false,
 			writes: [],
@@ -3562,43 +3599,74 @@ export async function runPrompt(options, io) {
 		} else if (proposal) {
 			treeState = (await gitTreeState(io.cwd)).state;
 			try {
-				const hasApprover =
-					typeof options.applyApprover === 'function' && !options._dryRunSet;
-				if (!options.yes && hasApprover) {
-					// Dry-run first to get the real write list, then ask.
-					const dryResult = await prepareChanges(io.cwd, proposal, {
-						apply: false,
+				// L2 no-double-write: filter out entries already applied live so the
+				// end-of-run prepareChanges does not write them again. The proposal is
+				// still assembled from the full draft for summary/diff purposes.
+				// Entries with applied:true were written during the tool loop with their
+				// own backup; re-running prepareChanges would create duplicate backups
+				// and potentially overwrite content the model may have since changed.
+				const pendingProposal = {
+					...proposal,
+					files: (proposal.files || []).filter((f) => !f.applied),
+					patches: (proposal.patches || []).filter((p) => !p.applied),
+				};
+
+				if (isLiveMode) {
+					// Live mode: the user opted in — interactive gate is skipped.
+					// Apply only the unapplied entries (typically none in pure live mode,
+					// but envelope-mode files or envelope-priority overwrites can exist).
+					writeResult = await prepareChanges(io.cwd, pendingProposal, {
+						apply: true,
 						protectExisting: options.protectExisting,
 						protectedPaths: protectedWritePaths(options),
 					});
-					if (dryResult.writes.length > 0) {
-						const request = createPermissionRequest(
-							'apply-writes',
-							{ messages: proposalMessages, writes: dryResult.writes },
-							'Apply all proposed writes to the workspace?',
-						);
-						const decision = await options.applyApprover(request);
-						if (decision?.decision === 'allow') {
-							applyDecision = 'prompt-accepted';
-							shouldApply = true;
-							writeResult = await prepareChanges(io.cwd, proposal, {
-								apply: true,
-								protectExisting: options.protectExisting,
-								protectedPaths: protectedWritePaths(options),
-							});
+					// Merge the already-applied writes back into writeResult so the run
+					// summary correctly reflects all writes (not just the unapplied ones).
+					const liveWrites = buildLiveWriteRecords(capturedDraft);
+					writeResult = {
+						...writeResult,
+						applied: true,
+						writes: [...liveWrites, ...writeResult.writes],
+					};
+				} else {
+					const hasApprover =
+						typeof options.applyApprover === 'function' && !options._dryRunSet;
+					if (!options.yes && hasApprover) {
+						// Dry-run first to get the real write list, then ask.
+						const dryResult = await prepareChanges(io.cwd, pendingProposal, {
+							apply: false,
+							protectExisting: options.protectExisting,
+							protectedPaths: protectedWritePaths(options),
+						});
+						if (dryResult.writes.length > 0) {
+							const request = createPermissionRequest(
+								'apply-writes',
+								{ messages: proposalMessages, writes: dryResult.writes },
+								'Apply all proposed writes to the workspace?',
+							);
+							const decision = await options.applyApprover(request);
+							if (decision?.decision === 'allow') {
+								applyDecision = 'prompt-accepted';
+								shouldApply = true;
+								writeResult = await prepareChanges(io.cwd, pendingProposal, {
+									apply: true,
+									protectExisting: options.protectExisting,
+									protectedPaths: protectedWritePaths(options),
+								});
+							} else {
+								applyDecision = 'prompt-declined';
+								writeResult = dryResult;
+							}
 						} else {
-							applyDecision = 'prompt-declined';
 							writeResult = dryResult;
 						}
 					} else {
-						writeResult = dryResult;
+						writeResult = await prepareChanges(io.cwd, pendingProposal, {
+							apply: options.yes,
+							protectExisting: options.protectExisting,
+							protectedPaths: protectedWritePaths(options),
+						});
 					}
-				} else {
-					writeResult = await prepareChanges(io.cwd, proposal, {
-						apply: options.yes,
-						protectExisting: options.protectExisting,
-						protectedPaths: protectedWritePaths(options),
-					});
 				}
 			} catch (error) {
 				writeError = {
@@ -5131,6 +5199,47 @@ function proposalPaths(proposal) {
 		...proposal.files.map((file) => file.path),
 		...proposal.patches.map((patch) => patch.path),
 	];
+}
+
+// L2: collect write records for entries already applied live during the tool loop.
+// These go into writeResult.writes so the run summary + writes.json correctly
+// account for all writes (live-applied + any end-of-run residual) and so that
+// kodr undo can find the hash and backupPath needed to restore prior state.
+// Each entry carries a .writeRecord (from prepareWrites/preparePatches) that was
+// stored on the draft entry by the tool handler.
+function buildLiveWriteRecords(capturedDraft) {
+	if (!capturedDraft) return [];
+	const records = [];
+	for (const file of capturedDraft.files) {
+		if (file.applied) {
+			// Use the real write record if available; fall back to a minimal stub.
+			records.push(
+				file.writeRecord || {
+					path: file.path,
+					status: 'create-or-modify',
+					diff: '',
+					backupPath: '',
+					hash: '',
+					appliedLive: true,
+				},
+			);
+		}
+	}
+	for (const patch of capturedDraft.patches) {
+		if (patch.applied) {
+			records.push(
+				patch.writeRecord || {
+					path: patch.path,
+					status: 'patch',
+					diff: '',
+					backupPath: '',
+					hash: '',
+					appliedLive: true,
+				},
+			);
+		}
+	}
+	return records;
 }
 
 function hasDependencyMetadataWrites(writes) {

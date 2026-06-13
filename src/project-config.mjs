@@ -18,6 +18,9 @@ export const GATE_KEYS = [
 	'apiKey',
 ];
 
+// Valid values for applyMode config/flag.
+export const APPLY_MODES = ['proposal', 'live'];
+
 const KNOWN_KEYS = new Set([
 	'//',
 	'model',
@@ -38,6 +41,7 @@ const KNOWN_KEYS = new Set([
 	'protectExisting',
 	'skillsDirs',
 	'agentsDirs',
+	'applyMode',
 ]);
 
 // Known LSP server names from the default registry. Config may reference only
@@ -215,6 +219,11 @@ function validateValue(key, value, configPath) {
 			return value;
 		}
 
+		case 'applyMode':
+			if (!APPLY_MODES.includes(value))
+				fail(`must be one of: ${APPLY_MODES.join(', ')}`);
+			return value;
+
 		default:
 			return value;
 	}
@@ -305,6 +314,8 @@ function shouldApply(key, options) {
 		case 'skillsDirs':
 		case 'agentsDirs':
 			return true;
+		case 'applyMode':
+			return !options._applyModeSet;
 		default:
 			return false;
 	}
@@ -320,6 +331,7 @@ export function renderShowConfig(options) {
 		['model', String(options.model ?? '')],
 		['baseUrl', String(options.baseUrl ?? '')],
 		['editFormat', String(options.editFormat ?? 'patch')],
+		['applyMode', String(options.applyMode ?? 'proposal')],
 		['tools', String(options.tools ?? 'auto')],
 		['stream', String(options.stream ?? 'auto')],
 		['heal', String(options.heal ?? 'auto')],

@@ -217,24 +217,30 @@ export function buildCausalStory(analysis) {
 		const applied = writes.applied === true;
 		const list = Array.isArray(writes.writes) ? writes.writes : [];
 		const count = list.length;
+		// L4: surface applyMode for forensics legibility.
+		const applyMode = summary?.applyMode || 'proposal';
+		const applyModeSuffix =
+			applyMode === 'live'
+				? ' [apply mode: live — writes applied during the run]'
+				: ' [apply mode: proposal — applied at completion]';
 		if (!applied && count === 0) {
 			steps.push({
 				artifactPath: join(runDir, 'writes.json'),
-				detail: 'dry-run — no writes applied',
+				detail: `dry-run — no writes applied${applyModeSuffix}`,
 				phase: 'Edit Application',
 				status: 'skip',
 			});
 		} else if (applied) {
 			steps.push({
 				artifactPath: join(runDir, 'writes.json'),
-				detail: `applied ${count} write(s)`,
+				detail: `applied ${count} write(s)${applyModeSuffix}`,
 				phase: 'Edit Application',
 				status: 'ok',
 			});
 		} else {
 			steps.push({
 				artifactPath: join(runDir, 'writes.json'),
-				detail: `${count} write(s) proposed, not applied (dry-run)`,
+				detail: `${count} write(s) proposed, not applied (dry-run)${applyModeSuffix}`,
 				phase: 'Edit Application',
 				status: 'warn',
 			});

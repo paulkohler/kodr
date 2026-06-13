@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { inspectWorkspace, findReferences } from './repomap/index.mjs';
+import { prepareWrites, preparePatches } from './safe-writes.mjs';
 import {
 	createChatCompletion,
 	firstAssistantMessage,
@@ -42,14 +43,19 @@ export class ToolCallError extends Error {
 }
 
 // ProposalDraft accumulates write_file/edit_file calls during the tool loop.
-// Nothing touches disk — captures are held here until loop end.
+// In proposal mode (default) nothing touches disk — captures are held here until loop end.
+// In live mode the handler applies the write immediately and records it here as applied.
 // Files: last-wins per path (document order).
 // Patches: appended in order (multiple patches to same file allowed).
+//
+// IMPORTANT: ProposalDraft is a pure data structure with no cwd/fs access.
+// Live-apply IO is performed in the tool handlers (where cwd + safe-write helpers are
+// available). Handlers call recordFile/recordPatch with {applied:true} after writing.
 export class ProposalDraft {
 	constructor() {
-		// Map<path, {path, content}> — last-wins per path
+		// Map<path, {path, content, applied?}> — last-wins per path
 		this._files = new Map();
-		// Array<{path, search, replace}> — appended in order
+		// Array<{path, search, replace, applied?}> — appended in order
 		this._patches = [];
 		// alias hits: Map<aliasName, count>
 		this._aliasHits = new Map();
@@ -59,16 +65,50 @@ export class ProposalDraft {
 		return this._files.size === 0 && this._patches.length === 0;
 	}
 
-	// Record a write_file capture. Returns terse confirmation string.
-	recordFile(path, content) {
-		this._files.set(path, { path, content });
+	// Record a write_file capture.
+	// options.applied=true marks the entry as already written to disk (live mode).
+	// options.writeRecord: the write record returned by prepareWrites (live mode only),
+	//   carried so buildLiveWriteRecords in app.mjs can populate writes.json with the
+	//   real hash and backupPath needed by kodr undo.
+	// Returns a terse confirmation string appropriate to the mode.
+	// Note: the 'applied' field is only set on the entry when true; absent means
+	// not-yet-applied (proposal mode default). This keeps entries backward-
+	// compatible with code that does not know about live mode.
+	recordFile(path, content, options = {}) {
+		const applied = options.applied === true;
+		const entry = { path, content };
+		if (applied) {
+			entry.applied = true;
+			if (options.writeRecord) {
+				entry.writeRecord = options.writeRecord;
+			}
+		}
+		this._files.set(path, entry);
 		const bytes = Buffer.byteLength(content, 'utf8');
+		if (applied) {
+			return `wrote ${path} (${bytes} bytes)`;
+		}
 		return `recorded write_file: ${path} (${bytes} bytes) — applies when the task completes`;
 	}
 
-	// Record an edit_file capture. Returns terse confirmation string.
-	recordPatch(path, search, replace) {
-		this._patches.push({ path, search, replace });
+	// Record an edit_file capture.
+	// options.applied=true marks the entry as already applied to disk (live mode).
+	// options.writeRecord: the write record returned by preparePatches (live mode only),
+	//   carried so kodr undo can find the real hash and backupPath.
+	// Returns a terse confirmation string appropriate to the mode.
+	recordPatch(path, search, replace, options = {}) {
+		const applied = options.applied === true;
+		const entry = { path, search, replace };
+		if (applied) {
+			entry.applied = true;
+			if (options.writeRecord) {
+				entry.writeRecord = options.writeRecord;
+			}
+		}
+		this._patches.push(entry);
+		if (applied) {
+			return `edited ${path}`;
+		}
 		return `recorded edit_file: ${path} — applies when the task completes`;
 	}
 
@@ -77,12 +117,12 @@ export class ProposalDraft {
 		this._aliasHits.set(alias, (this._aliasHits.get(alias) ?? 0) + 1);
 	}
 
-	// Return captured files array (snapshot).
+	// Return captured files array (snapshot). Entries may carry applied:true.
 	get files() {
 		return Array.from(this._files.values());
 	}
 
-	// Return captured patches array (snapshot).
+	// Return captured patches array (snapshot). Entries may carry applied:true.
 	get patches() {
 		return [...this._patches];
 	}
@@ -90,6 +130,13 @@ export class ProposalDraft {
 	// Return alias hits as plain object {aliasName: count}.
 	get aliasHits() {
 		return Object.fromEntries(this._aliasHits);
+	}
+
+	// Return the captured content for a path if recorded by write_file, or null.
+	// Used by read_file in proposal mode to return pending content.
+	getCapturedContent(path) {
+		const entry = this._files.get(path);
+		return entry ? entry.content : null;
 	}
 }
 
@@ -541,8 +588,15 @@ function lastAssistantText(messages) {
 }
 
 // Create a registry pre-loaded with workspace-scoped built-in tools.
+// options.applyMode: 'proposal' (default) | 'live'
+//   proposal — captures write_file/edit_file into draft, applies at run end.
+//   live — applies write_file/edit_file to disk immediately via safe-write backup
+//           so `kodr undo` works, then records in draft as applied:true.
+//   In envelope mode (toolWritesMode:'envelope') the capture tools are omitted and
+//   applyMode:live is accepted but inert — writes still come from end-of-run apply.
 export function createBuiltinRegistry(cwd, options = {}) {
 	const proposalDraft = new ProposalDraft();
+	const applyMode = options.applyMode || 'proposal';
 	// toolAliases: merge caller-supplied aliases (e.g. from model profile) over defaults.
 	const toolAliases = {
 		...DEFAULT_TOOL_ALIASES,
@@ -580,7 +634,22 @@ export function createBuiltinRegistry(cwd, options = {}) {
 		},
 		// Security: jailedPath prevents the model from escaping the workspace via
 		// path traversal (e.g. "../../etc/passwd").
+		//
+		// L3 — proposal-mode read-back: in proposal mode, if the path was captured by
+		// write_file, return the captured content with a one-line pending-write note so
+		// the model can re-read its own pending writes without them landing on disk.
+		// Scope: write_file captures only. edit_file captures (search/replace, no full
+		// content) and run_command (discovers files on disk) cannot be satisfied from
+		// the draft — live mode is the answer for those. Document this plainly.
+		// In live mode disk is the truth (writes already landed); read disk normally.
 		handler: async ({ path }) => {
+			if (applyMode === 'proposal') {
+				const pending = proposalDraft.getCapturedContent(path);
+				if (pending !== null) {
+					return `[pending write — not yet on disk]\n${pending}`;
+				}
+			}
+			// Live mode or no capture: read from disk.
 			const jailed = await jailedPath(cwd, path);
 			return readFile(jailed.absolute, 'utf8');
 		},
@@ -745,12 +814,25 @@ export function createBuiltinRegistry(cwd, options = {}) {
 	// T3/T4: envelope mode omits capture tools entirely (pre-117 surface).
 	// Path is validated at capture time with the same jail rules as apply.
 	// Violations return a steering error result (not a throw) so the model can recover.
+	//
+	// L2 — live mode: when applyMode === 'live', write_file and edit_file apply to
+	// disk immediately through the phase-94 safe-write primitives (prepareWrites /
+	// preparePatches) which record backups so `kodr undo` restores prior state.
+	// The entries are still recorded in the draft (with applied:true) for the run
+	// summary/diff/forensics. The end-of-run apply skips applied entries so nothing
+	// is double-written. In envelope mode (toolWritesMode:'envelope') the capture
+	// tools are not registered at all; applyMode:live is accepted but inert.
 	if (options.toolWritesMode === 'envelope') {
 		return registry;
 	}
+
+	const liveTimestamp = new Date().toISOString().replaceAll(':', '-');
+
 	registry.register('write_file', {
 		description:
-			'Propose writing a complete file. Records the path and content as a proposal entry — nothing is written to disk until the task completes and the harness applies the changes.',
+			applyMode === 'live'
+				? 'Write a complete file immediately to the workspace. The path is jailed and a backup is recorded so `kodr undo` works.'
+				: 'Propose writing a complete file. Records the path and content as a proposal entry — nothing is written to disk until the task completes and the harness applies the changes.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -785,13 +867,29 @@ export function createBuiltinRegistry(cwd, options = {}) {
 				}
 				throw error;
 			}
+			if (applyMode === 'live') {
+				// L2: apply to disk immediately using prepareWrites (which backs up first).
+				// The backup means `kodr undo` can restore the pre-write state.
+				// Capture the write record (hash + backupPath) so kodr undo can find it.
+				const liveResult = await prepareWrites(cwd, [{ path, content }], {
+					apply: true,
+					timestamp: liveTimestamp,
+				});
+				const writeRecord = liveResult.writes[0] || null;
+				return proposalDraft.recordFile(path, content, {
+					applied: true,
+					writeRecord,
+				});
+			}
 			return proposalDraft.recordFile(path, content);
 		},
 	});
 
 	registry.register('edit_file', {
 		description:
-			'Propose a search-and-replace edit to an existing file. Records the patch as a proposal entry — nothing is written to disk until the task completes and the harness applies the changes.',
+			applyMode === 'live'
+				? 'Apply a search-and-replace edit to an existing file immediately. The path is jailed and a backup is recorded so `kodr undo` works.'
+				: 'Propose a search-and-replace edit to an existing file. Records the patch as a proposal entry — nothing is written to disk until the task completes and the harness applies the changes.',
 		parameters: {
 			type: 'object',
 			properties: {
@@ -832,6 +930,36 @@ export function createBuiltinRegistry(cwd, options = {}) {
 					});
 				}
 				throw error;
+			}
+			if (applyMode === 'live') {
+				// L2: apply the patch to disk immediately using preparePatches (which backs
+				// up first). Search-not-found returns the existing patch-failure steering
+				// so the model can observe and correct — it is now actionable because the
+				// file is real on disk.
+				const patchResult = await preparePatches(
+					cwd,
+					[{ path, search, replace }],
+					{ apply: true, timestamp: liveTimestamp },
+				);
+				if (patchResult.failedPatches.length > 0) {
+					const fp = patchResult.failedPatches[0];
+					const reasonLabel =
+						fp.reason === 'no_match'
+							? 'search text not found'
+							: fp.reason === 'multiple_matches'
+								? `search text matched ${fp.occurrences} times (must match exactly 1)`
+								: fp.reason;
+					const regionHint = fp.region ? `\nClosest region:\n${fp.region}` : '';
+					return JSON.stringify({
+						error: `edit_file patch failed: ${reasonLabel}. Recheck your search text against the current file content.${regionHint}`,
+					});
+				}
+				// Capture the write record (hash + backupPath) for kodr undo.
+				const writeRecord = patchResult.writes[0] || null;
+				return proposalDraft.recordPatch(path, search, replace, {
+					applied: true,
+					writeRecord,
+				});
 			}
 			return proposalDraft.recordPatch(path, search, replace);
 		},
