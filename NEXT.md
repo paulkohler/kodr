@@ -193,25 +193,26 @@ inside the no-dependency constitution.
 
 ## Suggested order
 
-The 109–120 arc is done; transport, channel, and extraction are solid. What
-shifted: the dominant failure mode is no longer the harness but the local
-models' code. Suggested sequencing from here:
+The 122–133 session shipped the model-code-quality groundwork (node `lang:node`
+skill, syntax-gate evidence), the A/B measurement apparatus, two heal-trust
+fixes, the inter-chunk idle deadline, and a complete **forensics-as-instrument**
+arc (`kodr trends`/`route`/`evals` + windowing + HTML). What remains:
 
-1. **Bench-Driven Suite Growth** — now the highest-signal direction. Model code
-   quality (121/122) shipped the syntax gate and the override-able `lang:node`
-   guidance, but *whether the guidance reduces mistakes is unmeasured*, and the
-   per-model-family follow-up is explicitly blocked on that measurement. Locking
-   the arc's failure evidence in as executable fixtures (extractor-replay corpus
-   + code-quality brownfield traps) gives every code-quality lever a baseline
-   and feeds bench routing scores for free. Do this before more guidance work.
-2. **Per-Model-Family Targeted Guidance** — once a baseline exists, ride the
-   phase-122 skill road with `model:<family>` snippets resolved from a model
-   fingerprint. Cheap to build, but only worth shipping with a measured delta.
-3. **Daily-driver gaps** — routing activation, watch-meets-TUI, and
-   TUI piped-input serialization convert the measurement into real
-   workflow (the 104 arc), now that the engine underneath is trustworthy.
-4. **Re-decide the repomap publish hold** with the user (precondition met),
-   and pick up the **worktree materialise** half of mid-session visibility if
-   big-repo proposal-mode verification becomes a felt need.
-5. **Theme C (web UI)** when the daily-driver loop is solid enough to be worth
-   a second surface.
+1. **Trap-provoking code-quality fixtures** — the 124 A/B got a clean null on
+   simple greenfield tasks. Build brownfield/heal-pressure fixtures that actually
+   elicit `require.main`/`t.assert()`, run them through the 124 apparatus, and
+   read the delta with `kodr trends --since`. This is the gating measurement for
+   per-model-family guidance and the next highest-signal step.
+2. **Per-Task / per-run model routing** — `kodr route --apply` (131) sets the
+   default from history; the open work is `--route-auto` (resolve the run's model
+   from history at run start — note the integration nuance: `parseArgs` is sync,
+   so the async trends load + profile re-resolution belong in `main()`, and the
+   "model was explicit" signal must survive the `_modelSet` deletion) and the
+   per-step `cheapModel`/`editModel` split with the choice recorded in summary.
+3. **Daily-driver gaps** — watch-meets-TUI and TUI piped-input serialization
+   (the latter is underspecified; reproduce before touching the readline loop).
+4. **Re-decide the repomap publish hold** with the user (precondition met), and
+   **incremental index caching** (mind the `packages/repomap` mirror) if the
+   watch loop's per-save recompute becomes a felt cost.
+5. **Theme C (web UI)** — now better-fed, since the trends HTML render (132) and
+   `GET /runs/:id/why` give a dashboard plus run-detail pages to build from.
