@@ -249,6 +249,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		stream: 'auto',
 		wireNoStream: false,
 		firstTokenTimeoutMs: '',
+		// Phase 126: inter-chunk idle deadline. '' → model-client default.
+		idleTimeoutMs: '',
 		suitePath: '',
 		record: false,
 		evalCases: [],
@@ -307,6 +309,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		_protectExistingSet: false,
 		_sessionContextSet: false,
 		_firstTokenTimeoutSet: false,
+		_idleTimeoutSet: false,
 		_streamSet: false,
 		_testCommandSet: false,
 		_testCwdSet: false,
@@ -423,6 +426,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		if (arg === '--first-token-timeout-ms') {
 			options.firstTokenTimeoutMs = Number(argv[++index]);
 			options._firstTokenTimeoutSet = true;
+			continue;
+		}
+
+		if (arg === '--idle-timeout-ms') {
+			options.idleTimeoutMs = Number(argv[++index]);
+			options._idleTimeoutSet = true;
 			continue;
 		}
 
@@ -1082,6 +1091,9 @@ OpenRouter:
   --first-token-timeout-ms N
                        Abort and retry if no first SSE chunk arrives within N ms.
                        Default: 120000 (120s). Also configurable per model profile.
+  --idle-timeout-ms N  Abort (no retry) if a started stream goes silent for N ms
+                       mid-response. Default: 120000 (120s). Catches mid-stream
+                       stalls the first-token deadline cannot (phase 126).
   --repair-timeout-ms N  Per-turn repair model timeout. Default: min(--timeout-ms, 240000).
   --review-timeout-ms N  Reviewer model timeout. Default: min(--timeout-ms, ${DEFAULT_REVIEW_TIMEOUT_MS}).
   --install            Run controlled dependency install after applied writes.

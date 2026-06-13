@@ -6,6 +6,7 @@ import {
 	createChatCompletion,
 	firstAssistantMessage,
 	FirstTokenTimeoutError,
+	InterChunkIdleTimeoutError,
 	isOllamaCloudModel,
 	ModelClientError,
 	shouldUseAnthropicRootCacheControl,
@@ -697,6 +698,85 @@ describe('first-token retry (T3)', () => {
 					return true;
 				},
 			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+// Phase 126 — inter-chunk idle deadline: a stream that starts then goes silent
+// mid-read fails fast with InterChunkIdleTimeoutError instead of hanging until
+// the overall request timeout.
+describe('inter-chunk idle deadline (phase 126)', () => {
+	it('throws InterChunkIdleTimeoutError when the stream stalls after the first token', async () => {
+		// First chunk arrives, then the server holds the socket open silently.
+		const partial = `data: ${JSON.stringify({
+			choices: [{ delta: { content: 'partial' } }],
+		})}\n\n`;
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					streamThenStall: partial,
+				},
+			],
+		});
+
+		try {
+			await assert.rejects(
+				() =>
+					createChatCompletion(
+						{
+							baseUrl: server.baseUrl,
+							extraHeaders: {},
+							firstTokenTimeoutMs: 5000,
+							idleTimeoutMs: 50,
+							timeoutMs: 5000,
+						},
+						{
+							messages: [{ role: 'user', content: 'hi' }],
+							model: 'test-model',
+						},
+					),
+				(error) => {
+					assert.equal(error instanceof InterChunkIdleTimeoutError, true);
+					assert.equal(error.timeoutMs, 50);
+					assert.match(error.message, /went silent/u);
+					return true;
+				},
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('does not fire on a normal stream that completes within the idle window', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				streamResponse(
+					sse([
+						{
+							choices: [
+								{ delta: { content: 'all good' }, finish_reason: 'stop' },
+							],
+						},
+					]),
+				),
+			],
+		});
+
+		try {
+			const response = await createChatCompletion(
+				{
+					baseUrl: server.baseUrl,
+					extraHeaders: {},
+					idleTimeoutMs: 1000,
+					timeoutMs: 5000,
+				},
+				{ messages: [{ role: 'user', content: 'hi' }], model: 'test-model' },
+			);
+			assert.equal(response.body.choices[0].message.content, 'all good');
 		} finally {
 			await server.close();
 		}

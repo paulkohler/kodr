@@ -111,15 +111,6 @@ and the prior proposal, and flag/quarantine a heal whose only writes are
 unrelated. Evidence: `~/src/kodr-testing/phase-113/greenfield-logstats-1/`;
 `process/failures.jsonl` phase 113-dogfood.
 
-### Inter-Chunk Idle Deadline
-
-Phase 113 bounds time-to-first-token (120s, one retry), but a stream that
-goes silent *mid-read* is still governed only by the overall `timeoutMs` —
-gemma's validation stall received a first chunk on retry then hung for the
-remaining ~480s. An inter-chunk idle deadline (no SSE data for Ns after
-streaming began) would fail such stalls fast with a distinct error, same
-pattern as T2.
-
 ### Extraction Metadata Into Run Artifacts
 
 Phase 111 attaches `_extractionMeta` (candidateCount, proposalCount, merged)

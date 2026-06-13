@@ -46,6 +46,28 @@ export async function startFakeModelServer(options = {}) {
 		// existing tests that provide plain JSON bodies work transparently after
 		// the phase-113 always-stream wire change. Tests that already supply a
 		// text/event-stream response are served as-is.
+		// streamThenStall: send the provided SSE chunk(s), flush, then hold the
+		// connection open without sending more — inter-chunk idle deadline test
+		// (phase 126): first token arrives, then the stream goes silent mid-read.
+		if (fakeResponse.streamThenStall) {
+			recordings.push({
+				startedAt,
+				durationMs: 0,
+				method: request.method,
+				url: request.url,
+				requestHeaders: redactHeaders(request.headers),
+				requestBody,
+				responseStatus: 200,
+				responseBody: null,
+				streamThenStalled: true,
+			});
+			response.writeHead(200, { 'content-type': 'text/event-stream' });
+			response.flushHeaders();
+			response.write(fakeResponse.streamThenStall);
+			request.socket.on('close', () => {});
+			return;
+		}
+
 		const effectiveResponse = maybeConvertToSse(fakeResponse, requestBody);
 
 		writeFakeResponse(response, effectiveResponse);
@@ -209,6 +231,9 @@ function takeQueuedResponse(responseQueue, request) {
 	const [entry] = responseQueue.splice(index, 1);
 	if (entry.stall) {
 		return { stall: true };
+	}
+	if (entry.streamThenStall) {
+		return { streamThenStall: entry.streamThenStall };
 	}
 	return {
 		body: entry.body,

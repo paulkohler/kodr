@@ -27,6 +27,26 @@ export class FirstTokenTimeoutError extends Error {
 // Default first-token deadline. Overridden via model profile or CLI flag.
 export const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 120000;
 
+// Thrown when a stream that already started goes silent mid-read for longer than
+// idleTimeoutMs (phase 126). Distinct from FirstTokenTimeoutError: the first
+// token already arrived, so this is not retried — it fails the turn fast with a
+// clear signal instead of hanging until the overall request timeout.
+export class InterChunkIdleTimeoutError extends Error {
+	constructor(timeoutMs) {
+		const secs = Math.round(timeoutMs / 1000);
+		super(
+			`stream went silent for ${secs}s after the first token (server stalled mid-response?) — ` +
+				'use --idle-timeout-ms to adjust',
+		);
+		this.name = 'InterChunkIdleTimeoutError';
+		this.timeoutMs = timeoutMs;
+	}
+}
+
+// Default inter-chunk idle deadline. Once streaming has begun, no SSE data for
+// this long fails the turn. Overridden via model profile or CLI flag.
+export const DEFAULT_IDLE_TIMEOUT_MS = 120000;
+
 // Aggregate per-turn transport facts into a run-level summary.
 // facts: Array<{ wire, timeToFirstTokenMs, firstTokenRetries }>
 export function summarizeTransportFacts(facts) {
@@ -78,6 +98,11 @@ export async function createChatCompletion(options, body) {
 			? Number(options.firstTokenTimeoutMs)
 			: DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
 
+	const idleTimeoutMs =
+		options.idleTimeoutMs != null && options.idleTimeoutMs !== ''
+			? Number(options.idleTimeoutMs)
+			: DEFAULT_IDLE_TIMEOUT_MS;
+
 	const url = `${options.baseUrl}/chat/completions`;
 	const streamOpts = {
 		apiKey: options.apiKey,
@@ -90,6 +115,7 @@ export async function createChatCompletion(options, body) {
 		},
 		extraHeaders: options.extraHeaders,
 		firstTokenTimeoutMs,
+		idleTimeoutMs,
 		method: 'POST',
 		onStreamContent: options.onStreamContent,
 		timeoutMs: options.timeoutMs,
@@ -190,6 +216,7 @@ async function requestStreamJson(url, options) {
 		`${options.method} ${url}`,
 		options.onStreamContent,
 		options.firstTokenTimeoutMs,
+		options.idleTimeoutMs,
 	);
 
 	const timeToFirstTokenMs = content.timeToFirstTokenMs;
@@ -460,6 +487,7 @@ async function readServerSentEvents(
 	label,
 	onStreamContent,
 	firstTokenTimeoutMs,
+	idleTimeoutMs,
 ) {
 	const reader = response.body?.getReader();
 	if (!reader) {
@@ -493,39 +521,51 @@ async function readServerSentEvents(
 		}
 	};
 
-	// Deadline tracking: we only consider the first-token deadline satisfied when
-	// a chunk with actual bytes arrives (or the stream ends). Empty zero-byte
-	// reads can arrive as a side-effect of header flushing on some Node.js
-	// versions and must not suppress the deadline.
+	// Deadline tracking: before the first byte, a fixed first-token deadline
+	// applies (T3, phase 113). After the first byte, a rolling inter-chunk idle
+	// deadline applies (phase 126) — measured from the previous read's return, so
+	// a stream that goes silent mid-response fails fast with a distinct error
+	// instead of hanging until the overall request timeout. We only treat the
+	// first-token deadline as satisfied when a chunk with actual bytes arrives;
+	// zero-byte reads (header-flush side effects on some Node.js versions) must
+	// not suppress it.
 	const firstTokenDeadlineMs =
 		firstTokenTimeoutMs != null ? Date.now() + firstTokenTimeoutMs : null;
 
 	while (true) {
+		// Choose the active deadline + error for this read.
+		const beforeFirst = !firstChunkSeen;
+		const deadlineMs = beforeFirst
+			? firstTokenDeadlineMs
+			: idleTimeoutMs != null
+				? Date.now() + idleTimeoutMs
+				: null;
+		const makeTimeoutError = beforeFirst
+			? () => new FirstTokenTimeoutError(firstTokenTimeoutMs)
+			: () => new InterChunkIdleTimeoutError(idleTimeoutMs);
+
 		let done;
 		let value;
-
-		if (!firstChunkSeen && firstTokenDeadlineMs !== null) {
-			// Apply first-token deadline as a race between the next read and a
-			// timeout measured from the deadline established before the loop.
-			const remaining = firstTokenDeadlineMs - Date.now();
+		if (deadlineMs !== null) {
+			const remaining = deadlineMs - Date.now();
 			if (remaining <= 0) {
 				reader.cancel().catch(() => {});
-				throw new FirstTokenTimeoutError(firstTokenTimeoutMs);
+				throw makeTimeoutError();
 			}
 			let timeoutId;
-			const readPromise = reader.read();
 			const timeoutPromise = new Promise((_resolve, reject) => {
-				timeoutId = setTimeout(() => {
-					reject(new FirstTokenTimeoutError(firstTokenTimeoutMs));
-				}, remaining);
+				timeoutId = setTimeout(() => reject(makeTimeoutError()), remaining);
 				// Do not unref this timer — it must fire even if I/O is the only
 				// other pending work (test environments with a stalled server).
 			});
 			let chunk;
 			try {
-				chunk = await Promise.race([readPromise, timeoutPromise]);
+				chunk = await Promise.race([reader.read(), timeoutPromise]);
 			} catch (error) {
-				if (error instanceof FirstTokenTimeoutError) {
+				if (
+					error instanceof FirstTokenTimeoutError ||
+					error instanceof InterChunkIdleTimeoutError
+				) {
 					reader.cancel().catch(() => {});
 					throw error;
 				}
