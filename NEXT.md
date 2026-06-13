@@ -1,26 +1,60 @@
 # NEXT
 
-Candidate directions for phases 109+. Drafted from `README.md`, `roadmap.md`,
-the phase files, and the blog posts only — not from a code read — so each item
-cites the phase or post that motivates it. This is a planning scratchpad, not a
-commitment; promote items into `roadmap.md` + `phases/` when chosen.
+Candidate directions for phases 121+. This is a planning scratchpad, not a
+commitment; promote items into `roadmap.md` + `phases/` when chosen. Each item
+cites the phase or evidence that motivates it.
 
 ## Where the arc stands
 
-Phases 101–108 built the harness engineering layer: sensors and a harness
-manifest (101), edit-format reliability (102), repair pressure and no-progress
-detection (103), daily-driver TUI polish (104), measured model routing (105),
-run forensics (106), the free-token watch loop (107), and an extracted
-`@kodr/repomap` package (108). The common thread is that the harness now
-*measures itself*. The gap is that almost all of this has been validated by
-unit tests and the fake model server, not by sustained real runs against the
-local model.
+Phases 101–108 built the harness-engineering layer (sensors, edit-format
+reliability, repair pressure, TUI polish, measured routing, run forensics, the
+watch loop, the extracted `@kodr/repomap`) — the harness learned to *measure
+itself*. Phases 109–120 then put it under sustained **real-model** load and
+rebuilt the core around what that revealed:
+
+- **109–116** dogfooded against gemma-4, gpt-oss-20b, qwen3.6 and devstral and
+  hardened extraction: proposal-extraction resilience (111), measured
+  structured output (112), stream-first transport (113), an environment-aware
+  system prompt (114), structural decode-artifact rules (115), and dot-folder
+  skill/agent discovery (116).
+- **117–119 (the tool-channel arc)** inverted the central contract: file
+  content now rides the constrained tool-call channel, not free-text JSON.
+  Capture-into-proposal write tools (117), an empirical tool-support probe with
+  per-(model,server) channel selection (118), and envelope demotion to a true
+  two-channel model — actions on tools, narration as text, status computed
+  from verification (119). The envelope survives as the measured fallback.
+- **120** added opt-in `--apply-mode live` so a model's own mid-session
+  `run_command` sees its writes (the devstral grounded-loop fix).
+
+The earlier "almost everything is only validated by unit tests" gap is closed:
+every recent phase carries a live two-/three-model validation, and
+`process/failures.jsonl` is now a substantial real-failure record. The new
+frontier (see "Model Code Quality" below) is that the *plumbing* works and the
+remaining failures are in the *code the local models write*.
 
 ## Theme A — Close the loop on what was just built
 
 These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
+
+### Model Code Quality Is The New Bottleneck (highest-signal direction)
+
+The tool-channel arc fixed the plumbing: across 117–120 the harness reliably
+captures, applies, verifies, and reports — but the *runs still fail*, now on
+the code the local models write, not on the harness. Recurring signatures
+worth a dedicated phase: gpt-oss emits `require.main === module` (CJS) in
+`.mjs` ESM files (117); devstral wrote a test with an illegal top-level
+`return` and used invalid `node:test` APIs (`t.assert()`), and its `--top`
+argv parse used a regex that never matched separate argv tokens (119/120);
+qwen produced off-by-one word counts (117). Candidate mitigations, cheap
+first: (a) a behaviours/edit-format line that states the ESM + Node-24 target
+explicitly and names the common traps (no `require`, `import` only, real
+`node:test` API); (b) a pre-completion `node --check` on every written `.mjs`
+so syntax errors are caught and fed back before the run ends; (c) feed the
+recurring mistakes back as targeted prompt guidance per model family. This is
+the natural successor to the arc — the water now matters more than the pipe.
+Evidence: `process/failures.jsonl` phases 117/119/120-validation.
 
 ### Mid-Session Write Visibility — worktree materialise (deferred from 120)
 
@@ -92,7 +126,9 @@ the no-progress guard state to the user instead of silently stopping.
 
 **On hold by decision (2026-06-12): no publishing until more dogfooding/testing
 has happened.** The sync-check half of this idea can still proceed; the
-`npm publish` half waits.
+`npm publish` half waits. (Note 2026-06-13: the 109–120 arc was exactly that
+sustained dogfooding — the hold's precondition is largely met, so this is
+worth re-deciding with the user rather than leaving indefinitely parked.)
 
 Phase 108 created the package but flagged two open ends: the `packages/repomap/src/`
 files are manual copies of `src/repomap/` ("must be updated in the same
@@ -116,11 +152,17 @@ feedback instrument the harness-engineering arc has been pointing at.
 
 ### Bench-Driven Suite Growth
 
-The brownfield suite (100) has eight fixtures. Every real failure recorded in
-phase 109's burn-in should become a fixture, keeping the suite an honest
-record of what the local model actually gets wrong — the same pattern phase
-100 used (`process/failures.jsonl` entries became fixtures). This also feeds
-bench (105) better routing scores for free.
+The brownfield suite (100) has eight fixtures. The 109–120 arc generated a
+large real-failure record — gpt-oss files[]-boundary corruption, gemma
+`<|"|>` pseudo-tokens, qwen duplicate-key collapse, devstral empty-arguments
+and mid-session ENOENT, plus the recurring code-quality bugs — and most of
+those are still only prose in `process/failures.jsonl`, not executable
+fixtures. Promote them: an extractor-replay corpus (the saved raw responses
+already exist under `~/src/kodr-testing/`) and brownfield fixtures for the
+code-quality traps. This keeps the suite an honest record of what the local
+models actually get wrong (the phase-100 pattern) and feeds bench (105)
+routing scores for free. Now one of the higher-value Theme B items given how
+much real evidence accumulated.
 
 ## Theme C — The web channel, for real
 
@@ -145,11 +187,21 @@ inside the no-dependency constitution.
 
 ## Suggested order
 
-1. **Dogfooding round 2** alongside **routing activation and watch-meets-TUI**
-   — the latter two convert existing measurement into daily-driver behavior,
-   continuing the 104 arc.
-2. **Repomap sync check** when convenient; the publish itself stays deferred
-   until testing has built confidence.
-3. Pick between themes B and C based on what dogfooding keeps showing: if runs
-   are failing, the forensics/eval flywheel pays first; if runs are healthy,
-   the web surface is the more interesting build.
+The 109–120 arc is done; transport, channel, and extraction are solid. What
+shifted: the dominant failure mode is no longer the harness but the local
+models' code. Suggested sequencing from here:
+
+1. **Model Code Quality** — the highest-signal direction, and cheap to start
+   (the `node --check`-before-done step and the ESM/Node-24 contract line are
+   small). It directly raises the green-run rate the arc left on the table.
+2. **Bench-Driven Suite Growth** — lock in the arc's hard-won failure evidence
+   as executable fixtures before it ages into prose-only history; this also
+   gives the code-quality work a measurement baseline.
+3. **Daily-driver gaps** — routing activation, watch-meets-TUI, and
+   TUI piped-input serialization convert the measurement into real
+   workflow (the 104 arc), now that the engine underneath is trustworthy.
+4. **Re-decide the repomap publish hold** with the user (precondition met),
+   and pick up the **worktree materialise** half of mid-session visibility if
+   big-repo proposal-mode verification becomes a felt need.
+5. **Theme C (web UI)** when the daily-driver loop is solid enough to be worth
+   a second surface.
