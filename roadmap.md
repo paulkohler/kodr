@@ -117,6 +117,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 115 Structural Decode-Artifact Rules
 - [x] 116 Dot-Folder Skill And Agent Discovery
 - [x] 117 Proposal-Capturing Write Tools
+- [ ] 118 Tool-Support Probe And Channel Profiles
 
 ## Phase Contract
 
