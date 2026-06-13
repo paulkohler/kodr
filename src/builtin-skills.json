@@ -1,5 +1,14 @@
 [
 	{
+		"body": "# Node.js / ESM Contract\n- ESM only: use `import`/`export`; never `require` or `module.exports`; no top-level `return` outside a function.\n- Tests: `import { test } from 'node:test'` and `node:assert` — do not invent methods like `t.assert()`.\n- CLI argv: `process.argv` entries are separate tokens (`--top` and `3` are two entries); parse flags with a token loop, not a single-string regex.\n",
+		"builtin": true,
+		"commands": [],
+		"description": "Node.js / ESM coding contract — the mechanical rules local models most often break",
+		"name": "lang:node",
+		"path": "builtin/languages/node/SKILL.md",
+		"resources": []
+	},
+	{
 		"body": "# Orchestration File Author\n\nImplement exactly the file described in your contract. Use `list_files` and `read_file` to inspect existing code as needed. Keep changes aligned with your contract's exports and imports.\n\nYour context includes your contract (path, responsibility, exports to provide, imports from siblings) and sibling export signatures for reference. Do not read or reproduce sibling file bodies.\n\nReturn only a standard Kodr JSON proposal for the single file in your contract:\n\n```json\n{\n  \"status\": \"OK\",\n  \"files\": [{ \"path\": \"your/file.mjs\", \"content\": \"...\" }],\n  \"patches\": [],\n  \"messages\": []\n}\n```\n\nUse `files` for new or fully generated files. Use `patches` for small edits to an existing file. The proposal must contain only your contracted file path.\n",
 		"builtin": true,
 		"commands": [],

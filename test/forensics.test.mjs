@@ -705,3 +705,59 @@ describe('buildCausalStory — C3 syntaxCheck forensics', () => {
 		assert.match(syntaxStep.detail, /syntax check: 1 file ok/u);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// C4 (phase 122) — languageGuidance source surfaces in Context Assembly
+// ---------------------------------------------------------------------------
+
+describe('buildCausalStory — C4 language guidance forensics', () => {
+	let tmp4;
+	before(async () => {
+		tmp4 = join(tmpdir(), `forensics-c4-${Date.now()}`);
+		await mkdir(tmp4, { recursive: true });
+	});
+	after(async () => {
+		await rm(tmp4, { recursive: true, force: true });
+	});
+
+	it('C4: builtin source surfaces "node guidance: builtin"', async () => {
+		const dir = await makeRunDir(tmp4, 'run-lang-builtin', {
+			'summary.json': {
+				...SUMMARY_OK,
+				languageGuidance: { language: 'node', source: 'builtin' },
+			},
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		const step = story
+			.filter((s) => s.phase === 'Context Assembly')
+			.find((s) => s.detail && s.detail.includes('guidance'));
+		assert.ok(step, 'should have a language guidance step');
+		assert.equal(step.status, 'ok');
+		assert.match(step.detail, /node guidance: builtin/u);
+	});
+
+	it('C4: override source surfaces "node guidance: override"', async () => {
+		const dir = await makeRunDir(tmp4, 'run-lang-override', {
+			'summary.json': {
+				...SUMMARY_OK,
+				languageGuidance: { language: 'node', source: 'override' },
+			},
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		const step = story
+			.filter((s) => s.phase === 'Context Assembly')
+			.find((s) => s.detail && s.detail.includes('guidance'));
+		assert.match(step.detail, /node guidance: override/u);
+	});
+
+	it('C4: absent when summary has no languageGuidance', async () => {
+		const dir = await makeRunDir(tmp4, 'run-lang-none', {
+			'summary.json': SUMMARY_OK,
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		const step = story
+			.filter((s) => s.phase === 'Context Assembly')
+			.find((s) => s.detail && s.detail.includes('guidance'));
+		assert.equal(step, undefined);
+	});
+});

@@ -101,6 +101,17 @@ export function buildCausalStory(analysis) {
 		});
 	}
 
+	// C4 (phase 122): which language-guidance source applied (builtin vs override).
+	const languageGuidance = summary?.languageGuidance;
+	if (languageGuidance?.language) {
+		steps.push({
+			artifactPath: join(runDir, 'summary.json'),
+			detail: `${languageGuidance.language} guidance: ${languageGuidance.source}`,
+			phase: 'Context Assembly',
+			status: 'ok',
+		});
+	}
+
 	// ------------------------------------------------------------------
 	// 2. Model Call
 	// ------------------------------------------------------------------

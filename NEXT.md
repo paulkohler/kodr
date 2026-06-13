@@ -29,8 +29,19 @@ rebuilt the core around what that revealed:
 The earlier "almost everything is only validated by unit tests" gap is closed:
 every recent phase carries a live two-/three-model validation, and
 `process/failures.jsonl` is now a substantial real-failure record. The new
-frontier (see "Model Code Quality" below) is that the *plumbing* works and the
-remaining failures are in the *code the local models write*.
+frontier is that the *plumbing* works and the remaining failures are in the
+*code the local models write*.
+
+- **121** opened the model-code-quality front: a `node --check` syntax gate
+  (catch/name/feed-the-heal-loop before the test command) and an ESM/Node-24
+  contract block injected on a Node/ESM signal.
+- **122** turned that contract from a hardcoded literal into a builtin
+  `lang:node` skill — auto-applied on the same `isNodeEsm` trigger,
+  override-able by a project/user `lang:node` (any tier), and forensically
+  attributable (`summary.languageGuidance.source` = builtin|override, shown by
+  `kodr why`). Guidance is now data on the established `lang:<x>` road, not
+  prompt code. The mistake-REDUCTION effect remains unmeasured — that is the
+  open bench question both 121 and 122 defer to.
 
 ## Theme A — Close the loop on what was just built
 
@@ -40,20 +51,21 @@ _(Entries are deleted from this file when they ship; history lives in the roadma
 
 ### Per-Model-Family Targeted Guidance
 
-Phase 121 shipped the ESM/Node-24 contract block (applies to all Node/ESM
-workspaces) and the `node --check` syntax gate. The remaining class: feed
-the *recurring per-model* mistake patterns back as targeted guidance injected
-only for those model families. gpt-oss has a CJS habit even with the ESM
-block; devstral still has argv-parse and `t.assert()` tendencies; qwen has
-off-by-one count logic. A model-family fingerprint (matched from the resolved
-model string) and a per-family guidance snippet would let the harness give a
-more surgical hint than the shared ESM block. Requires live validation to
-measure the mistake-class delta before committing to the signal-to-noise
-tradeoff. Related open measurement: phase-121's shared ESM block now fires on
-greenfield tasks (fixed during 121 validation), but its mistake-REDUCTION
-effect is still unmeasured — the operator's 121 runs predated the fix, so the
-block was absent. A bench run comparing block-present vs block-absent on the
-same task would quantify both the shared block and any per-family additions.
+Phases 121/122 shipped the shared Node/ESM contract (now the builtin `lang:node`
+skill) and the `node --check` syntax gate. The remaining class: feed the
+*recurring per-model* mistake patterns back as targeted guidance injected only
+for those model families. gpt-oss has a CJS habit even with the ESM block;
+devstral still has argv-parse and `t.assert()` tendencies; qwen has off-by-one
+count logic. Phase 122 makes the shape obvious: a per-family guidance snippet is
+another auto-applied skill (e.g. `model:gpt-oss`) resolved from a model-family
+fingerprint (matched from the resolved model string), riding the exact same
+discover-override-or-builtin path as `lang:node` — data, not new prompt code.
+Requires live validation to measure the mistake-class delta before committing to
+the signal-to-noise tradeoff. **Blocked on measurement:** the shared block's
+mistake-REDUCTION effect is still unquantified (the 121 operator runs predated
+the greenfield fix). A bench run comparing block-present vs block-absent on the
+same task would quantify both the shared block and any per-family additions — so
+**Bench-Driven Suite Growth should land first** and give this its baseline.
 Evidence: `process/failures.jsonl` phases 117/119/120/121-validation.
 
 ### Mid-Session Write Visibility — worktree materialise (deferred from 120)
@@ -191,12 +203,16 @@ The 109–120 arc is done; transport, channel, and extraction are solid. What
 shifted: the dominant failure mode is no longer the harness but the local
 models' code. Suggested sequencing from here:
 
-1. **Model Code Quality** — the highest-signal direction, and cheap to start
-   (the `node --check`-before-done step and the ESM/Node-24 contract line are
-   small). It directly raises the green-run rate the arc left on the table.
-2. **Bench-Driven Suite Growth** — lock in the arc's hard-won failure evidence
-   as executable fixtures before it ages into prose-only history; this also
-   gives the code-quality work a measurement baseline.
+1. **Bench-Driven Suite Growth** — now the highest-signal direction. Model code
+   quality (121/122) shipped the syntax gate and the override-able `lang:node`
+   guidance, but *whether the guidance reduces mistakes is unmeasured*, and the
+   per-model-family follow-up is explicitly blocked on that measurement. Locking
+   the arc's failure evidence in as executable fixtures (extractor-replay corpus
+   + code-quality brownfield traps) gives every code-quality lever a baseline
+   and feeds bench routing scores for free. Do this before more guidance work.
+2. **Per-Model-Family Targeted Guidance** — once a baseline exists, ride the
+   phase-122 skill road with `model:<family>` snippets resolved from a model
+   fingerprint. Cheap to build, but only worth shipping with a measured delta.
 3. **Daily-driver gaps** — routing activation, watch-meets-TUI, and
    TUI piped-input serialization convert the measurement into real
    workflow (the 104 arc), now that the engine underneath is trustworthy.

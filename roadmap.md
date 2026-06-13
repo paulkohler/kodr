@@ -121,6 +121,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 119 Envelope Demotion
 - [x] 120 Live Apply Mode
 - [x] 121 Model Code Quality
+- [x] 122 Node Development Builtin Skill
 
 ## Phase Contract
 

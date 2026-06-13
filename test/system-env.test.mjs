@@ -507,6 +507,41 @@ describe('renderLanguageGuidanceBlock', () => {
 			renderLanguageGuidanceBlock(facts),
 		);
 	});
+
+	// Phase 122: content is sourced from the builtin lang:node skill.
+	it('matches the builtin lang:node skill body (single source of truth)', async () => {
+		const { getBuiltinSkill } = await import('../src/builtin-skills.mjs');
+		const builtin = getBuiltinSkill('lang:node');
+		assert.equal(
+			renderLanguageGuidanceBlock({ isNodeEsm: true }),
+			builtin.body.trim(),
+		);
+	});
+
+	it('renders a provided guidance override (trimmed) instead of the builtin', () => {
+		const override = '# Node.js / ESM Contract\n- house rule: prefer maps\n';
+		const block = renderLanguageGuidanceBlock({
+			guidance: override,
+			isNodeEsm: true,
+		});
+		assert.equal(block, override.trim());
+		assert.match(block, /house rule/u);
+	});
+
+	it('falls back to the builtin when guidance override is blank', () => {
+		const builtinBlock = renderLanguageGuidanceBlock({ isNodeEsm: true });
+		assert.equal(
+			renderLanguageGuidanceBlock({ guidance: '   ', isNodeEsm: true }),
+			builtinBlock,
+		);
+	});
+
+	it('returns empty when isNodeEsm false even if guidance is provided', () => {
+		assert.equal(
+			renderLanguageGuidanceBlock({ guidance: '# x', isNodeEsm: false }),
+			'',
+		);
+	});
 });
 
 // ---------------------------------------------------------------------------

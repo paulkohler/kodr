@@ -1410,7 +1410,7 @@ export async function main(argv, io) {
 			const context = await buildWorkspaceContext(io.cwd, {
 				inspection,
 				memory,
-				...workspaceContextOptions(options),
+				...workspaceContextOptions(options, io.cwd),
 			});
 			io.stdout.write(renderContextMarkdown(context));
 			return { ok: true, command: 'run', context };
@@ -1599,7 +1599,7 @@ export async function main(argv, io) {
 		const memory = await loadMemory(io.cwd);
 		const context = await buildWorkspaceContext(io.cwd, {
 			memory,
-			...workspaceContextOptions(options),
+			...workspaceContextOptions(options, io.cwd),
 		});
 
 		const caseResults = [];
@@ -1750,7 +1750,7 @@ export async function main(argv, io) {
 		const context = await buildWorkspaceContext(io.cwd, {
 			memory,
 			skills,
-			...workspaceContextOptions(options),
+			...workspaceContextOptions(options, io.cwd),
 		});
 		const { compDir, comparison } = await runComparison(
 			options,
@@ -2862,7 +2862,7 @@ export async function runPrompt(options, io) {
 				memory,
 				skills,
 				toolsMode: options.tools,
-				...workspaceContextOptions(options),
+				...workspaceContextOptions(options, io.cwd),
 			});
 		} else {
 			skills = await loadSkills(io.cwd, options.skills, {
@@ -2893,7 +2893,7 @@ export async function runPrompt(options, io) {
 				memory,
 				skills,
 				toolsMode: options.tools,
-				...workspaceContextOptions(options),
+				...workspaceContextOptions(options, io.cwd),
 			});
 			initialMessages = [
 				{ role: 'system', content: context.systemPrompt },
@@ -3899,6 +3899,14 @@ export async function runPrompt(options, io) {
 		if (syntaxResult !== null) {
 			summary.syntaxCheck = syntaxResult;
 		}
+		// C4 (phase 122): record which Node/ESM guidance applied (builtin vs a
+		// project/user `lang:node` override). Omitted when no block fired.
+		if (context?.languageGuidance) {
+			summary.languageGuidance = {
+				language: context.languageGuidance.language,
+				source: context.languageGuidance.source,
+			};
+		}
 		summary.tested = testResult !== null;
 		if (writeError) {
 			summary.writeError = writeError;
@@ -4035,7 +4043,7 @@ async function runStagedPrompt({
 			memory,
 			skills,
 			toolsMode: options.tools,
-			...workspaceContextOptions(options),
+			...workspaceContextOptions(options, io.cwd),
 		});
 		const stagePrompt = [
 			prompt,
@@ -4432,7 +4440,7 @@ function resolveReviewTimeoutMs(options) {
 	return Math.min(options.timeoutMs, DEFAULT_REVIEW_TIMEOUT_MS);
 }
 
-function workspaceContextOptions(options) {
+function workspaceContextOptions(options, cwd) {
 	return {
 		completionReserve: options.completionReserve,
 		contextWindow: options.contextWindow,
@@ -4443,6 +4451,9 @@ function workspaceContextOptions(options) {
 		// (a prompt naming a .mjs/.cjs target triggers the Node/ESM contract block
 		// even before any file exists on disk).
 		taskPrompt: options.prompt || '',
+		// C3 (phase 122): resolved skill dirs so a project/user `lang:node` override
+		// in a dot-folder tier can shadow the builtin Node/ESM guidance.
+		...(cwd ? { skillsDirs: resolvedSkillsDirs(options, cwd) } : {}),
 		...(options.contextBudgetChars
 			? { totalBytes: options.contextBudgetChars }
 			: {}),

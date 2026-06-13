@@ -10,6 +10,7 @@
 
 import { basename } from 'node:path';
 import { release } from 'node:os';
+import { getBuiltinSkill } from './builtin-skills.mjs';
 import { runGit } from './git-workspace.mjs';
 
 /**
@@ -87,9 +88,15 @@ export function renderBehavioursBlock() {
  * Returns the `# Node.js / ESM Contract` block when the workspace signals
  * a Node/ESM project, otherwise returns ''.
  *
+ * The content is sourced from the builtin `lang:node` skill
+ * (`src/builtin-skills/languages/node/SKILL.md`, phase 122) — a single
+ * markdown source of truth, not hardcoded prose. A caller may pass a resolved
+ * `guidance` string (e.g. a project/user `lang:node` override discovered via
+ * the skill tiers) to shadow the builtin; the builtin body is the default.
+ *
  * Signal: `package.json` with `"type":"module"`, OR any `.mjs` file in the
- * workspace file list. Both conditions are computed once at session start and
- * captured in `facts.isNodeEsm` (byte-stable per session).
+ * workspace file list, OR a task prompt naming a `.mjs`/`.cjs` target. Computed
+ * once at session start and captured in `facts.isNodeEsm` (byte-stable).
  *
  * Content is terse and evidence-traceable (≤4 lines):
  * 1. ESM only — import/export; no require/module.exports; no top-level return.
@@ -99,17 +106,19 @@ export function renderBehavioursBlock() {
  * 3. CLI argv arrives as separate tokens — parse flags accordingly.
  *    (devstral --top regex — phase 119/120-validation)
  *
- * @param {{ isNodeEsm?: boolean }} [facts]
+ * The builtin body carries a trailing newline; `.trim()` makes the rendered
+ * block byte-identical to the phase-121 hardcoded block (prefix stability).
+ *
+ * @param {{ isNodeEsm?: boolean, guidance?: string }} [facts]
  * @returns {string}
  */
 export function renderLanguageGuidanceBlock(facts) {
 	if (!facts?.isNodeEsm) return '';
-	return [
-		'# Node.js / ESM Contract',
-		'- ESM only: use `import`/`export`; never `require` or `module.exports`; no top-level `return` outside a function.',
-		"- Tests: `import { test } from 'node:test'` and `node:assert` — do not invent methods like `t.assert()`.",
-		'- CLI argv: `process.argv` entries are separate tokens (`--top` and `3` are two entries); parse flags with a token loop, not a single-string regex.',
-	].join('\n');
+	const guidance =
+		typeof facts.guidance === 'string' && facts.guidance.trim()
+			? facts.guidance
+			: getBuiltinSkill('lang:node').body;
+	return guidance.trim();
 }
 
 /**

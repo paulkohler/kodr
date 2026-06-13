@@ -519,6 +519,41 @@ describe('D1 (phase 119): per-mode contract coupling (edit-formats ↔ context-p
 	});
 });
 
+describe('language guidance (phase 122)', () => {
+	it('applies the builtin lang:node block for a Node/ESM workspace', async () => {
+		const cwd = await mkWorkspace({ 'index.mjs': 'export {};' });
+		const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+		assert.match(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
+		assert.equal(context.languageGuidance.language, 'node');
+		assert.equal(context.languageGuidance.source, 'builtin');
+	});
+
+	it('lets a workspace lang:node skill override the builtin guidance', async () => {
+		const cwd = await mkWorkspace({
+			'index.mjs': 'export {};',
+			'house-skill/SKILL.md': [
+				'---',
+				'name: lang:node',
+				'description: house override',
+				'---',
+				'# Node.js / ESM Contract',
+				'- HOUSE RULE: prefer Map over plain objects for lookups',
+				'',
+			].join('\n'),
+		});
+		const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+		assert.match(context.systemPrompt, /HOUSE RULE/u);
+		assert.equal(context.languageGuidance.source, 'override');
+	});
+
+	it('emits no language guidance for a non-Node workspace', async () => {
+		const cwd = await mkWorkspace({ 'main.py': 'print(1)' });
+		const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+		assert.doesNotMatch(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
+		assert.equal(context.languageGuidance, null);
+	});
+});
+
 async function mkWorkspace(files) {
 	const cwd = await mkdtemp(join(tmpdir(), 'kodr-context-'));
 

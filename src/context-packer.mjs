@@ -55,6 +55,14 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		options.isNodeEsm !== undefined
 			? options.isNodeEsm
 			: await detectNodeEsm(cwd, files, options.taskPrompt || '');
+	// C3 (phase 122): resolve the Node/ESM guidance once per session. A discovered
+	// `lang:node` skill (any tier) shadows the builtin; otherwise the builtin body
+	// is used downstream. Result is deterministic per workspace → stable prefix.
+	const languageGuidance = await resolveLanguageGuidance(
+		cwd,
+		isNodeEsm,
+		options,
+	);
 
 	if (toolsMode) {
 		let agents = null;
@@ -80,6 +88,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			fileMap,
 			files: [],
 			isNodeEsm,
+			languageGuidance,
 			memory,
 			skills,
 			toolsMode,
@@ -128,6 +137,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			files: packedFiles,
 			inspection,
 			isNodeEsm,
+			languageGuidance,
 			memory,
 			skills,
 			toolWritesMode,
@@ -193,6 +203,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		environmentFacts,
 		files: packedFiles,
 		isNodeEsm,
+		languageGuidance,
 		memory,
 		omittedFiles,
 		skills,
@@ -265,6 +276,33 @@ export async function detectNodeEsm(cwd, files, taskPrompt = '') {
 		}
 	}
 	return false;
+}
+
+/**
+ * Resolve the effective Node/ESM guidance for a session (C3, phase 122).
+ *
+ * Returns `null` when the workspace is not Node/ESM (no block fires). Otherwise
+ * returns `{ language: 'node', source, guidance }` where `source` is 'override'
+ * when a discovered `lang:node` skill (any tier) shadows the builtin, else
+ * 'builtin' with `guidance` left undefined so the renderer applies the builtin
+ * body. Discovery is dynamically imported to avoid a static import cycle
+ * (skills.mjs already imports from this module).
+ */
+async function resolveLanguageGuidance(cwd, isNodeEsm, options = {}) {
+	if (!isNodeEsm) return null;
+	try {
+		const { discoverSkills } = await import('./skills.mjs');
+		const skills = await discoverSkills(cwd, {
+			skillsDirs: options.skillsDirs || [],
+		});
+		const override = skills.find((skill) => skill.name === 'lang:node');
+		if (override?.body?.trim()) {
+			return { guidance: override.body, language: 'node', source: 'override' };
+		}
+	} catch {
+		// Discovery failure must not break prompt assembly — fall back to builtin.
+	}
+	return { guidance: undefined, language: 'node', source: 'builtin' };
 }
 
 async function loadAgents(cwd, files, perFileBytes) {
@@ -379,6 +417,7 @@ export function renderPromptSections(context = {}) {
 			context?.toolsMode,
 			context?.toolWritesMode,
 			context?.isNodeEsm ?? false,
+			context?.languageGuidance?.guidance,
 		),
 		// environment: session-stable facts (cwd, git, node, model, date)
 		environment: context?.environmentFacts
@@ -565,6 +604,7 @@ function renderStableSection(
 	toolsMode = false,
 	toolWritesMode = 'auto',
 	isNodeEsm = false,
+	languageGuidance = undefined,
 ) {
 	const parts = [
 		renderKodrBaseContract(editFormat, toolWritesMode),
@@ -573,7 +613,10 @@ function renderStableSection(
 	if (toolsMode) {
 		parts.push(renderToolsBlock(toolWritesMode));
 	}
-	const langBlock = renderLanguageGuidanceBlock({ isNodeEsm });
+	const langBlock = renderLanguageGuidanceBlock({
+		guidance: languageGuidance,
+		isNodeEsm,
+	});
 	if (langBlock) {
 		parts.push(langBlock);
 	}
