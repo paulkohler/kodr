@@ -631,6 +631,167 @@ describe('async run routes', () => {
 	});
 });
 
+describe('static asset serving (phase 134)', () => {
+	it('serves index.html from the built-in web dir on GET /', async () => {
+		const server = await startTestServer(async () => ({}));
+		try {
+			const resp = await fetch(`${server.url}/`);
+			assert.equal(resp.status, 200);
+			assert.match(resp.headers.get('content-type') || '', /text\/html/u);
+			const body = await resp.text();
+			assert.match(body, /<html/iu);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('serves app.js with application/javascript', async () => {
+		const server = await startTestServer(async () => ({}));
+		try {
+			const resp = await fetch(`${server.url}/app.js`);
+			assert.equal(resp.status, 200);
+			assert.match(resp.headers.get('content-type') || '', /javascript/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('serves styles.css with text/css', async () => {
+		const server = await startTestServer(async () => ({}));
+		try {
+			const resp = await fetch(`${server.url}/styles.css`);
+			assert.equal(resp.status, 200);
+			assert.match(resp.headers.get('content-type') || '', /text\/css/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('returns 404 for a missing asset', async () => {
+		const server = await startTestServer(async () => ({}));
+		try {
+			const resp = await fetch(`${server.url}/does-not-exist.js`);
+			assert.equal(resp.status, 404);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('returns 404 for a disallowed extension', async () => {
+		const server = await startTestServer(async () => ({}));
+		try {
+			// .sh is not in the allowlist
+			const resp = await fetch(`${server.url}/run.sh`);
+			assert.equal(resp.status, 404);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('blocks path traversal with encoded ../ sequences', async () => {
+		const server = await startTestServer(async () => ({}));
+		try {
+			// Try to escape webDir via encoded traversal
+			const resp = await fetch(`${server.url}/..%2Fserver.mjs`);
+			// Should be 403 or 404, never 200 with server source
+			assert.ok(
+				resp.status === 403 || resp.status === 404,
+				`expected 403/404 got ${resp.status}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('API routes take precedence over static serving — GET /status still returns JSON', async () => {
+		const server = await startTestServer(async () => ({}));
+		try {
+			const resp = await fetch(`${server.url}/status`);
+			assert.equal(resp.status, 200);
+			const body = await resp.json();
+			assert.equal(body.ok, true);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('serves assets from a custom --web-dir (cwd-independence proof)', async () => {
+		const webDir = await mkdtemp(join(tmpdir(), 'kodr-web-test-'));
+		await writeFile(
+			join(webDir, 'index.html'),
+			'<html><body>custom</body></html>',
+		);
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-cwd-test-'));
+		const server = await startKodrServer({
+			channel: async () => ({}),
+			cwd,
+			options: { ...testOptions(), webDir },
+		});
+		try {
+			const resp = await fetch(`${server.url}/`);
+			assert.equal(resp.status, 200);
+			const body = await resp.text();
+			assert.match(body, /custom/u);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+describe('token SSE (live-only, phase 134)', () => {
+	it('broadcasts token events to live SSE subscribers and does not replay them', async () => {
+		const gate = deferred();
+		let capturedOptions = null;
+
+		// Fake channel that emits token progress then resolves.
+		const server = await startTestServer(async (request) => {
+			capturedOptions = request.options;
+			// Emit two token progress events (simulating onToken path through emitProgress)
+			// But per the design, onToken is wired in executeRun, not via onProgress.
+			// So we test via the onToken callback directly.
+			await gate.promise;
+			return { ok: true, runDir: '', sessionId: '' };
+		});
+
+		try {
+			const submitted = await (
+				await fetch(`${server.url}/runs`, {
+					body: JSON.stringify({ prompt: 'token test' }),
+					headers: { 'content-type': 'application/json' },
+					method: 'POST',
+				})
+			).json();
+
+			// Subscribe while the run is live.
+			const eventsResponse = await fetch(`${server.url}${submitted.eventsUrl}`);
+			const streamText = eventsResponse.text();
+
+			// Wait for the channel to be invoked, then call onToken directly.
+			await waitFor(async () => capturedOptions !== null);
+			capturedOptions.onToken('he');
+			capturedOptions.onToken('llo');
+			gate.resolve();
+
+			const body = await streamText;
+
+			// Both token events should appear in the live stream.
+			assert.match(body, /event: token/u);
+			assert.match(body, /"text":"he"/u);
+			assert.match(body, /"text":"llo"/u);
+
+			// A late subscriber should get the done event but NOT the token events.
+			const lateBody = await (
+				await fetch(`${server.url}${submitted.eventsUrl}`)
+			).text();
+			assert.match(lateBody, /event: done/u);
+			assert.doesNotMatch(lateBody, /event: token/u);
+		} finally {
+			gate.resolve();
+			await server.close();
+		}
+	});
+});
+
 async function startTestServer(channel) {
 	const cwd = await mkdtemp(join(tmpdir(), 'kodr-server-test-'));
 	const options = testOptions();

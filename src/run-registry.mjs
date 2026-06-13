@@ -148,6 +148,25 @@ export function createRunRegistry({
 		return event;
 	}
 
+	// broadcastToken sends a token event to current subscribers only —
+	// it is NOT persisted to the event log and will NOT be replayed to
+	// late/reconnecting subscribers (live-only, per phase-134 design).
+	function broadcastToken(runId, text) {
+		const run = runs.get(runId);
+		if (!run) {
+			return;
+		}
+		const event = {
+			data: { text },
+			id: null,
+			timestamp: new Date().toISOString(),
+			type: 'token',
+		};
+		for (const listener of run.subscribers) {
+			listener(event);
+		}
+	}
+
 	function eventsSince(runId, lastEventId = 0) {
 		const run = requireRun(runId);
 		return run.events.filter((event) => event.id > lastEventId);
@@ -185,6 +204,7 @@ export function createRunRegistry({
 
 	return {
 		activeCount,
+		broadcastToken,
 		canStart,
 		eventsSince,
 		get,
@@ -232,6 +252,10 @@ export function publicRun(run) {
 
 export function phaseForProgressEvent(event) {
 	if (!event || typeof event !== 'object') {
+		return null;
+	}
+	// Token events are live-only and carry no phase information.
+	if (event.event === 'token') {
 		return null;
 	}
 	if (event.event === 'agent_start' || event.event === 'subagent_start') {

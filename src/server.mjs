@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { join, relative, resolve, sep } from 'node:path';
+import { extname, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
 	createRunRegistry,
 	isFinalStatus,
@@ -57,6 +58,18 @@ const ARTIFACT_CONTENT_TYPES = new Map([
 	['.md', 'text/markdown; charset=utf-8'],
 ]);
 
+// Extension allowlist for static web assets. The .json entry here covers only
+// assets under webDir (e.g. a manifest), NOT run artifacts.
+const WEB_CONTENT_TYPES = new Map([
+	['.css', 'text/css; charset=utf-8'],
+	['.html', 'text/html; charset=utf-8'],
+	['.ico', 'image/x-icon'],
+	['.js', 'application/javascript; charset=utf-8'],
+	['.json', 'application/json; charset=utf-8'],
+	['.map', 'application/json; charset=utf-8'],
+	['.svg', 'image/svg+xml; charset=utf-8'],
+]);
+
 export class HttpError extends Error {
 	constructor(status, message) {
 		super(message);
@@ -68,6 +81,14 @@ export class HttpError extends Error {
 export async function startKodrServer({ channel, cwd, options }) {
 	assertLocalHost(options.serveHost);
 
+	// Resolve web asset directory. Use --web-dir override if provided, otherwise
+	// resolve relative to this module so `kodr serve` works from any cwd.
+	// Strip any trailing sep so that webDir + sep comparisons work correctly.
+	const rawWebDir = options.webDir?.trim()
+		? resolve(options.webDir)
+		: fileURLToPath(new URL('./web/', import.meta.url));
+	const webDir = rawWebDir.endsWith(sep) ? rawWebDir.slice(0, -1) : rawWebDir;
+
 	const state = {
 		channel,
 		cwd,
@@ -78,6 +99,7 @@ export async function startKodrServer({ channel, cwd, options }) {
 		}),
 		runDirs: new Map(),
 		startedAt: new Date().toISOString(),
+		webDir,
 	};
 
 	const server = createServer((request, response) => {
@@ -262,6 +284,12 @@ async function handleHttpRequest(request, response, state) {
 			return;
 		}
 
+		// Static fall-through: only for GET, only after all API routes fail.
+		if (request.method === 'GET') {
+			await serveStaticAsset(response, state, pathname);
+			return;
+		}
+
 		writeJson(response, 404, { error: 'Not found' });
 	} catch (error) {
 		if (!response.headersSent) {
@@ -323,8 +351,16 @@ async function executeRun(state, runId, turnOptions) {
 	const io = createRunIo(state, runId);
 	const options = {
 		...turnOptions,
+		onToken(text) {
+			// Live-only: broadcast to current SSE subscribers but do NOT persist.
+			registry.broadcastToken(runId, text);
+		},
 		onProgress(event) {
 			if (!registry.get(runId)) {
+				return;
+			}
+			// Token events are routed through onToken (live-only); skip here.
+			if (event && event.event === 'token') {
 				return;
 			}
 			registry.recordEvent(runId, 'progress', event);
@@ -388,8 +424,11 @@ function handleRunEvents(request, response, state, runId) {
 	});
 	const lastEventId = Number(request.headers['last-event-id']) || 0;
 	const writeEvent = (event) => {
+		// Token events have id: null (live-only, not persisted); omit the id line
+		// so the client's Last-Event-ID is not reset to "null".
+		const idLine = event.id != null ? `id: ${event.id}\n` : '';
 		response.write(
-			`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`,
+			`${idLine}event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`,
 		);
 	};
 
@@ -688,6 +727,40 @@ async function serveRunForensicsJson(response, state, runId) {
 		story,
 		summary: analysis.summary,
 	});
+}
+
+async function serveStaticAsset(response, state, pathname) {
+	// Map / and empty to index.html.
+	const assetPath =
+		pathname === '' || pathname === '/' ? '/index.html' : pathname;
+	const ext = extname(assetPath).toLowerCase();
+	const contentType = WEB_CONTENT_TYPES.get(ext);
+	if (!contentType) {
+		writeJson(response, 404, { error: 'Not found' });
+		return;
+	}
+
+	// Resolve and guard against path traversal.
+	const resolved = resolve(state.webDir, assetPath.replace(/^\/+/u, ''));
+	if (!resolved.startsWith(state.webDir + sep)) {
+		writeJson(response, 403, { error: 'Forbidden' });
+		return;
+	}
+
+	let body;
+	try {
+		body = await readFile(resolved);
+	} catch {
+		writeJson(response, 404, { error: 'Not found' });
+		return;
+	}
+
+	response.writeHead(200, {
+		'cache-control': 'no-cache',
+		'content-length': body.byteLength,
+		'content-type': contentType,
+	});
+	response.end(body);
 }
 
 function writeJson(response, status, payload) {

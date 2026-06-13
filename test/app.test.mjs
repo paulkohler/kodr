@@ -418,6 +418,18 @@ describe('parseArgs', () => {
 		assert.equal(options.servePort, 0);
 	});
 
+	it('parses --web-dir flag for serve (phase 134)', () => {
+		const options = parseArgs(['serve', '--web-dir', '/tmp/my-ui']);
+
+		assert.equal(options.command, 'serve');
+		assert.equal(options.webDir, '/tmp/my-ui');
+	});
+
+	it('defaults webDir to empty string', () => {
+		const options = parseArgs(['serve']);
+		assert.equal(options.webDir, '');
+	});
+
 	it('parses inspect symbol flags', () => {
 		const options = parseArgs([
 			'inspect',
@@ -597,6 +609,12 @@ describe('usage', () => {
 
 		assert.match(text, new RegExp(VERSION));
 		assert.match(text, /kodr probe/u);
+	});
+
+	it('serve help mentions the web UI and --web-dir (phase 134)', () => {
+		const text = usage();
+		assert.match(text, /web UI/iu);
+		assert.match(text, /--web-dir/u);
 	});
 });
 

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>kodr</title>
+		<link rel="stylesheet" href="/styles.css" />
+	</head>
+	<body>
+		<header>
+			<h1>kodr</h1>
+			<nav>
+				<button id="nav-run" class="nav-btn active">New Run</button>
+				<button id="nav-runs" class="nav-btn">Runs</button>
+				<button id="nav-sessions" class="nav-btn">Sessions</button>
+			</nav>
+		</header>
+
+		<main>
+			<!-- New Run Panel -->
+			<section id="panel-run" class="panel active">
+				<h2>New Run</h2>
+				<form id="run-form">
+					<div class="field">
+						<label for="prompt">Prompt</label>
+						<textarea id="prompt" name="prompt" rows="5" placeholder="Describe the task…" required></textarea>
+					</div>
+					<div class="field">
+						<label for="model">Model</label>
+						<input id="model" name="model" type="text" placeholder="qwen/qwen3.6-35b-a3b" />
+					</div>
+					<div class="field">
+						<label for="test">Test command</label>
+						<input id="test" name="test" type="text" placeholder="npm test" />
+					</div>
+					<div class="field toggles">
+						<label><input id="apply" name="apply" type="checkbox" /> Apply writes (yes)</label>
+						<label><input id="tools" name="tools" type="checkbox" /> Tools</label>
+					</div>
+					<div class="field">
+						<label for="prompt-history">Recent prompts</label>
+						<select id="prompt-history">
+							<option value="">— select to restore —</option>
+						</select>
+					</div>
+					<button type="submit" id="submit-btn">Run</button>
+				</form>
+
+				<div id="live-panel" class="hidden">
+					<h3>Live output</h3>
+					<div id="run-status-bar"></div>
+					<pre id="token-stream" class="token-stream"></pre>
+					<div id="event-log"></div>
+				</div>
+			</section>
+
+			<!-- Runs List Panel -->
+			<section id="panel-runs" class="panel hidden">
+				<h2>Runs</h2>
+				<button id="refresh-runs">Refresh</button>
+				<div id="runs-list"></div>
+				<div id="run-detail" class="hidden">
+					<h3>Run detail</h3>
+					<div id="run-detail-content"></div>
+				</div>
+			</section>
+
+			<!-- Sessions Panel -->
+			<section id="panel-sessions" class="panel hidden">
+				<h2>Sessions</h2>
+				<button id="refresh-sessions">Refresh</button>
+				<div id="sessions-list"></div>
+			</section>
+		</main>
+
+		<script src="/app.js"></script>
+	</body>
+</html>

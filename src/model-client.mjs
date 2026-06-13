@@ -118,6 +118,7 @@ export async function createChatCompletion(options, body) {
 		idleTimeoutMs,
 		method: 'POST',
 		onStreamContent: options.onStreamContent,
+		onToken: options.onToken,
 		timeoutMs: options.timeoutMs,
 	};
 
@@ -217,6 +218,7 @@ async function requestStreamJson(url, options) {
 		options.onStreamContent,
 		options.firstTokenTimeoutMs,
 		options.idleTimeoutMs,
+		options.onToken,
 	);
 
 	const timeToFirstTokenMs = content.timeToFirstTokenMs;
@@ -488,6 +490,7 @@ async function readServerSentEvents(
 	onStreamContent,
 	firstTokenTimeoutMs,
 	idleTimeoutMs,
+	onToken,
 ) {
 	const reader = response.body?.getReader();
 	if (!reader) {
@@ -498,6 +501,7 @@ async function readServerSentEvents(
 	const state = {
 		finishReason: '',
 		id: '',
+		onToken,
 		text: '',
 		// tool_calls arrive as fragments keyed by index; merge them as we go.
 		toolCalls: [],
@@ -679,6 +683,13 @@ function applyStreamEvent(state, parsed, onStreamContent) {
 	state.text += content;
 	if (content && onStreamContent) {
 		onStreamContent(content);
+	}
+	if (content && state.onToken) {
+		try {
+			state.onToken(content);
+		} catch {
+			// Ignore: a throwing onToken must not break the read loop.
+		}
 	}
 	if (choice.finish_reason) {
 		state.finishReason = choice.finish_reason;

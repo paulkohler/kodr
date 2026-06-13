@@ -782,3 +782,110 @@ describe('inter-chunk idle deadline (phase 126)', () => {
 		}
 	});
 });
+
+describe('onToken callback (phase 134)', () => {
+	it('calls onToken for each content delta in order', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				streamResponse(
+					sse([
+						{ choices: [{ delta: { content: 'hel' }, finish_reason: null }] },
+						{ choices: [{ delta: { content: 'lo' }, finish_reason: 'stop' }] },
+					]),
+				),
+			],
+		});
+
+		const tokens = [];
+		try {
+			await createChatCompletion(
+				{
+					...streamOptions(server.baseUrl),
+					onToken: (text) => tokens.push(text),
+				},
+				{ messages: [{ role: 'user', content: 'hi' }], model: 'test-model' },
+			);
+		} finally {
+			await server.close();
+		}
+
+		assert.deepEqual(tokens, ['hel', 'lo']);
+	});
+
+	it('does not call onToken for tool-call fragments (no content)', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				streamResponse(
+					sse([
+						{
+							choices: [
+								{
+									delta: {
+										tool_calls: [
+											{
+												index: 0,
+												id: 'tc1',
+												type: 'function',
+												function: { name: 'write_file', arguments: '' },
+											},
+										],
+									},
+									finish_reason: 'tool_calls',
+								},
+							],
+						},
+					]),
+				),
+			],
+		});
+
+		const tokens = [];
+		try {
+			await createChatCompletion(
+				{
+					...streamOptions(server.baseUrl),
+					onToken: (text) => tokens.push(text),
+				},
+				{ messages: [{ role: 'user', content: 'hi' }], model: 'test-model' },
+			);
+		} finally {
+			await server.close();
+		}
+
+		assert.equal(tokens.length, 0);
+	});
+
+	it('does not break the read when onToken throws', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				streamResponse(
+					sse([
+						{
+							choices: [{ delta: { content: 'data' }, finish_reason: 'stop' }],
+						},
+					]),
+				),
+			],
+		});
+
+		let threwInCallback = false;
+		let result;
+		try {
+			result = await createChatCompletion(
+				{
+					...streamOptions(server.baseUrl),
+					onToken: () => {
+						threwInCallback = true;
+						throw new Error('callback error');
+					},
+				},
+				{ messages: [{ role: 'user', content: 'hi' }], model: 'test-model' },
+			);
+		} finally {
+			await server.close();
+		}
+
+		assert.ok(threwInCallback, 'onToken should have been called');
+		assert.equal(result.body.choices[0].message.content, 'data');
+	});
+});

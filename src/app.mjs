@@ -277,6 +277,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		serveHost: DEFAULT_SERVE_HOST,
 		serveMaxActiveRuns: 1,
 		servePort: DEFAULT_SERVE_PORT,
+		webDir: '',
 		staged: 'auto',
 		subagentStages: false,
 		skipReview: false,
@@ -667,6 +668,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			arg === '--host' ||
 			arg === '--port' ||
 			arg === '--max-active-runs' ||
+			arg === '--web-dir' ||
 			arg === '--file' ||
 			arg === '--symbol' ||
 			arg === '--languages' ||
@@ -1022,7 +1024,7 @@ Usage:
   kodr run -p "follow up" --session <run-id>
   kodr tui [--session <run-id>]
   kodr tui --continue
-  kodr serve [--host 127.0.0.1] [--port 8787] [--max-active-runs 1]
+  kodr serve [--host 127.0.0.1] [--port 8787] [--max-active-runs 1] [--web-dir path]
   kodr inspect [--symbol name] [--file path] [--json]
   kodr registry [--json]
   kodr run --show-files
@@ -1184,12 +1186,16 @@ Watch mode:
                        Ctrl+C or SIGTERM stops the loop.
 
 Web channel:
-  kodr serve           Start a local-only JSON HTTP control plane.
-                       Async runs: POST /runs, GET /runs(/:id), GET /runs/:id/events (SSE),
+  kodr serve           Start a local-only JSON HTTP control plane with a built-in web UI.
+                       Open http://127.0.0.1:8787 in a browser to use the UI.
+                       API: POST /runs, GET /runs(/:id), GET /runs/:id/events (SSE),
                        GET /runs/:id/logs, GET /runs/:id/artifacts(/:name), POST /runs/:id/cancel
                        Sessions: GET /sessions(/:id), POST /sessions/:id/turns
                        Inspection: GET /health, GET /status. Compatibility: POST /turn
+                       Token streaming: SSE carries live token events (not replayed on reconnect).
   --max-active-runs N  Concurrent active HTTP runs (default 1; queued otherwise).
+  --web-dir PATH       Serve static web assets from PATH instead of the built-in src/web/.
+                       Useful for a custom UI; unknown extensions return 404.
 
 Implemented library primitives:
   workflow planning, bounded cycles, one-shot healing, ReAct tools, model comparison
@@ -2542,6 +2548,8 @@ function assignValue(options, flag, value) {
 		options.servePort = Number(value);
 	} else if (flag === '--max-active-runs') {
 		options.serveMaxActiveRuns = Number(value);
+	} else if (flag === '--web-dir') {
+		options.webDir = value;
 	} else if (flag === '--file') {
 		options.inspectFile = value;
 	} else if (flag === '--symbol') {

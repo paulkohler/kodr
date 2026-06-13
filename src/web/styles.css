@@ -1,0 +1,297 @@
+/* kodr web UI — zero-dep vanilla CSS */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+
+:root {
+	--bg: #111;
+	--surface: #1a1a1a;
+	--border: #333;
+	--text: #e0e0e0;
+	--muted: #888;
+	--accent: #4f9eff;
+	--ok: #4caf50;
+	--fail: #f44336;
+	--warn: #ff9800;
+	--token: #b0c4ff;
+}
+
+html,
+body {
+	height: 100%;
+	background: var(--bg);
+	color: var(--text);
+	font-family: system-ui, sans-serif;
+	font-size: 14px;
+}
+
+header {
+	display: flex;
+	align-items: center;
+	gap: 1rem;
+	padding: 0.75rem 1.5rem;
+	background: var(--surface);
+	border-bottom: 1px solid var(--border);
+}
+header h1 {
+	font-size: 1.2rem;
+	color: var(--accent);
+	font-weight: 700;
+	letter-spacing: 2px;
+}
+nav {
+	display: flex;
+	gap: 0.5rem;
+}
+
+button {
+	cursor: pointer;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 0.35rem 0.8rem;
+	background: var(--surface);
+	color: var(--text);
+	font-size: 13px;
+}
+button:hover {
+	border-color: var(--accent);
+}
+button.active {
+	background: var(--accent);
+	color: #000;
+	border-color: var(--accent);
+}
+button:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.nav-btn {
+	font-size: 13px;
+}
+
+main {
+	max-width: 900px;
+	margin: 0 auto;
+	padding: 1.5rem;
+}
+
+.panel {
+	display: none;
+}
+.panel.active {
+	display: block;
+}
+
+h2 {
+	margin-bottom: 1rem;
+	font-size: 1.1rem;
+	color: var(--accent);
+}
+h3 {
+	margin: 1rem 0 0.5rem;
+	font-size: 0.95rem;
+	color: var(--muted);
+}
+
+.field {
+	margin-bottom: 0.75rem;
+}
+label {
+	display: block;
+	margin-bottom: 0.3rem;
+	color: var(--muted);
+	font-size: 12px;
+}
+textarea,
+input[type="text"],
+select {
+	width: 100%;
+	padding: 0.45rem 0.6rem;
+	background: var(--surface);
+	color: var(--text);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	font-size: 13px;
+}
+textarea {
+	resize: vertical;
+}
+textarea:focus,
+input:focus,
+select:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.toggles {
+	display: flex;
+	gap: 1.5rem;
+}
+.toggles label {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	color: var(--text);
+	font-size: 13px;
+}
+
+#submit-btn {
+	margin-top: 0.25rem;
+	background: var(--accent);
+	color: #000;
+	border: none;
+	font-weight: 600;
+	padding: 0.5rem 1.2rem;
+}
+
+/* Live panel */
+#live-panel {
+	margin-top: 1.5rem;
+}
+.token-stream {
+	background: #0a0a0a;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 0.75rem;
+	font-size: 12px;
+	color: var(--token);
+	white-space: pre-wrap;
+	word-break: break-word;
+	max-height: 400px;
+	overflow-y: auto;
+	min-height: 2rem;
+}
+#run-status-bar {
+	font-size: 12px;
+	color: var(--muted);
+	margin-bottom: 0.4rem;
+}
+#event-log {
+	margin-top: 0.5rem;
+	font-size: 12px;
+}
+
+.event-entry {
+	padding: 0.2rem 0;
+	border-bottom: 1px solid var(--border);
+}
+.event-entry.agent_start,
+.event-entry.agent_finish {
+	color: var(--accent);
+}
+.event-entry.log {
+	color: var(--muted);
+	font-family: monospace;
+}
+.event-entry.done-ok {
+	color: var(--ok);
+	font-weight: 600;
+}
+.event-entry.done-fail {
+	color: var(--fail);
+	font-weight: 600;
+}
+
+/* Runs list */
+.run-card {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.6rem 0.75rem;
+	margin-bottom: 0.4rem;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	cursor: pointer;
+}
+.run-card:hover {
+	border-color: var(--accent);
+}
+.run-card .run-id {
+	font-family: monospace;
+	font-size: 11px;
+	color: var(--muted);
+	flex: 1;
+}
+.run-card .run-prompt {
+	flex: 3;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.badge {
+	padding: 0.15rem 0.5rem;
+	border-radius: 3px;
+	font-size: 11px;
+	font-weight: 600;
+}
+.badge-running {
+	background: var(--warn);
+	color: #000;
+}
+.badge-completed {
+	background: var(--ok);
+	color: #000;
+}
+.badge-failed {
+	background: var(--fail);
+	color: #fff;
+}
+.badge-queued {
+	background: var(--muted);
+	color: #000;
+}
+.badge-cancelled {
+	background: var(--border);
+	color: var(--text);
+}
+
+#run-detail {
+	margin-top: 1rem;
+	padding: 0.75rem;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+}
+#run-detail-content pre {
+	font-size: 12px;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+.detail-actions {
+	display: flex;
+	gap: 0.5rem;
+	margin-bottom: 0.5rem;
+}
+
+/* Sessions list */
+.session-card {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 0.6rem 0.75rem;
+	margin-bottom: 0.4rem;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 4px;
+}
+.session-card .session-id {
+	font-family: monospace;
+	font-size: 11px;
+	color: var(--muted);
+	flex: 2;
+}
+.session-card .session-meta {
+	color: var(--muted);
+	font-size: 12px;
+	flex: 2;
+}
+
+.hidden {
+	display: none !important;
+}

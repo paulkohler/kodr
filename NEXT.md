@@ -170,17 +170,6 @@ scores for free. Still-open captures worth fixturing later: devstral
 empty-arguments (a tool_calls-shape case, belongs in a tool-call normalization
 corpus, not the extractor corpus) and qwen duplicate-key clusters.
 
-## Theme C — The web channel, for real
-
-### Minimal Web UI Over The Existing Routes
-
-Phase 50 was explicitly "a channel sketch, not a full product UI." Since then
-the server grew async run control with SSE (85) and a self-contained HTML
-forensics page (106). The pieces for a small dependency-free web UI now exist:
-session list, turn submission, SSE progress, and `GET /runs/:id/why` as the
-run detail page. Keeping it one static HTML file served by `kodr serve` stays
-inside the no-dependency constitution.
-
 ## Theme D — Bigger swings (sequence after A)
 
 - **Multi-file coordinated edits** — the eval suite measures single-defect
@@ -214,5 +203,5 @@ arc (`kodr trends`/`route`/`evals` + windowing + HTML). What remains:
 4. **Re-decide the repomap publish hold** with the user (precondition met), and
    **incremental index caching** (mind the `packages/repomap` mirror) if the
    watch loop's per-save recompute becomes a felt cost.
-5. **Theme C (web UI)** — now better-fed, since the trends HTML render (132) and
-   `GET /runs/:id/why` give a dashboard plus run-detail pages to build from.
+5. **Web UI follow-ons** (shipped in 134) — live validation run (operator step),
+   and any polish that surfaces from real browser use.
