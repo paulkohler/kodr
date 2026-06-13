@@ -68,6 +68,10 @@ export function computeTrends(summaries) {
 		failureSteps: {},
 		healStopReasons: {},
 		models: {},
+		// Phase 128: how often each extractor repair rule fired across runs — which
+		// corruption the local models hit most. Empty when no run needed repairs.
+		extractorRepairs: {},
+		mergedExtractionCount: 0,
 		firstTokenRetries: 0,
 		avgPromptTokens: null,
 		avgCompletionTokens: null,
@@ -104,6 +108,15 @@ export function computeTrends(summaries) {
 		report.models[model] = m;
 
 		report.firstTokenRetries += summary.transport?.firstTokenRetries || 0;
+
+		// Phase 128: aggregate extractor repair frequency from summary.extraction.
+		if (summary.extraction?.merged === true) {
+			report.mergedExtractionCount += 1;
+		}
+		for (const repair of summary.extraction?.repairs || []) {
+			report.extractorRepairs[repair.ruleId] =
+				(report.extractorRepairs[repair.ruleId] || 0) + (repair.count || 1);
+		}
 
 		const promptTokens = summary.usage?.prompt_tokens;
 		if (typeof promptTokens === 'number') {
@@ -182,6 +195,20 @@ export function renderTrendsCli(report) {
 			lines.push(
 				`    ${model.padEnd(34)} ${m.ok}/${m.runs} ok (${pct(m.okRate)})`,
 			);
+		}
+	}
+
+	const repairs = Object.entries(report.extractorRepairs).sort(
+		(a, b) => b[1] - a[1],
+	);
+	if (repairs.length > 0 || report.mergedExtractionCount > 0) {
+		lines.push('');
+		lines.push('  extraction:');
+		if (report.mergedExtractionCount > 0) {
+			lines.push(`    multi-block assembled  ${report.mergedExtractionCount}`);
+		}
+		for (const [ruleId, count] of repairs) {
+			lines.push(`    ${ruleId.padEnd(26)} ${count}`);
 		}
 	}
 

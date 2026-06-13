@@ -111,12 +111,6 @@ and the prior proposal, and flag/quarantine a heal whose only writes are
 unrelated. Evidence: `~/src/kodr-testing/phase-113/greenfield-logstats-1/`;
 `process/failures.jsonl` phase 113-dogfood.
 
-### Extraction Metadata Into Run Artifacts
-
-Phase 111 attaches `_extractionMeta` (candidateCount, proposalCount, merged)
-to merged proposals, but it is not yet written into `summary.json` or shown
-by `kodr why` ("proposal assembled from N blocks"). Thread it through.
-
 ### TUI Piped-Input Serialization
 
 Piped stdin races in-flight turns: a scripted session ran /status fine, then

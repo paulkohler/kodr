@@ -3534,6 +3534,10 @@ export async function runPrompt(options, io) {
 			summary.proposalError = proposalError;
 			summary.proposalFound = false;
 			summary.proposalChannels = proposalChannels;
+			const extractionMeta = extractionSummary(proposal);
+			if (extractionMeta) {
+				summary.extraction = extractionMeta;
+			}
 			if (isNativeMode) {
 				summary.recoveredVia = recoveredVia;
 				if (recoveryNote) {
@@ -3937,6 +3941,10 @@ export async function runPrompt(options, io) {
 		summary.proposalFound = proposal !== null;
 		summary.proposalStatus = proposal?.status || '';
 		summary.proposalChannels = proposalChannels;
+		const extractionMeta = extractionSummary(proposal);
+		if (extractionMeta) {
+			summary.extraction = extractionMeta;
+		}
 		// D5 (phase 119): recoveredVia surfaces how native mode recovered, if at all.
 		if (isNativeMode) {
 			summary.recoveredVia = recoveredVia;
@@ -4528,6 +4536,25 @@ function resolvedAgentsDirs(options, cwd) {
 	return (options.agentsDirs || []).map((dir) =>
 		dir.startsWith('/') ? dir : join(cwd, dir),
 	);
+}
+
+// Phase 128: compact extraction metadata for summary.json / forensics. Returns
+// undefined when no proposal or no metadata (omit the field entirely).
+function extractionSummary(proposal) {
+	const meta = proposal?._extractionMeta;
+	if (!meta) return undefined;
+	const out = {
+		candidateCount: meta.candidateCount ?? 0,
+		proposalCount: meta.proposalCount ?? 0,
+		merged: meta.merged === true,
+	};
+	if (Array.isArray(meta.repairs) && meta.repairs.length > 0) {
+		out.repairs = meta.repairs.map((r) => ({
+			ruleId: r.ruleId,
+			count: r.count,
+		}));
+	}
+	return out;
 }
 
 async function runHealingIfNeeded({

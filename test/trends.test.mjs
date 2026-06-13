@@ -149,6 +149,40 @@ describe('computeTrends', () => {
 		assert.equal(r.okRate, 0);
 		assert.equal(r.avgPromptTokens, null);
 	});
+
+	it('aggregates extractor repair frequency and merged-extraction count (phase 128)', () => {
+		const r = computeTrends([
+			{
+				runId: 'r1',
+				summary: {
+					ok: true,
+					extraction: {
+						merged: true,
+						proposalCount: 2,
+						repairs: [{ ruleId: 'gpt-oss-missing-brace', count: 1 }],
+					},
+				},
+			},
+			{
+				runId: 'r2',
+				summary: {
+					ok: true,
+					extraction: {
+						merged: false,
+						proposalCount: 1,
+						repairs: [
+							{ ruleId: 'gpt-oss-missing-brace', count: 1 },
+							{ ruleId: 'blanket-quote-token', count: 2 },
+						],
+					},
+				},
+			},
+			{ runId: 'r3', summary: { ok: true } },
+		]);
+		assert.equal(r.mergedExtractionCount, 1);
+		assert.equal(r.extractorRepairs['gpt-oss-missing-brace'], 2);
+		assert.equal(r.extractorRepairs['blanket-quote-token'], 2);
+	});
 });
 
 describe('renderTrendsCli', () => {

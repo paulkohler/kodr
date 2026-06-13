@@ -189,6 +189,27 @@ describe('buildCausalStory', () => {
 		]);
 	});
 
+	it('surfaces extraction metadata (merged + repairs) in Proposal Extraction (phase 128)', async () => {
+		const dir = await makeRunDir(tmp, 'run-extraction-meta', {
+			'summary.json': {
+				...SUMMARY_OK,
+				extraction: {
+					candidateCount: 3,
+					proposalCount: 2,
+					merged: true,
+					repairs: [{ ruleId: 'gpt-oss-missing-brace', count: 1 }],
+				},
+			},
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		const metaStep = story
+			.filter((s) => s.phase === 'Proposal Extraction')
+			.find((s) => s.detail && s.detail.includes('assembled from'));
+		assert.ok(metaStep, 'should have an extraction metadata step');
+		assert.match(metaStep.detail, /assembled from 2 blocks/u);
+		assert.match(metaStep.detail, /gpt-oss-missing-brace×1/u);
+	});
+
 	it('marks proposal extraction fail when proposalFound=false', async () => {
 		const dir = await makeRunDir(tmp, 'run-no-proposal', {
 			'summary.json': {

@@ -213,6 +213,28 @@ export function buildCausalStory(analysis) {
 				status: 'ok',
 			});
 		}
+
+		// Phase 128: surface extraction metadata when the proposal was assembled
+		// from multiple blocks and/or needed structural repairs.
+		const extraction = summary.extraction;
+		if (extraction && (extraction.merged || extraction.repairs)) {
+			const parts = [];
+			if (extraction.merged) {
+				parts.push(`assembled from ${extraction.proposalCount} blocks`);
+			}
+			if (extraction.repairs) {
+				const repairList = extraction.repairs
+					.map((r) => `${r.ruleId}×${r.count}`)
+					.join(', ');
+				parts.push(`repairs: ${repairList}`);
+			}
+			steps.push({
+				artifactPath: join(runDir, 'summary.json'),
+				detail: parts.join('; '),
+				phase: 'Proposal Extraction',
+				status: 'ok',
+			});
+		}
 	} else {
 		steps.push({
 			detail: 'no summary — cannot determine proposal status',
