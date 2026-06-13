@@ -52,7 +52,11 @@ import {
 	runVerification,
 } from './verification-runner.mjs';
 import { replayRun } from './replay.mjs';
-import { completeWithToolCalls, createBuiltinRegistry } from './tool-calls.mjs';
+import {
+	completeWithToolCalls,
+	createBuiltinRegistry,
+	mergeProposalWithDraft,
+} from './tool-calls.mjs';
 import { runComparison } from './compare.mjs';
 import { runSubagentStages } from './orchestration.mjs';
 import {
@@ -2637,6 +2641,8 @@ export async function runPrompt(options, io) {
 					skillExecutor: activeExecutor,
 					skillsDirs: resolvedSkillsDirs(options, io.cwd),
 					timeoutMs: options.timeoutMs,
+					// W2: pass profile-level tool aliases (overrides built-in defaults).
+					toolAliases: options.profileToolAliases || undefined,
 				})
 			: null;
 		const responsePath = join(runDir, 'response.md');
@@ -3020,6 +3026,12 @@ export async function runPrompt(options, io) {
 		if (inspectionPlan) {
 			summary.inspectionPlan = inspectionPlan.inspection;
 		}
+		// W3/W4: integrate capture draft from the tool loop.
+		// completion.proposalDraft is the ProposalDraft from the registry (may be null
+		// if tools were not enabled, or if no write_file/edit_file calls were made).
+		const capturedDraft = completion.proposalDraft ?? null;
+		const draftNonEmpty = capturedDraft !== null && !capturedDraft.isEmpty;
+
 		let proposal = null;
 		let proposalError = null;
 		try {
@@ -3030,6 +3042,41 @@ export async function runPrompt(options, io) {
 				name: error.name,
 			};
 		}
+
+		// W3/W4: merge envelope proposal with captured draft.
+		// - draftNonEmpty + no envelope → synthesize from draft (W3)
+		// - draftNonEmpty + envelope present → merge, envelope wins per path (W4)
+		// - draft empty + envelope → return envelope unchanged (regression guard)
+		// - draft empty + no envelope → proposalError path (unchanged)
+		if (draftNonEmpty || (capturedDraft !== null && proposal !== null)) {
+			// W4 merge (or W3 synthesize when proposal === null).
+			// On proposalError + draftNonEmpty: discard the text-parse error and use
+			// the draft, since the capture channel is always well-formed.
+			if (draftNonEmpty) {
+				proposal = mergeProposalWithDraft(capturedDraft, proposal);
+				proposalError = null;
+			}
+		}
+
+		// Alias hits for summary.json
+		const aliasHits = capturedDraft?.aliasHits ?? {};
+
+		// proposalChannels for W5 forensics
+		const capturedCount =
+			(capturedDraft?.files.length ?? 0) + (capturedDraft?.patches.length ?? 0);
+		const envelopeCount =
+			(proposal?._extractionMeta?.channels?.envelope ?? 0) ||
+			(draftNonEmpty
+				? 0
+				: (proposal?.files?.length ?? 0) + (proposal?.patches?.length ?? 0));
+
+		const proposalChannels = {
+			captured: capturedCount,
+			envelope:
+				proposal?._extractionMeta?.channels?.envelope ??
+				(draftNonEmpty ? 0 : envelopeCount),
+			aliasHits,
+		};
 
 		if (options.editFormat === 'blocks' && proposal) {
 			const blocks = extractEditBlocks(completion.text);
@@ -3048,6 +3095,7 @@ export async function runPrompt(options, io) {
 			summary.ok = false;
 			summary.proposalError = proposalError;
 			summary.proposalFound = false;
+			summary.proposalChannels = proposalChannels;
 			summary.tested = false;
 			summary.writeCount = 0;
 			taskPlan = updateTasksFromRun(taskPlan, summary);
@@ -3383,6 +3431,7 @@ export async function runPrompt(options, io) {
 		summary.proposalMessageCount = proposalMessages.length;
 		summary.proposalFound = proposal !== null;
 		summary.proposalStatus = proposal?.status || '';
+		summary.proposalChannels = proposalChannels;
 		summary.treeState = treeState;
 		if (runError) {
 			summary.runError = runError;

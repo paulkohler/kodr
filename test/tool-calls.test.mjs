@@ -6,7 +6,10 @@ import { describe, it } from 'node:test';
 import {
 	completeWithToolCalls,
 	createBuiltinRegistry,
+	DEFAULT_TOOL_ALIASES,
+	mergeProposalWithDraft,
 	normalizeToolCallArguments,
+	ProposalDraft,
 	ToolCallError,
 	ToolRegistry,
 } from '../src/tool-calls.mjs';
@@ -153,12 +156,14 @@ describe('ToolRegistry', () => {
 		await assert.rejects(() => registry.dispatch('nope', '{}'), ToolCallError);
 	});
 
-	// R4: unknown-tool error feedback steers model toward the JSON envelope
-	it('R4: unknown-tool error names valid tools and states the envelope contract', async () => {
-		// Evidence: gpt-oss called write_file 4–5 times per run despite a prompt
-		// line saying no write tool exists. Mirror the phase-109 allowlist-hint
-		// pattern: the error response should name valid tools and restate that
-		// file changes go in the files/patches arrays.
+	// R4: unknown-tool error feedback steers model toward write_file/edit_file
+	// Phase 117: error now names the capture tools rather than the envelope arrays,
+	// following the phase-114 lesson (state what to do, not what not to do).
+	it('R4: unknown-tool error names valid tools and steers toward write_file/edit_file', async () => {
+		// Evidence: gpt-oss called write_file 4–5 times per run; now write_file is
+		// registered in the builtin registry, so an unknown tool means something else.
+		// This registry has no capture tools registered (bare ToolRegistry), so any
+		// completely unknown name still steers.
 		const registry = new ToolRegistry();
 		registry.register('list_files', {
 			description: 'List files.',
@@ -175,15 +180,10 @@ describe('ToolRegistry', () => {
 			handler: async () => '',
 		});
 
-		const error = await assert
-			.rejects(() => registry.dispatch('write_file', '{}'), ToolCallError)
-			.then(() => null)
-			.catch((e) => e);
-
 		// The ToolCallError is what rejects — capture it via try/catch
 		let caught;
 		try {
-			await registry.dispatch('write_file', '{}');
+			await registry.dispatch('totally_unknown_tool', '{}');
 		} catch (e) {
 			caught = e;
 		}
@@ -198,12 +198,9 @@ describe('ToolRegistry', () => {
 			'error message should name read_file as a valid tool',
 		);
 		assert.ok(
-			caught.message.includes('files/patches'),
-			'error message should reference the files/patches arrays',
-		);
-		assert.ok(
-			caught.message.includes('write tool'),
-			'error message should state there is no write tool',
+			caught.message.includes('write_file') ||
+				caught.message.includes('edit_file'),
+			'error message should reference the capture tools',
 		);
 	});
 
@@ -235,18 +232,20 @@ describe('ToolRegistry', () => {
 });
 
 describe('createBuiltinRegistry', () => {
-	it('provides file, inspection, reference, and command tools', async () => {
+	it('provides file, inspection, reference, command, and capture tools', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-builtin-'));
 		await writeFile(join(cwd, 'hello.txt'), 'world', 'utf8');
 		const registry = createBuiltinRegistry(cwd);
 
-		assert.equal(registry.size, 7);
+		// Phase 117: write_file and edit_file capture tools added (W1).
+		assert.equal(registry.size, 9);
 		assert.deepEqual(
 			registry
 				.toApiTools()
 				.map((tool) => tool.function.name)
 				.sort(),
 			[
+				'edit_file',
 				'find_references',
 				'inspect_symbols',
 				'list_files',
@@ -254,6 +253,7 @@ describe('createBuiltinRegistry', () => {
 				'read_skill_resource',
 				'run_command',
 				'run_skill_command',
+				'write_file',
 			],
 		);
 
@@ -1980,5 +1980,467 @@ describe('ToolRegistry dispatch - empty arguments', () => {
 		assert.deepEqual(receivedArgs, {});
 		await registry.dispatch('noop', '{}');
 		assert.deepEqual(receivedArgs, {});
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 117 — W1: ProposalDraft capture units
+// ---------------------------------------------------------------------------
+
+describe('ProposalDraft', () => {
+	it('is empty on construction', () => {
+		const draft = new ProposalDraft();
+		assert.ok(draft.isEmpty);
+		assert.equal(draft.files.length, 0);
+		assert.equal(draft.patches.length, 0);
+	});
+
+	it('recordFile returns terse confirmation and marks draft non-empty', () => {
+		const draft = new ProposalDraft();
+		const msg = draft.recordFile('src/hello.mjs', 'export const x = 1;\n');
+		assert.match(msg, /recorded write_file: src\/hello\.mjs/u);
+		assert.match(msg, /bytes/u);
+		assert.match(msg, /applies when the task completes/u);
+		assert.ok(!draft.isEmpty);
+	});
+
+	it('recordPatch returns terse confirmation', () => {
+		const draft = new ProposalDraft();
+		const msg = draft.recordPatch('src/x.mjs', 'old', 'new');
+		assert.match(msg, /recorded edit_file: src\/x\.mjs/u);
+		assert.match(msg, /applies when the task completes/u);
+	});
+
+	it('last-wins per path for write_file', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('a.txt', 'first');
+		draft.recordFile('b.txt', 'only');
+		draft.recordFile('a.txt', 'second');
+		assert.equal(draft.files.length, 2);
+		const aFile = draft.files.find((f) => f.path === 'a.txt');
+		assert.equal(aFile.content, 'second');
+	});
+
+	it('patches accumulate in order', () => {
+		const draft = new ProposalDraft();
+		draft.recordPatch('a.mjs', 'old1', 'new1');
+		draft.recordPatch('a.mjs', 'old2', 'new2');
+		assert.equal(draft.patches.length, 2);
+		assert.equal(draft.patches[0].search, 'old1');
+		assert.equal(draft.patches[1].search, 'old2');
+	});
+
+	it('recordAlias increments alias hit counts', () => {
+		const draft = new ProposalDraft();
+		draft.recordAlias('files');
+		draft.recordAlias('files');
+		draft.recordAlias('create_file');
+		assert.deepEqual(draft.aliasHits, { files: 2, create_file: 1 });
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 117 — W1: write_file/edit_file capture tool registration & behavior
+// ---------------------------------------------------------------------------
+
+describe('createBuiltinRegistry write_file and edit_file capture tools', () => {
+	it('write_file records a file to the draft and returns confirmation', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-wf-'));
+		const registry = createBuiltinRegistry(cwd);
+		const result = await registry.dispatch(
+			'write_file',
+			'{"path":"src/app.mjs","content":"export const x = 1;\\n"}',
+		);
+		assert.match(result, /recorded write_file: src\/app\.mjs/u);
+		assert.ok(!registry.proposalDraft.isEmpty);
+		assert.equal(registry.proposalDraft.files.length, 1);
+		assert.equal(registry.proposalDraft.files[0].path, 'src/app.mjs');
+	});
+
+	it('edit_file records a patch to the draft and returns confirmation', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ef-'));
+		const registry = createBuiltinRegistry(cwd);
+		const result = await registry.dispatch(
+			'edit_file',
+			'{"path":"src/a.mjs","search":"old","replace":"new"}',
+		);
+		assert.match(result, /recorded edit_file: src\/a\.mjs/u);
+		assert.equal(registry.proposalDraft.patches.length, 1);
+	});
+
+	it('write_file jail violation returns steering error, not a throw', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-wf-jail-'));
+		const registry = createBuiltinRegistry(cwd);
+		const result = await registry.dispatch(
+			'write_file',
+			'{"path":"../escape.txt","content":"bad"}',
+		);
+		// Must return an error JSON string, not throw.
+		const parsed = JSON.parse(result);
+		assert.ok(parsed.error, 'should have an error key');
+		// Draft must be unmodified.
+		assert.ok(registry.proposalDraft.isEmpty);
+	});
+
+	it('edit_file jail violation returns steering error', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ef-jail-'));
+		const registry = createBuiltinRegistry(cwd);
+		const result = await registry.dispatch(
+			'edit_file',
+			'{"path":"/etc/passwd","search":"root","replace":""}',
+		);
+		const parsed = JSON.parse(result);
+		assert.ok(parsed.error);
+	});
+
+	it('write_file last-wins per path across two calls', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-wf-lw-'));
+		const registry = createBuiltinRegistry(cwd);
+		await registry.dispatch('write_file', '{"path":"a.txt","content":"first"}');
+		await registry.dispatch(
+			'write_file',
+			'{"path":"a.txt","content":"second"}',
+		);
+		assert.equal(registry.proposalDraft.files.length, 1);
+		assert.equal(registry.proposalDraft.files[0].content, 'second');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 117 — W2: tool alias dispatch
+// ---------------------------------------------------------------------------
+
+describe('tool alias dispatch (W2)', () => {
+	it('DEFAULT_TOOL_ALIASES ships the expected four entries', () => {
+		assert.equal(DEFAULT_TOOL_ALIASES.files, 'write_file');
+		assert.equal(DEFAULT_TOOL_ALIASES.create_file, 'write_file');
+		assert.equal(DEFAULT_TOOL_ALIASES.str_replace_editor, 'edit_file');
+		assert.equal(DEFAULT_TOOL_ALIASES.apply_patch, 'edit_file');
+	});
+
+	it('alias resolves to canonical and records a hit', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-alias-'));
+		const registry = createBuiltinRegistry(cwd);
+		// 'create_file' is aliased to 'write_file'
+		const result = await registry.dispatch(
+			'create_file',
+			'{"path":"new.mjs","content":"// hello\\n"}',
+		);
+		assert.match(result, /recorded write_file/u);
+		assert.equal(registry.proposalDraft.aliasHits.create_file, 1);
+	});
+
+	it('unknown tool (not in registry, not an alias) steers via ToolCallError', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-alias-unk-'));
+		const registry = createBuiltinRegistry(cwd);
+		let caught;
+		try {
+			await registry.dispatch('totally_made_up_tool', '{}');
+		} catch (e) {
+			caught = e;
+		}
+		assert.ok(caught instanceof ToolCallError);
+		assert.match(caught.message, /Unknown tool/u);
+	});
+
+	it('aliased call with bad argument shape returns steering error', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-alias-shape-'));
+		const registry = createBuiltinRegistry(cwd);
+		// 'files' → 'write_file' but with no args (devstral empty-args pattern).
+		let caught;
+		try {
+			await registry.dispatch('files', '{}');
+		} catch (e) {
+			caught = e;
+		}
+		assert.ok(caught instanceof ToolCallError, 'should throw ToolCallError');
+		assert.match(caught.message, /write_file/u);
+		assert.match(caught.message, /path/u);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 117 — W3/W4: mergeProposalWithDraft
+// ---------------------------------------------------------------------------
+
+describe('mergeProposalWithDraft (W3/W4)', () => {
+	it('W3: synthesizes a proposal when envelope is null and draft is non-empty', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'content A');
+		draft.recordPatch('src/b.mjs', 'old', 'new');
+		const result = mergeProposalWithDraft(draft, null);
+		assert.equal(result.files.length, 1);
+		assert.equal(result.patches.length, 1);
+		assert.equal(result.status, 'OK');
+		assert.match(result.messages[0].content, /captured via write tools/u);
+		assert.equal(result._extractionMeta.channels.captured, 2);
+		assert.equal(result._extractionMeta.channels.envelope, 0);
+	});
+
+	it('W3: regression — pure envelope with empty draft returns envelope unchanged', () => {
+		const draft = new ProposalDraft(); // empty
+		const envelope = {
+			files: [{ path: 'x.mjs', content: 'ok' }],
+			patches: [],
+			messages: [],
+			scratchpad: '',
+			status: 'OK',
+		};
+		const result = mergeProposalWithDraft(draft, envelope);
+		// Pure envelope path — result IS the envelope (reference or equivalent)
+		assert.equal(result.files.length, 1);
+		assert.equal(result.files[0].path, 'x.mjs');
+	});
+
+	it('W4: envelope wins per path when both draft and envelope present', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('shared.mjs', 'captured version');
+		draft.recordFile('draft-only.mjs', 'only in draft');
+		const envelope = {
+			files: [{ path: 'shared.mjs', content: 'envelope version' }],
+			patches: [],
+			messages: [{ level: 'info', content: 'done' }],
+			scratchpad: 'plan',
+			status: 'OK',
+			_extractionMeta: { candidateCount: 1, proposalCount: 1, merged: false },
+		};
+		const result = mergeProposalWithDraft(draft, envelope);
+		assert.equal(result.files.length, 2);
+		const shared = result.files.find((f) => f.path === 'shared.mjs');
+		assert.equal(shared.content, 'envelope version', 'envelope should win');
+		assert.equal(result.messages[0].content, 'done');
+		assert.equal(result.scratchpad, 'plan');
+		assert.equal(result._extractionMeta.channels.captured, 2);
+		assert.equal(result._extractionMeta.channels.envelope, 1);
+	});
+
+	it('W4: captured patches precede envelope patches in merged result', () => {
+		const draft = new ProposalDraft();
+		draft.recordPatch('a.mjs', 'old', 'new');
+		const envelope = {
+			files: [],
+			patches: [{ path: 'b.mjs', search: 'x', replace: 'y' }],
+			messages: [],
+			scratchpad: '',
+			status: 'OK',
+		};
+		const result = mergeProposalWithDraft(draft, envelope);
+		assert.equal(result.patches.length, 2);
+		assert.equal(result.patches[0].path, 'a.mjs');
+		assert.equal(result.patches[1].path, 'b.mjs');
+	});
+
+	it('W4: null draft falls back to pure envelope (no crash)', () => {
+		const envelope = {
+			files: [{ path: 'z.mjs', content: 'body' }],
+			patches: [],
+			messages: [],
+			scratchpad: '',
+			status: 'OK',
+		};
+		const result = mergeProposalWithDraft(null, envelope);
+		// null draft treated same as empty draft (pure envelope).
+		assert.equal(result.files.length, 1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 117 — W3 loop integration: draft → synthesized proposal, F1 skipped
+// ---------------------------------------------------------------------------
+
+describe('completeWithToolCalls with capture draft (W3)', () => {
+	it('synthesizes proposal from write_file calls when model stops without envelope', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-draft-loop-'));
+		const server = await startFakeModelServer({
+			responses: [
+				// Turn 1: model calls write_file
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_wf1',
+											type: 'function',
+											function: {
+												name: 'write_file',
+												arguments:
+													'{"path":"src/hello.mjs","content":"export const x = 1;\\n"}',
+											},
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_wf1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// Turn 2: model stops (no envelope)
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'Done.', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_wf2',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Create src/hello.mjs',
+				'You are helpful.',
+				registry,
+			);
+
+			// Draft must be non-empty and accessible on the completion result.
+			assert.ok(completion.proposalDraft !== null);
+			assert.ok(!completion.proposalDraft.isEmpty);
+			assert.equal(completion.proposalDraft.files.length, 1);
+			assert.equal(completion.proposalDraft.files[0].path, 'src/hello.mjs');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('F1 final-turn is skipped when draft is non-empty (W3)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-f1-skip-'));
+		// maxTurns=2: with an empty draft, the second turn would be F1 (no tools).
+		// With a non-empty draft, F1 should be skipped and tools still offered.
+		const serverResponses = [
+			// Turn 1: model calls write_file (draft becomes non-empty)
+			{
+				method: 'POST',
+				url: '/v1/chat/completions',
+				body: {
+					choices: [
+						{
+							finish_reason: 'tool_calls',
+							message: {
+								content: null,
+								role: 'assistant',
+								tool_calls: [
+									{
+										id: 'call_f1',
+										type: 'function',
+										function: {
+											name: 'write_file',
+											arguments: '{"path":"x.mjs","content":"1"}',
+										},
+									},
+								],
+							},
+						},
+					],
+					id: 'chatcmpl_f1_1',
+					object: 'chat.completion',
+				},
+				status: 200,
+			},
+			// Turn 2: model stops normally (not forced final).
+			{
+				method: 'POST',
+				url: '/v1/chat/completions',
+				body: {
+					choices: [
+						{
+							finish_reason: 'stop',
+							message: { content: 'Done.', role: 'assistant' },
+						},
+					],
+					id: 'chatcmpl_f1_2',
+					object: 'chat.completion',
+				},
+				status: 200,
+			},
+		];
+		const server = await startFakeModelServer({ responses: serverResponses });
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 2,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Create x.mjs',
+				'You are helpful.',
+				registry,
+			);
+
+			// Second request (turn 2) should still include tools (F1 was skipped).
+			const secondReq = server.recordings[1].requestBody;
+			assert.ok(
+				Array.isArray(secondReq.tools) && secondReq.tools.length > 0,
+				'F1 should be skipped when draft is non-empty — tools should be present in turn 2',
+			);
+			assert.ok(!completion.proposalDraft.isEmpty);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 117 — streamed tool-call fragment reassembly with large content arg
+// ---------------------------------------------------------------------------
+
+describe('normalizeToolCallArguments with large content (W1 regression)', () => {
+	it('handles a multi-KB content argument in a tool_call arguments string', () => {
+		// Simulate SSE reassembly yielding a write_file call with a large file body.
+		const largeContent = 'x'.repeat(8000); // 8 KB
+		const args = JSON.stringify({ path: 'big.txt', content: largeContent });
+		const toolCalls = [
+			{
+				id: 'call_large',
+				type: 'function',
+				function: { name: 'write_file', arguments: args },
+			},
+		];
+		const normalized = normalizeToolCallArguments(toolCalls);
+		assert.equal(normalized.length, 1);
+		// Arguments string must be preserved intact (not truncated).
+		const parsed = JSON.parse(normalized[0].function.arguments);
+		assert.equal(parsed.content.length, 8000);
+		assert.equal(parsed.path, 'big.txt');
 	});
 });

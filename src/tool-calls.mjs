@@ -8,7 +8,7 @@ import {
 import { HookBlockedError } from './hooks.mjs';
 import { createLoopBudget, LoopBudgetError } from './loop-budgets.mjs';
 import { listContextFiles } from './context-packer.mjs';
-import { jailedPath } from './safe-writes.mjs';
+import { jailedPath, SafeWriteError } from './safe-writes.mjs';
 import { normalizeModelUsage } from './usage-normalizer.mjs';
 import { runVerification } from './verification-runner.mjs';
 import { renderHookStopFeedback } from './command-hooks.mjs';
@@ -24,10 +24,72 @@ const MAX_INSPECT_SYMBOLS = 200;
 const MAX_INSPECT_REFERENCES = 100;
 const MAX_INSPECT_RESULT_BYTES = 8192;
 
+// Default alias map: model-hallucinated or native names → canonical capture tool.
+// Evidence: gpt-oss hallucinated write_file every run; devstral calls a native
+// `files` tool 4–5 times per run; OpenHands uses str_replace_editor.
+export const DEFAULT_TOOL_ALIASES = {
+	files: 'write_file',
+	create_file: 'write_file',
+	str_replace_editor: 'edit_file',
+	apply_patch: 'edit_file',
+};
+
 export class ToolCallError extends Error {
 	constructor(message) {
 		super(message);
 		this.name = 'ToolCallError';
+	}
+}
+
+// ProposalDraft accumulates write_file/edit_file calls during the tool loop.
+// Nothing touches disk — captures are held here until loop end.
+// Files: last-wins per path (document order).
+// Patches: appended in order (multiple patches to same file allowed).
+export class ProposalDraft {
+	constructor() {
+		// Map<path, {path, content}> — last-wins per path
+		this._files = new Map();
+		// Array<{path, search, replace}> — appended in order
+		this._patches = [];
+		// alias hits: Map<aliasName, count>
+		this._aliasHits = new Map();
+	}
+
+	get isEmpty() {
+		return this._files.size === 0 && this._patches.length === 0;
+	}
+
+	// Record a write_file capture. Returns terse confirmation string.
+	recordFile(path, content) {
+		this._files.set(path, { path, content });
+		const bytes = Buffer.byteLength(content, 'utf8');
+		return `recorded write_file: ${path} (${bytes} bytes) — applies when the task completes`;
+	}
+
+	// Record an edit_file capture. Returns terse confirmation string.
+	recordPatch(path, search, replace) {
+		this._patches.push({ path, search, replace });
+		return `recorded edit_file: ${path} — applies when the task completes`;
+	}
+
+	// Record an alias hit.
+	recordAlias(alias) {
+		this._aliasHits.set(alias, (this._aliasHits.get(alias) ?? 0) + 1);
+	}
+
+	// Return captured files array (snapshot).
+	get files() {
+		return Array.from(this._files.values());
+	}
+
+	// Return captured patches array (snapshot).
+	get patches() {
+		return [...this._patches];
+	}
+
+	// Return alias hits as plain object {aliasName: count}.
+	get aliasHits() {
+		return Object.fromEntries(this._aliasHits);
 	}
 }
 
@@ -38,6 +100,10 @@ export class ToolRegistry {
 		this._tools = new Map();
 		this.cwd = options.cwd || '';
 		this.hooks = options.hooks || null;
+		// toolAliases: object mapping alias → canonical tool name.
+		this.toolAliases = options.toolAliases || {};
+		// proposalDraft: shared draft accumulator for capture tools.
+		this.proposalDraft = options.proposalDraft || null;
 	}
 
 	// Register a tool. Parameters must be a valid JSON Schema object descriptor.
@@ -63,13 +129,23 @@ export class ToolRegistry {
 	}
 
 	// Dispatch a tool call by name. argsJson comes from the model and is untrusted.
+	// W2: alias resolution happens BEFORE the unknown-tool check.
 	async dispatch(name, argsJson) {
-		const def = this._tools.get(name);
+		// Resolve alias to canonical name if present.
+		let resolvedName = name;
+		if (!this._tools.has(name) && this.toolAliases[name]) {
+			resolvedName = this.toolAliases[name];
+			if (this.proposalDraft) {
+				this.proposalDraft.recordAlias(name);
+			}
+		}
+
+		const def = this._tools.get(resolvedName);
 		if (!def) {
 			const validTools = Array.from(this._tools.keys()).join(', ');
 			throw new ToolCallError(
 				`Unknown tool: ${name}. Valid tools: ${validTools}. ` +
-					'There is no write tool — file changes go in the files/patches arrays of the final JSON envelope.',
+					'Use write_file or edit_file to propose file changes; the harness applies them after verification.',
 			);
 		}
 
@@ -79,12 +155,23 @@ export class ToolRegistry {
 		try {
 			args = JSON.parse(argsJson || '{}');
 		} catch {
-			throw new ToolCallError(`Invalid JSON arguments for tool "${name}"`);
+			throw new ToolCallError(
+				`Invalid JSON arguments for tool "${resolvedName}"`,
+			);
 		}
 		if (args === null || typeof args !== 'object' || Array.isArray(args)) {
 			throw new ToolCallError(
-				`Tool arguments must be a JSON object for "${name}"`,
+				`Tool arguments must be a JSON object for "${resolvedName}"`,
 			);
+		}
+
+		// W2: if the call came via alias and the argument shape is wrong for the
+		// canonical tool, return a steering error naming the canonical schema.
+		if (resolvedName !== name) {
+			const argShapeError = checkCaptureArgShape(resolvedName, args, name);
+			if (argShapeError) {
+				throw new ToolCallError(argShapeError);
+			}
 		}
 
 		let activeArgs = args;
@@ -92,7 +179,7 @@ export class ToolRegistry {
 			const pre = await this.hooks?.run('pre_tool_use', {
 				cwd: this.cwd,
 				input: activeArgs,
-				tool: name,
+				tool: resolvedName,
 			});
 			activeArgs = pre?.payload?.input || activeArgs;
 		} catch (error) {
@@ -108,7 +195,7 @@ export class ToolRegistry {
 				cwd: this.cwd,
 				input: activeArgs,
 				result,
-				tool: name,
+				tool: resolvedName,
 			});
 			return post?.payload && Object.hasOwn(post.payload, 'result')
 				? post.payload.result
@@ -159,6 +246,8 @@ export async function completeWithToolCalls(
 	// S4: track whether we have already sent the no-proposal steer so it fires
 	// exactly once (the steer is cheaper than a full repair loop).
 	let noProposalSteerSent = false;
+	// W3: shared proposal draft from the registry (may be null).
+	const proposalDraft = registry?.proposalDraft ?? null;
 
 	while (true) {
 		// F2: catch LoopBudgetError from beforeTurn and return salvaged completion
@@ -176,6 +265,7 @@ export async function completeWithToolCalls(
 					messages,
 					lastText,
 					transportFacts,
+					proposalDraft,
 				);
 			}
 			throw error;
@@ -183,7 +273,12 @@ export async function completeWithToolCalls(
 
 		// F1 final-turn forcing: when exactly one turn remains, send the request
 		// without tools so the model must return a final text answer.
+		// W3: skip F1 when the capture draft is non-empty — the captured writes
+		// already constitute a proposal; forcing a final envelope turn is redundant
+		// and may confuse models that have already committed their work via tools.
+		const draftNonEmpty = proposalDraft !== null && !proposalDraft.isEmpty;
 		const isFinalTurn =
+			!draftNonEmpty &&
 			Number.isFinite(budget.state.maxTurns) &&
 			budget.state.turns === budget.state.maxTurns;
 
@@ -249,6 +344,7 @@ export async function completeWithToolCalls(
 					messages,
 					'',
 					transportFacts,
+					proposalDraft,
 				);
 			}
 
@@ -414,6 +510,7 @@ export async function completeWithToolCalls(
 			messages,
 			text,
 			transportFacts,
+			proposalDraft,
 		);
 	}
 }
@@ -445,7 +542,18 @@ function lastAssistantText(messages) {
 
 // Create a registry pre-loaded with workspace-scoped built-in tools.
 export function createBuiltinRegistry(cwd, options = {}) {
-	const registry = new ToolRegistry({ cwd, hooks: options.hooks || null });
+	const proposalDraft = new ProposalDraft();
+	// toolAliases: merge caller-supplied aliases (e.g. from model profile) over defaults.
+	const toolAliases = {
+		...DEFAULT_TOOL_ALIASES,
+		...(options.toolAliases || {}),
+	};
+	const registry = new ToolRegistry({
+		cwd,
+		hooks: options.hooks || null,
+		proposalDraft,
+		toolAliases,
+	});
 
 	registry.register('list_files', {
 		description: 'List files available in the workspace.',
@@ -633,7 +741,214 @@ export function createBuiltinRegistry(cwd, options = {}) {
 			}),
 	});
 
+	// W1: capture tools — record proposed file changes without touching disk.
+	// Path is validated at capture time with the same jail rules as apply.
+	// Violations return a steering error result (not a throw) so the model can recover.
+	registry.register('write_file', {
+		description:
+			'Propose writing a complete file. Records the path and content as a proposal entry — nothing is written to disk until the task completes and the harness applies the changes.',
+		parameters: {
+			type: 'object',
+			properties: {
+				path: {
+					type: 'string',
+					description: 'Workspace-relative file path to write.',
+				},
+				content: {
+					type: 'string',
+					description: 'Complete file content to write.',
+				},
+			},
+			required: ['path', 'content'],
+			additionalProperties: false,
+		},
+		handler: async ({ path, content }) => {
+			if (!path || typeof path !== 'string') {
+				return JSON.stringify({
+					error: 'write_file requires a non-empty string path',
+				});
+			}
+			if (typeof content !== 'string') {
+				return JSON.stringify({ error: 'write_file requires string content' });
+			}
+			try {
+				await jailedPath(cwd, path);
+			} catch (error) {
+				if (error instanceof SafeWriteError) {
+					return JSON.stringify({
+						error: `Path rejected: ${error.message}. Use a workspace-relative path without .. or absolute segments.`,
+					});
+				}
+				throw error;
+			}
+			return proposalDraft.recordFile(path, content);
+		},
+	});
+
+	registry.register('edit_file', {
+		description:
+			'Propose a search-and-replace edit to an existing file. Records the patch as a proposal entry — nothing is written to disk until the task completes and the harness applies the changes.',
+		parameters: {
+			type: 'object',
+			properties: {
+				path: {
+					type: 'string',
+					description: 'Workspace-relative file path to edit.',
+				},
+				search: {
+					type: 'string',
+					description: 'Exact text to search for in the file.',
+				},
+				replace: {
+					type: 'string',
+					description: 'Text to replace the found text with.',
+				},
+			},
+			required: ['path', 'search', 'replace'],
+			additionalProperties: false,
+		},
+		handler: async ({ path, search, replace }) => {
+			if (!path || typeof path !== 'string') {
+				return JSON.stringify({
+					error: 'edit_file requires a non-empty string path',
+				});
+			}
+			if (typeof search !== 'string') {
+				return JSON.stringify({ error: 'edit_file requires string search' });
+			}
+			if (typeof replace !== 'string') {
+				return JSON.stringify({ error: 'edit_file requires string replace' });
+			}
+			try {
+				await jailedPath(cwd, path);
+			} catch (error) {
+				if (error instanceof SafeWriteError) {
+					return JSON.stringify({
+						error: `Path rejected: ${error.message}. Use a workspace-relative path without .. or absolute segments.`,
+					});
+				}
+				throw error;
+			}
+			return proposalDraft.recordPatch(path, search, replace);
+		},
+	});
+
 	return registry;
+}
+
+// W4: Merge a captured ProposalDraft with an extracted envelope proposal.
+// Envelope wins per path for files (model's final word). Patches and messages
+// are concatenated (captured first, then envelope). Status/scratchpad from the
+// envelope are honored. Provenance metadata added to _extractionMeta.
+//
+// Returns the merged proposal. If envelopeProposal is null, synthesizes a
+// proposal from the draft alone (W3 path). If draft is empty and envelopeProposal
+// is non-null, returns the envelope unchanged (regression: existing path).
+export function mergeProposalWithDraft(draft, envelopeProposal) {
+	const capturedFiles = draft ? draft.files : [];
+	const capturedPatches = draft ? draft.patches : [];
+	const capturedCount = capturedFiles.length + capturedPatches.length;
+
+	if (!envelopeProposal) {
+		// W3 path: synthesize proposal from captured data alone.
+		const fileCount = capturedFiles.length;
+		const patchCount = capturedPatches.length;
+		const totalCount = fileCount + patchCount;
+		const synthesized = {
+			files: capturedFiles,
+			patches: capturedPatches,
+			messages: [
+				{
+					level: 'info',
+					content:
+						`${fileCount} file${fileCount !== 1 ? 's' : ''} captured via write tools` +
+						(patchCount > 0
+							? `, ${patchCount} patch${patchCount !== 1 ? 'es' : ''} via edit_file`
+							: ''),
+				},
+			],
+			scratchpad: '',
+			status: 'OK',
+			_extractionMeta: {
+				candidateCount: 0,
+				proposalCount: 0,
+				merged: false,
+				channels: { captured: totalCount, envelope: 0, merged: totalCount },
+			},
+		};
+		return synthesized;
+	}
+
+	if (capturedCount === 0) {
+		// Pure envelope path — return unchanged (regression: existing behavior).
+		return envelopeProposal;
+	}
+
+	// W4: both draft and envelope present — merge with envelope wins per path.
+	const fileMap = new Map();
+	// Captured files go in first (lower priority).
+	for (const file of capturedFiles) {
+		fileMap.set(file.path, file);
+	}
+	// Envelope files overwrite (higher priority — model's final word).
+	for (const file of envelopeProposal.files || []) {
+		fileMap.set(file.path, file);
+	}
+
+	const mergedFiles = Array.from(fileMap.values());
+	const mergedPatches = [
+		...capturedPatches,
+		...(envelopeProposal.patches || []),
+	];
+	const mergedCount = mergedFiles.length + mergedPatches.length;
+	const envelopeCount =
+		(envelopeProposal.files?.length ?? 0) +
+		(envelopeProposal.patches?.length ?? 0);
+
+	const prevMeta = envelopeProposal._extractionMeta || {};
+	const merged = {
+		files: mergedFiles,
+		patches: mergedPatches,
+		messages: envelopeProposal.messages || [],
+		scratchpad: envelopeProposal.scratchpad || '',
+		status: envelopeProposal.status || 'OK',
+		_extractionMeta: {
+			...prevMeta,
+			channels: {
+				captured: capturedCount,
+				envelope: envelopeCount,
+				merged: mergedCount,
+			},
+		},
+	};
+	return merged;
+}
+
+// W2: Check that an aliased call has the expected argument shape for the
+// canonical capture tool. Returns an error string on mismatch, null on ok.
+// We validate the required fields for write_file ({path, content}) and
+// edit_file ({path, search, replace}). For fully empty args ({}) we also steer
+// — the model needs to know what fields to provide.
+function checkCaptureArgShape(canonicalName, args, aliasName) {
+	if (canonicalName === 'write_file') {
+		if (!args.path && !args.content) {
+			// Completely empty call (e.g. devstral's `files` with no args) — steer.
+			return (
+				`Tool "${aliasName}" was called with missing arguments. ` +
+				`The canonical tool is write_file, which requires: ` +
+				`{"path": "<workspace-relative path>", "content": "<full file content>"}.`
+			);
+		}
+	} else if (canonicalName === 'edit_file') {
+		if (!args.path && !args.search && !args.replace) {
+			return (
+				`Tool "${aliasName}" was called with missing arguments. ` +
+				`The canonical tool is edit_file, which requires: ` +
+				`{"path": "<path>", "search": "<exact text>", "replace": "<replacement>"}.`
+			);
+		}
+	}
+	return null;
 }
 
 function boundedInspectionResult(result) {
@@ -692,11 +1007,13 @@ function result(
 	messages,
 	text,
 	transportFacts = [],
+	proposalDraft = null,
 ) {
 	return {
 		finishReasons,
 		loopBudget: budget.snapshot(),
 		messages,
+		proposalDraft,
 		responses,
 		text,
 		transport: summarizeTransportFacts(transportFacts),

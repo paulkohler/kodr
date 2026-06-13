@@ -134,10 +134,15 @@ describe('subagent stage orchestration', () => {
 			assert.match(request.messages[0].content, /`inspect_symbols`/u);
 			assert.match(request.messages[0].content, /`find_references`/u);
 			assert.match(request.messages[0].content, /`run_command`/u);
+			// Phase 117: capture tools present in system prompt.
+			assert.match(request.messages[0].content, /`write_file`/u);
+			assert.match(request.messages[0].content, /`edit_file`/u);
 			assert.doesNotMatch(request.messages[0].content, /Workspace files \(/u);
 			assert.match(request.messages[1].content, /Create src\/greet\.mjs/u);
 			assert.match(request.messages[1].content, /Workspace files \(/u);
+			// Phase 117: write_file and edit_file capture tools added (W1).
 			assert.deepEqual(request.tools.map((tool) => tool.function.name).sort(), [
+				'edit_file',
 				'find_references',
 				'inspect_symbols',
 				'list_files',
@@ -145,6 +150,7 @@ describe('subagent stage orchestration', () => {
 				'read_skill_resource',
 				'run_command',
 				'run_skill_command',
+				'write_file',
 			]);
 		} finally {
 			await server.close();

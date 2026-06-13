@@ -125,28 +125,33 @@ the proposal (`channels: {captured: N, envelope: M, merged: K}`).
 
 ## Done criteria
 
-- [ ] W1: capture tools recording into ProposalDraft, path-jailed, never
+- [x] W1: capture tools recording into ProposalDraft, path-jailed, never
       touching disk.
-- [ ] W2: profile toolAliases with shipped defaults; alias dispatch +
+- [x] W2: profile toolAliases with shipped defaults; alias dispatch +
       steering.
-- [ ] W3: synthesized proposal on non-empty draft; status from verification;
+- [x] W3: synthesized proposal on non-empty draft; status from verification;
       F1 skipped; empty-draft path byte-identical to today.
-- [ ] W4: envelope/capture merge with envelope-wins-per-path; provenance
+- [x] W4: envelope/capture merge with envelope-wins-per-path; provenance
       metadata.
-- [ ] W5: positive-contract tools block; proposalChannels in summary +
+- [x] W5: positive-contract tools block; proposalChannels in summary +
       `kodr why`.
-- [ ] `process/failures.jsonl` / `process/decisions.jsonl` updated.
-- [ ] Blog post `blog/117-proposal-capturing-write-tools.md` (the inversion
+- [x] `process/failures.jsonl` / `process/decisions.jsonl` updated.
+- [x] Blog post `blog/117-proposal-capturing-write-tools.md` (the inversion
       story: ten phases fighting the wrong channel).
-- [ ] NEXT.md entries shipped by this phase deleted (FIFO), if any apply.
+- [x] NEXT.md entries shipped by this phase deleted (FIFO), if any apply.
 - [ ] Version bumped to 0.0.117; suite green; committed.
-- [ ] Live validation (after the commit, sequential, three models):
-      devstral greenfield — the zero-to-one test: does it use the write
-      tools (native `files` via alias or canonical names) and produce an
-      applied, verified proposal; gpt-oss greenfield — does content via
-      tool args make the files[] boundary-corruption class irrelevant
-      (compare against the 4-for-4 corruption record); gemma greenfield —
-      regression guard: envelope path unchanged, no quality drop vs the
-      phase-114 baseline. Record whether LM Studio's tool-argument
-      constrained decoding handles multi-KB content strings without the
-      json_schema-style stalls (open question from phase 112).
+- [ ] Live validation (after the commit, sequential, three models —
+      gpt-oss and qwen favoured by user decision 2026-06-13; devstral
+      deferred for a later circle-back since it is new and unfamiliar):
+      `openai/gpt-oss-20b` greenfield — does content via tool args make
+      the files[] boundary-corruption class irrelevant (compare against
+      the 4-for-4 corruption record), and does it now prefer the declared
+      write tools it always hallucinated; `qwen/qwen3.6-35b-a3b`
+      greenfield — the natively-tool-supported family (per LM Studio
+      docs): does the constrained channel work cleanly end-to-end, and
+      does it improve on qwen's reasoning-then-silence envelope history;
+      `google/gemma-4-26b-a4b` greenfield — regression guard: envelope
+      path unchanged, no quality drop vs the phase-114 baseline. Record
+      whether LM Studio's tool-argument constrained decoding handles
+      multi-KB content strings without the json_schema-style stalls (open
+      question from phase 112).

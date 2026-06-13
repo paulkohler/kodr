@@ -162,6 +162,9 @@ export function applyModelProfileDefaults(
 		nativeToolCalls: profile.nativeToolCalls,
 		responseEnvelopeMode: profile.responseEnvelope,
 		structuredOutputMode: profile.structuredOutput,
+		// W2: profile toolAliases override the built-in DEFAULT_TOOL_ALIASES in
+		// createBuiltinRegistry. Only set when the profile explicitly declares aliases.
+		...(profile.toolAliases ? { profileToolAliases: profile.toolAliases } : {}),
 	};
 	if (!options._timeoutSet) {
 		next.timeoutMs = profile.timeoutMs;
@@ -216,6 +219,12 @@ function normalizeProfile(profile, source) {
 	)
 		? profile.structuredOutput
 		: defaultStructuredOutput;
+	// toolAliases: model-specific alias → canonical tool name map. Profiles can
+	// override or extend the built-in DEFAULT_TOOL_ALIASES (W2).
+	const toolAliases =
+		profile.toolAliases && typeof profile.toolAliases === 'object'
+			? { ...profile.toolAliases }
+			: null;
 	return {
 		baseUrl: stringValue(profile.baseUrl || defaultBaseUrl(provider)),
 		completionReserve: positiveInteger(
@@ -238,6 +247,7 @@ function normalizeProfile(profile, source) {
 		source,
 		structuredOutput,
 		timeoutMs: positiveInteger(profile.timeoutMs, DEFAULT_TIMEOUT_MS),
+		...(toolAliases !== null ? { toolAliases } : {}),
 	};
 }
 
@@ -314,7 +324,7 @@ function fallbackProfile(provider, model, options = {}) {
 }
 
 function serializeProfile(profile) {
-	return {
+	const serialized = {
 		baseUrl: profile.baseUrl,
 		completionReserve: profile.completionReserve,
 		configPath: profile.configPath,
@@ -331,6 +341,10 @@ function serializeProfile(profile) {
 		structuredOutput: profile.structuredOutput,
 		timeoutMs: profile.timeoutMs,
 	};
+	if (profile.toolAliases) {
+		serialized.toolAliases = profile.toolAliases;
+	}
+	return serialized;
 }
 
 function profileKey(provider, id) {

@@ -166,24 +166,29 @@ export function buildCausalStory(analysis) {
 		const found = summary.proposalFound ?? false;
 		const status = summary.proposalStatus || '';
 		const msgCount = summary.proposalMessageCount ?? 0;
+		// W5: surface proposalChannels when present.
+		const channels = summary.proposalChannels;
+		const channelSuffix = channels
+			? ` (${channels.captured ?? 0} via write tools, ${channels.envelope ?? 0} via envelope${Object.keys(channels.aliasHits ?? {}).length > 0 ? `, aliases: ${JSON.stringify(channels.aliasHits)}` : ''})`
+			: '';
 		if (!found) {
 			steps.push({
 				artifactPath: join(runDir, 'response.md'),
-				detail: `no proposal found in model response (responseChars=${summary.responseChars ?? '?'})`,
+				detail: `no proposal found in model response (responseChars=${summary.responseChars ?? '?'})${channelSuffix}`,
 				phase: 'Proposal Extraction',
 				status: 'fail',
 			});
 		} else if (status !== 'OK') {
 			steps.push({
 				artifactPath: join(runDir, 'response.md'),
-				detail: `proposal found but status=${status} messages=${msgCount}`,
+				detail: `proposal found but status=${status} messages=${msgCount}${channelSuffix}`,
 				phase: 'Proposal Extraction',
 				status: 'warn',
 			});
 		} else {
 			steps.push({
 				artifactPath: join(runDir, 'response.md'),
-				detail: `proposal found status=${status} messages=${msgCount}`,
+				detail: `proposal found status=${status} messages=${msgCount}${channelSuffix}`,
 				phase: 'Proposal Extraction',
 				status: 'ok',
 			});

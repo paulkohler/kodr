@@ -143,7 +143,8 @@ describe('renderBehavioursBlock', () => {
 });
 
 describe('renderToolsBlock', () => {
-	it('starts with # Tools and lists all six tools', () => {
+	// Phase 117 (W1/W5): now lists eight tools including write_file and edit_file.
+	it('starts with # Tools and lists all eight tools', () => {
 		const block = renderToolsBlock();
 		assert.match(block, /^# Tools/u);
 		assert.match(block, /inspect_symbols/u);
@@ -152,11 +153,14 @@ describe('renderToolsBlock', () => {
 		assert.match(block, /read_skill_resource/u);
 		assert.match(block, /run_skill_command/u);
 		assert.match(block, /run_command/u);
+		assert.match(block, /write_file/u);
+		assert.match(block, /edit_file/u);
 	});
 
-	it('contains workflow ordering and budget reminder', () => {
+	it('contains positive capture-tool contract and budget reminder', () => {
 		const block = renderToolsBlock();
-		assert.match(block, /inspect.*read.*patch/u);
+		// Phase 117 (W5): positive contract replaces the "no write tool" prohibition.
+		assert.match(block, /write_file or edit_file/u);
 		assert.match(block, /limited number of tool turns/u);
 	});
 });
@@ -291,7 +295,10 @@ describe('prompt assembly with environment facts', () => {
 // ---------------------------------------------------------------------------
 
 describe('prompt budget guard', () => {
-	it('standard greenfield system message stays under 2900 chars', async () => {
+	// Phase 117 (W5): two new tool lines (write_file, edit_file) add ~220 chars.
+	// Budget deliberately updated from 2900 → 3200. Stable section grew from two
+	// to four tool-description lines; still well below the 4096-token LM Studio limit.
+	it('standard greenfield system message stays under 3200 chars', async () => {
 		const cwd = await mkWorkspace({
 			'app.mjs': 'export function add(a, b) { return a + b; }',
 		});
@@ -313,8 +320,8 @@ describe('prompt budget guard', () => {
 		});
 		const promptLen = context.systemPrompt.length;
 		assert.ok(
-			promptLen < 2900,
-			`System message must stay under 2900 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 3200,
+			`System message must stay under 3200 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 });

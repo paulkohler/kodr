@@ -98,10 +98,12 @@ export function renderToolsBlock() {
 		'- `read_skill_resource` — declared skill resource content.',
 		'- `run_skill_command` — declared skill helper commands (explicit approval required).',
 		'- `run_command` — allowlisted verification commands only.',
+		'- `write_file {path, content}` — propose a complete file write; recorded as a proposal entry, applied after verification.',
+		'- `edit_file {path, search, replace}` — propose a search-and-replace edit; recorded as a proposal entry, applied after verification.',
 		'',
-		'There is no write or edit tool — all file changes go in the files/patches arrays of your final JSON envelope.',
-		'Workflow: inspect → read → return the envelope with files/patches; the harness applies and verifies.',
-		'You have a limited number of tool turns; finish with the envelope before they run out.',
+		'Use write_file or edit_file to propose file changes. You may also return a final JSON envelope with files/patches arrays — both channels work; the harness merges them.',
+		'Workflow: inspect → read → write_file/edit_file (or envelope) → the harness applies and verifies.',
+		'You have a limited number of tool turns; finish writing before they run out.',
 	].join('\n');
 }
 
