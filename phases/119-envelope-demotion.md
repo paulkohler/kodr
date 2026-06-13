@@ -1,0 +1,180 @@
+# Phase 119 — Envelope Demotion
+
+Final phase of the tool-channel arc (117 capture tools; 118 probe + channel
+profiles; this phase demotes the envelope for native-channel profiles).
+
+## Motivation, sharpened by a phase-118 investigation
+
+Phase 118 measured all three models as tool-`native` but observed qwen still
+emitting the envelope on a real task, and we provisionally read that as a
+capability-vs-preference gap. Investigating the actual artifacts changed the
+diagnosis:
+
+- qwen's greenfield run did the whole task in **one turn, zero tool calls**,
+  dumping an 8,720-char envelope (which then collapsed with duplicate keys
+  and was rescued by the 118 T5 rule).
+- The system prompt it received **opens with the full envelope JSON schema**
+  (`renderKodrBaseContract` → identity line + `{"status","files","patches",
+  "scratchpad"}` + "use files for full-file writes"). "files" appears 9×,
+  "patches" 5× — before the `# Tools` block's tools-primary wording.
+- **gemma received the byte-identical contradictory prompt** and resolved it
+  toward the tools (8 tool-call turns, `captured: 2`). gpt-oss likewise.
+
+So qwen's "preference" is largely an artifact of a **self-contradictory
+prompt**: phase 118's `toolWritesMode: native` only rewords the buried
+`renderToolsBlock`; it never touches the dominant leading envelope contract
+in `renderKodrBaseContract`. The models that adopt tools are overriding the
+leading instruction; qwen, the stricter instruction-follower, obeys it.
+
+Consequence: **the experiment of removing the envelope contract has never
+actually been run.** We must not pre-conclude qwen will or won't adopt — but
+we must build the demotion so that a model which produces neither tool
+captures nor a parseable proposal degrades safely instead of failing blind.
+That safety net is the heart of this phase, not an afterthought.
+
+Evidence: `~/src/kodr-testing/phase-118/greenfield-wordfreq-qwen/.kodr/runs/2026-06-13T01-53-42.397Z/`
+(qwen one-turn envelope, raw-request.json shows the leading schema);
+`~/src/kodr-testing/phase-118/greenfield-wordfreq-gemma/...` (same prompt,
+tool adoption); `process/failures.jsonl` phase 117/118-validation;
+`src/context-packer.mjs:511` (`renderStableSection` threads toolWritesMode to
+`renderToolsBlock` only); `src/edit-formats.mjs:31` (`renderEditFormatContract`,
+the leading envelope text, byte-coupled to `renderKodrBaseContract`).
+
+## Design principles
+
+1. **Demote, don't delete.** The envelope contract, extractor, and all repair
+   rules stay fully alive for `envelope`-mode profiles. Native mode gets a
+   different leading contract; nothing is removed from the codebase.
+2. **Scope by resolved mode only.** Only a profile whose `toolWrites`
+   resolves to `native` (118's resolution: explicit `native`, or `auto` +
+   a probe.json `native` classification) gets the demoted prompt. `auto`
+   without a measurement and `envelope` are byte-identical to phase 118.
+3. **Status from verification, always** (the 117 rule) — demotion removes the
+   model's last self-report channel, so this must already be airtight.
+4. **A native run can always still finish.** If the model emits no tool
+   captures and no parseable proposal, the harness recovers deterministically
+   (W4) rather than producing an empty proposal or a blind failure.
+
+## Work items
+
+### D1 — Mode-aware base contract
+
+`renderEditFormatContract` / `renderKodrBaseContract` become
+`toolWritesMode`-aware. For `native`:
+
+- Identity line unchanged (`You are Kodr… untrusted input.`).
+- **Replace** the envelope JSON schema paragraph with a tool-first contract:
+  all file changes go through `write_file` / `edit_file`; when finished,
+  reply with a short plain-text summary of what changed and why; do not emit
+  a JSON envelope. No `files`/`patches`/`status` schema text.
+- `editFormat` (whole/patch/blocks) is moot in native mode (writes go through
+  tools) — native mode ignores it for the contract, but keep the function
+  signature stable.
+
+For `envelope` and unresolved `auto`: byte-identical to phase 118. The
+byte-identity coupling between `renderEditFormatContract` (edit-formats.mjs)
+and `renderKodrBaseContract` (context-packer.mjs) is preserved *per mode* —
+update both together, extend the coupling test to assert it for each mode.
+
+Thread `toolWritesMode` from `renderStableSection` into
+`renderKodrBaseContract` (currently it only reaches `renderToolsBlock`).
+Prompt-prefix stability: the prefix is still byte-stable **within a session**
+(mode is fixed at session start); add native-mode fixtures deliberately
+rather than letting existing fixtures drift.
+
+### D2 — Native-mode final turn and status
+
+- The forced-final-envelope turn (F1, tool-calls.mjs) is already skipped when
+  the ProposalDraft is non-empty (117 W3). In native mode, also skip the
+  envelope-extraction expectation entirely: the run's proposal IS the draft.
+- A trailing plain-text assistant message becomes the run `message` (no JSON
+  parse attempted in native mode). No envelope → no `ProposalMissingError`
+  when the draft is non-empty.
+- `status` is whatever verification returns; the model's text never sets it.
+
+### D3 — Empty-draft safety net (the confound insurance)
+
+The case the phase-118 evidence demands we handle: native mode, model
+finishes with an **empty ProposalDraft** (no `write_file`/`edit_file` calls)
+and no parseable envelope (because we removed the contract). Deterministic
+recovery, in order:
+
+1. If the model emitted envelope-shaped JSON anyway (qwen's likely
+   behaviour), parse it with the existing extractor as a fallback and record
+   `recoveredVia: 'envelope-fallback'`. The extractor and 115/118 repair
+   rules are still loaded — this is why we demote rather than delete.
+2. If there is no parseable proposal at all, issue **one** re-prompt that
+   re-introduces the envelope contract for this turn only ("You did not use
+   the write tools; return your changes as this JSON envelope: …"),
+   `recoveredVia: 'envelope-reprompt'`. Exactly one, never a loop (mirrors
+   the 113 single-retry discipline).
+3. If that also yields nothing, fail with a **distinct** error
+   (`NativeNoProposalError`) naming what happened ("native-mode model
+   produced no tool writes and no envelope after one re-prompt") — never a
+   silent empty proposal.
+
+`recoveredVia` lands in summary.json. This item is what lets us ship native
+mode for qwen without stranding it: worst case it falls back to exactly the
+118 behaviour (envelope + T5 rescue), best case it adopts the tools.
+
+### D4 — Prompt-budget win, measured
+
+Demotion should shrink the system prompt (the envelope schema paragraph is
+~600 chars). Record the native-mode system-prompt length and assert it is
+meaningfully smaller than envelope mode in a test; surface the delta in the
+blog. This is a concrete payoff of the arc, not just a cleanup.
+
+### D5 — Forensics and `kodr why`
+
+summary.json/`kodr why` gain: resolved `toolWritesMode`, `recoveredVia`
+(none/envelope-fallback/envelope-reprompt), and the existing
+`proposalChannels`. `kodr why` should make a native run legible: "native
+mode: 2 files via write tools, 0 envelope, no fallback needed" vs "native
+mode: 0 tool writes, recovered via envelope fallback (T5 split applied)".
+
+## Testing
+
+- D1: native base contract has no `files`/`patches`/`status` schema text,
+  has the tool-first sentences; envelope/auto-unresolved byte-identical to
+  118 (regression). Per-mode byte-identity coupling test (edit-formats ↔
+  context-packer) for native and envelope. Native-mode prefix fixtures.
+- D2: native run with a non-empty draft → proposal from draft, trailing text
+  is the message, no JSON parse attempted, status from verification (pass and
+  fail branches), no ProposalMissingError.
+- D3 (all three branches, fake server): empty draft + envelope-shaped JSON →
+  envelope-fallback; empty draft + prose → one re-prompt → success records
+  envelope-reprompt; empty draft + re-prompt also empty → NativeNoProposalError;
+  assert the re-prompt fires at most once.
+- D4: native system prompt measurably shorter than envelope mode.
+- D5: summary fields present; `kodr why` strings for both native paths.
+- Full suite, `npm run format`, `npm run check` green. Existing
+  envelope-mode and brownfield-eval tests stay green untouched (scope proof).
+
+## Done criteria
+
+- [ ] D1: mode-aware base contract; native drops the envelope schema;
+      envelope/auto-unresolved byte-identical to 118; per-mode coupling test.
+- [ ] D2: native final turn takes the draft as the proposal; trailing text is
+      the message; status from verification; no ProposalMissingError.
+- [ ] D3: empty-draft safety net — envelope-fallback, single envelope-reprompt,
+      then NativeNoProposalError; re-prompt fires at most once.
+- [ ] D4: prompt-budget reduction measured and asserted.
+- [ ] D5: toolWritesMode + recoveredVia + proposalChannels in summary and
+      `kodr why`.
+- [ ] `process/failures.jsonl` / `process/decisions.jsonl` updated (record the
+      phase-118 confound finding as the motivation).
+- [ ] Blog post `blog/119-envelope-demotion.md`; update `blog/tool-channel-arc.md`
+      with the arc's conclusion.
+- [ ] NEXT.md: delete the Tool-Channel Arc entry (arc complete; history lives
+      in the phase files and blog).
+- [ ] Version bumped to 0.0.119; suite green; committed.
+- [ ] Live validation (after the commit, sequential, the decisive experiment):
+      qwen greenfield in resolved-`native` mode with the envelope contract
+      now GONE — does qwen adopt write_file/edit_file, or fall back via D3
+      (record which `recoveredVia`)? Either is a pass; the question the whole
+      arc has been pointing at gets a real answer. gpt-oss greenfield native —
+      confirm no regression from 117 (still tool-native, corruption-free).
+      gemma greenfield native — confirm it keeps adopting tools (118 showed it
+      does). Record the native-mode prompt-length delta. Devstral remains the
+      deferred circle-back (its `files` alias + native mode is the obvious
+      follow-up once the three primaries are confirmed).
