@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	buildWorkspaceContext,
+	detectModelFamily,
 	listContextFiles,
 	planContextBudget,
 	renderContextMarkdown,
@@ -565,6 +566,70 @@ describe('language guidance (phase 122)', () => {
 		assert.match(on.systemPrompt, /# Node\.js \/ ESM Contract/u);
 		assert.doesNotMatch(off.systemPrompt, /# Node\.js \/ ESM Contract/u);
 		assert.equal(off.languageGuidance, null);
+	});
+});
+
+describe('model-family guidance (phase 143)', () => {
+	it('detectModelFamily recognises devstral', () => {
+		assert.equal(
+			detectModelFamily('mistralai/devstral-small-2-2512'),
+			'devstral',
+		);
+		assert.equal(detectModelFamily('devstral'), 'devstral');
+		assert.equal(detectModelFamily('Devstral-Large'), 'devstral');
+	});
+
+	it('detectModelFamily recognises gpt-oss', () => {
+		assert.equal(detectModelFamily('openai/gpt-oss-20b'), 'gpt-oss');
+		assert.equal(detectModelFamily('gpt-oss'), 'gpt-oss');
+	});
+
+	it('detectModelFamily returns null for unknown models', () => {
+		assert.equal(detectModelFamily('qwen/qwen3.6-35b-a3b'), null);
+		assert.equal(detectModelFamily(''), null);
+		assert.equal(detectModelFamily(null), null);
+	});
+
+	it('injects model:devstral guidance when model is devstral', async () => {
+		const cwd = await mkWorkspace({ 'main.py': 'print(1)' });
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			model: 'mistralai/devstral-small-2-2512',
+		});
+		assert.match(context.systemPrompt, /# Devstral Contract/u);
+		assert.equal(context.modelGuidance?.family, 'devstral');
+		assert.equal(context.modelGuidance?.source, 'builtin');
+	});
+
+	it('does not inject model guidance for unknown model', async () => {
+		const cwd = await mkWorkspace({ 'main.py': 'print(1)' });
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			model: 'qwen/qwen3.6-35b-a3b',
+		});
+		assert.doesNotMatch(context.systemPrompt, /# Devstral Contract/u);
+		assert.equal(context.modelGuidance, null);
+	});
+
+	it('lets a workspace model:devstral skill override the builtin guidance', async () => {
+		const cwd = await mkWorkspace({
+			'main.py': 'print(1)',
+			'house-skill/SKILL.md': [
+				'---',
+				'name: model:devstral',
+				'description: house devstral override',
+				'---',
+				'# Devstral Contract',
+				'- HOUSE RULE: always add type annotations.',
+				'',
+			].join('\n'),
+		});
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			model: 'mistralai/devstral-small-2-2512',
+		});
+		assert.match(context.systemPrompt, /HOUSE RULE/u);
+		assert.equal(context.modelGuidance?.source, 'override');
 	});
 });
 

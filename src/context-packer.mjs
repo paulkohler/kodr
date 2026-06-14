@@ -67,6 +67,14 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		isNodeEsm,
 		options,
 	);
+	// Phase 143: model-family guidance — fires when model matches a known family.
+	// Complements lang:node (fires from workspace); model guidance fires from model
+	// identity so it applies even in non-Node workspaces. In Node workspaces both
+	// blocks appear; model guidance covers model-specific quirks beyond the ESM rules.
+	const modelFamily = detectModelFamily(options.model || '');
+	const modelGuidance = modelFamily
+		? await resolveModelGuidance(modelFamily, cwd, options)
+		: null;
 
 	if (toolsMode) {
 		let agents = null;
@@ -94,6 +102,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			isNodeEsm,
 			languageGuidance,
 			memory,
+			modelGuidance,
 			skills,
 			toolsMode,
 			toolWritesMode,
@@ -143,6 +152,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			isNodeEsm,
 			languageGuidance,
 			memory,
+			modelGuidance,
 			skills,
 			toolWritesMode,
 		});
@@ -209,6 +219,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		isNodeEsm,
 		languageGuidance,
 		memory,
+		modelGuidance,
 		omittedFiles,
 		skills,
 		toolWritesMode,
@@ -307,6 +318,45 @@ async function resolveLanguageGuidance(cwd, isNodeEsm, options = {}) {
 		// Discovery failure must not break prompt assembly — fall back to builtin.
 	}
 	return { guidance: undefined, language: 'node', source: 'builtin' };
+}
+
+// Phase 143: map model ID to a family name. Returns null for unknown models.
+// Match is case-insensitive; only the first matching pattern wins.
+export function detectModelFamily(model) {
+	if (!model) return null;
+	const lower = model.toLowerCase();
+	if (lower.includes('devstral')) return 'devstral';
+	if (lower.includes('gpt-oss')) return 'gpt-oss';
+	return null;
+}
+
+// Phase 143: resolve model-family guidance (parallel to resolveLanguageGuidance).
+// A project/user `model:<family>` skill in any dot-folder tier overrides the
+// builtin. Returns null when the family has no builtin and no override.
+async function resolveModelGuidance(family, cwd, options = {}) {
+	const skillName = `model:${family}`;
+	try {
+		const { discoverSkills } = await import('./skills.mjs');
+		const skills = await discoverSkills(cwd, {
+			skillsDirs: options.skillsDirs || [],
+		});
+		const override = skills.find((skill) => skill.name === skillName);
+		if (override?.body?.trim()) {
+			return { guidance: override.body, family, source: 'override' };
+		}
+	} catch {
+		// Discovery failure is non-fatal; fall back to builtin.
+	}
+	try {
+		const { getBuiltinSkill } = await import('./builtin-skills.mjs');
+		const builtin = getBuiltinSkill(skillName);
+		if (builtin?.body?.trim()) {
+			return { guidance: builtin.body, family, source: 'builtin' };
+		}
+	} catch {
+		// No builtin for this family — model guidance is absent.
+	}
+	return null;
 }
 
 async function loadAgents(cwd, files, perFileBytes) {
@@ -415,13 +465,15 @@ export function renderPromptSections(context = {}) {
 	};
 	return {
 		// stable: identity + envelope + behaviours + tools (tools only when toolsMode)
-		// + language guidance for Node/ESM workspaces (C2, phase 121).
+		// + language guidance for Node/ESM workspaces (C2, phase 121)
+		// + model guidance for known model families (phase 143).
 		stable: renderStableSection(
 			context?.editFormat,
 			context?.toolsMode,
 			context?.toolWritesMode,
 			context?.isNodeEsm ?? false,
 			context?.languageGuidance?.guidance,
+			context?.modelGuidance?.guidance,
 		),
 		// environment: session-stable facts (cwd, git, node, model, date)
 		environment: context?.environmentFacts
@@ -596,7 +648,8 @@ export function renderKodrCorePrompt(context = {}, options = {}) {
 
 // renderStableSection builds the fully stable part of the system prompt:
 // identity + envelope contract + behaviours + tools (tools only in tools mode)
-// + language guidance (only for Node/ESM workspaces, C2 phase 121).
+// + language guidance (only for Node/ESM workspaces, C2 phase 121)
+// + model guidance (only for known model families, phase 143).
 // 'patch' branch is byte-identical to renderKodrBaseContract() for the contract
 // portion; the behaviours and tools blocks are appended after.
 // toolWritesMode (T4/D1): 'native'|'envelope'|'auto' — changes both the contract
@@ -609,6 +662,7 @@ function renderStableSection(
 	toolWritesMode = 'auto',
 	isNodeEsm = false,
 	languageGuidance = undefined,
+	modelGuidanceBody = undefined,
 ) {
 	const parts = [
 		renderKodrBaseContract(editFormat, toolWritesMode),
@@ -623,6 +677,9 @@ function renderStableSection(
 	});
 	if (langBlock) {
 		parts.push(langBlock);
+	}
+	if (modelGuidanceBody?.trim()) {
+		parts.push(modelGuidanceBody.trim());
 	}
 	return parts.join('\n\n');
 }

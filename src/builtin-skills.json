@@ -9,6 +9,15 @@
 		"resources": []
 	},
 	{
+		"body": "# Devstral Contract\n- Private class fields: declare `#field;` or `#field = value;` at the top of the class body before referencing `this.#field` in any method.\n- ESM only: `import`/`export`; never `require` or `module.exports`.\n- Tests: `import { test } from 'node:test'` and `node:assert` — never `t.assert()`.\n",
+		"builtin": true,
+		"commands": [],
+		"description": "Devstral-specific coding contract — traps this model commonly falls into",
+		"name": "model:devstral",
+		"path": "builtin/models/devstral/SKILL.md",
+		"resources": []
+	},
+	{
 		"body": "# Orchestration File Author\n\nImplement exactly the file described in your contract. Use `list_files` and `read_file` to inspect existing code as needed. Keep changes aligned with your contract's exports and imports.\n\nYour context includes your contract (path, responsibility, exports to provide, imports from siblings) and sibling export signatures for reference. Do not read or reproduce sibling file bodies.\n\nReturn only a standard Kodr JSON proposal for the single file in your contract:\n\n```json\n{\n  \"status\": \"OK\",\n  \"files\": [{ \"path\": \"your/file.mjs\", \"content\": \"...\" }],\n  \"patches\": [],\n  \"messages\": []\n}\n```\n\nUse `files` for new or fully generated files. Use `patches` for small edits to an existing file. The proposal must contain only your contracted file path.\n",
 		"builtin": true,
 		"commands": [],

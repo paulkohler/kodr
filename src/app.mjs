@@ -4203,6 +4203,13 @@ export async function runPrompt(options, io) {
 				source: context.languageGuidance.source,
 			};
 		}
+		// Phase 143: record model-family guidance when it fired.
+		if (context?.modelGuidance) {
+			summary.modelGuidance = {
+				family: context.modelGuidance.family,
+				source: context.modelGuidance.source,
+			};
+		}
 		summary.tested = testResult !== null;
 		if (writeError) {
 			summary.writeError = writeError;
@@ -4756,6 +4763,9 @@ function workspaceContextOptions(options, cwd) {
 		...(cwd ? { skillsDirs: resolvedSkillsDirs(options, cwd) } : {}),
 		// Phase 124: A-arm of the guidance A/B — suppress the Node/ESM block.
 		suppressLanguageGuidance: options.suppressLanguageGuidance || false,
+		// Phase 143: pass model so context-packer can detect the model family and
+		// inject model-specific guidance (model:devstral etc.).
+		model: options.model || '',
 		...(options.contextBudgetChars
 			? { totalBytes: options.contextBudgetChars }
 			: {}),

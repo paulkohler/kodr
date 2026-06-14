@@ -49,20 +49,6 @@ These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
-### Per-Model-Family Targeted Guidance
-
-Phases 121/122 shipped the shared Node/ESM contract (`lang:node` builtin) and
-the `node --check` syntax gate. Phases 124 and 140 measured the effect: three
-rounds of A/B (greenfield, brownfield, multi-file) against qwen3.6-35b-a3b —
-all null. qwen inherently writes clean ESM + node:test without the block. The
-traps in the 117–121 record (CJS in `.mjs`, `t.assert()`) came from gpt-oss-20b
-and devstral, not qwen. The measurement fixtures now exist (`evals/code-quality.json`
-with four cases); measuring guidance vs no-guidance against gpt-oss or devstral
-would give the per-model-family baseline. Phase 122's shape is the implementation:
-a `model:gpt-oss` skill auto-applied from a model-family fingerprint, riding the
-same discover-override-or-builtin path as `lang:node`.
-Evidence: `process/failures.jsonl` phases 117/119/120/121-validation; phase 140
-null results confirm qwen is not the target model.
 
 ### Mid-Session Write Visibility — worktree materialise (deferred from 120)
 
@@ -152,28 +138,22 @@ clusters.
 
 ## Suggested order
 
-The 122–133 session shipped the model-code-quality groundwork (node `lang:node`
-skill, syntax-gate evidence), the A/B measurement apparatus, two heal-trust
-fixes, the inter-chunk idle deadline, and a complete **forensics-as-instrument**
-arc (`kodr trends`/`route`/`evals` + windowing + HTML). What remains:
+The 122–143 session shipped the model-code-quality arc: `lang:node` builtin,
+A/B measurement (qwen3.6 null, devstral 2/4→4/4 delta), and model-family
+guidance (model:devstral fires from model identity). What remains:
 
-1. **Per-model-family guidance** — brownfield and multi-file fixtures (phase 140)
-   confirmed qwen3.6 is trap-clean without guidance. Run `kodr eval --suite
-   evals/code-quality.json` against gpt-oss-20b or devstral to get a baseline
-   trap rate, then add a `model:gpt-oss` (or `model:devstral`) builtin skill and
-   re-measure. This is the remaining half of the per-family-guidance arc.
-2. **Per-step model routing** — `--route-auto` (141) ships the per-run half:
+1. **Per-step model routing** — `--route-auto` (141) ships the per-run half:
    the best-history model is selected at run start when no explicit model is
    given. The remaining open work is the **per-step** split: cheap tasks (commit
    messages, compaction, summaries) to a `cheapModel`, edits to `editModel`,
    with the per-step choice recorded in summary so `kodr why` shows which model
    handled which step. That's a bigger, riskier internal change; `--route-auto`
    is the safe, evidence-backed first step.
-3. **TUI piped-input serialization** — piped stdin races in-flight turns; watch
+2. **TUI piped-input serialization** — piped stdin races in-flight turns; watch
    loop now has TTY accept prompt (phase 142). Reproduce the TUI race first
    before touching the readline loop (it's the harder case).
-4. **Re-decide the repomap publish hold** with the user (precondition met), and
+3. **Re-decide the repomap publish hold** with the user (precondition met), and
    **incremental index caching** (mind the `packages/repomap` mirror) if the
    watch loop's per-save recompute becomes a felt cost.
-5. **Web UI follow-ons** (shipped in 134) — live validation run (operator step),
+4. **Web UI follow-ons** (shipped in 134) — live validation run (operator step),
    and any polish that surfaces from real browser use.

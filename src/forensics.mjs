@@ -111,6 +111,16 @@ export function buildCausalStory(analysis) {
 			status: 'ok',
 		});
 	}
+	// Phase 143: model-family guidance step.
+	const modelGuidance = summary?.modelGuidance;
+	if (modelGuidance?.family) {
+		steps.push({
+			artifactPath: join(runDir, 'summary.json'),
+			detail: `model:${modelGuidance.family} guidance: ${modelGuidance.source}`,
+			phase: 'Context Assembly',
+			status: 'ok',
+		});
+	}
 
 	// ------------------------------------------------------------------
 	// 2. Model Call

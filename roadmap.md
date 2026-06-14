@@ -142,6 +142,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 140 Trap-Provoking Measurement Fixtures
 - [x] 141 Route Auto
 - [x] 142 Watch Accept Prompt
+- [x] 143 Per-Model-Family Targeted Guidance
 
 ## Phase Contract
 
