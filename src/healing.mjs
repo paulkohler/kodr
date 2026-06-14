@@ -291,9 +291,24 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			usage,
 		});
 
+		// A (phase 135): channel parity with the main native path.
+		// If the repairTurn forwarded a pre-built proposal (tool-call channel),
+		// prefer it when it carries at least one file or patch. Otherwise fall
+		// back to the text/envelope extractor (unchanged behaviour for models
+		// that express repairs as JSON in their text response).
 		let proposal;
+		const turnProposal = completion.proposal ?? null;
+		const turnProposalNonEmpty =
+			turnProposal !== null &&
+			((Array.isArray(turnProposal.files) && turnProposal.files.length > 0) ||
+				(Array.isArray(turnProposal.patches) &&
+					turnProposal.patches.length > 0));
 		try {
-			proposal = normalizeRepairProposal(extractJson(completion.text || ''));
+			if (turnProposalNonEmpty) {
+				proposal = normalizeRepairProposal(turnProposal);
+			} else {
+				proposal = normalizeRepairProposal(extractJson(completion.text || ''));
+			}
 		} catch (error) {
 			const serialized = serializeError(error);
 			await writeJson(join(turnDir, 'error.json'), serialized);

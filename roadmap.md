@@ -134,6 +134,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 132 Trends HTML Dashboard
 - [x] 133 Eval Score Trends (kodr evals)
 - [x] 134 Web UI (kodr serve)
+- [x] 135 Heal Tool-Channel Parity
 
 ## Phase Contract
 

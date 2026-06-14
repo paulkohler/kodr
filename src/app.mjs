@@ -4762,14 +4762,27 @@ async function runHealingIfNeeded({
 							prompt,
 							systemPrompt,
 						);
-			return {
-				raw: {
-					finishReasons: completion.finishReasons,
-					loopBudget: completion.loopBudget,
-					responses: completion.responses,
-				},
-				text: completion.text,
+			const raw = {
+				finishReasons: completion.finishReasons,
+				loopBudget: completion.loopBudget,
+				responses: completion.responses,
 			};
+			// B (phase 135): forward the captured tool-call draft so the heal loop
+			// can use it when the model expresses repairs via tool calls (native
+			// channel) and leaves the text channel empty. Mirror the main path's
+			// draftNonEmpty guard so an empty draft never shadows a valid envelope.
+			if (options.tools && registry) {
+				const capturedDraft = completion.proposalDraft ?? null;
+				const draftNonEmpty = capturedDraft && !capturedDraft.isEmpty;
+				if (draftNonEmpty) {
+					return {
+						proposal: mergeProposalWithDraft(capturedDraft, null),
+						raw,
+						text: completion.text,
+					};
+				}
+			}
+			return { raw, text: completion.text };
 		},
 		testCommand: options.testCommand,
 		timeoutMs: options.timeoutMs,

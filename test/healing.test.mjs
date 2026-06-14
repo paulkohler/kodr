@@ -976,6 +976,119 @@ describe('heal relevance judge (phase 130)', () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// Phase 135 — Heal Tool-Channel Parity
+// ---------------------------------------------------------------------------
+
+describe('heal tool-channel parity (phase 135)', () => {
+	// Test 1: captured-draft heal with empty text (the regression this fixes).
+	// A repairTurn that returns a pre-built proposal with no text (as a
+	// tool-using model produces) should apply the file and heal.
+	it('captured-draft heal: applies file even when text is empty', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-135-cap-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 2,
+			repairTurn: async () => ({
+				// Pre-built proposal from tool-call channel; text is empty as a
+				// native-tool model would produce.
+				proposal: {
+					files: [{ path: 'bad.mjs', content: 'export const value = 1;\n' }],
+					patches: [],
+				},
+				text: '',
+			}),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.healed, true);
+		assert.equal(result.stopReason, 'healed');
+	});
+
+	// Test 2: envelope-only still heals (regression guard).
+	// When repairTurn returns only text (no proposal), the extractor path works.
+	it('envelope-only heal: still heals via text extractor', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-135-env-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 2,
+			repairTurn: async () => ({
+				// No proposal key — must fall back to text extractor
+				text: repairText('bad.mjs'),
+			}),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.healed, true);
+		assert.equal(result.stopReason, 'healed');
+	});
+
+	// Test 3: empty draft does not shadow a valid envelope.
+	// repairTurn returns { proposal: { files: [], patches: [] }, text: <valid> }
+	// → the envelope must be used (empty draft falls through to extractor).
+	it('empty draft does not shadow a valid envelope', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-135-shadow-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 2,
+			repairTurn: async () => ({
+				// Empty draft — must NOT suppress the valid text envelope
+				proposal: { files: [], patches: [] },
+				text: repairText('bad.mjs'),
+			}),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.healed, true);
+		assert.equal(result.stopReason, 'healed');
+	});
+
+	// Test 4: both channels empty → invalid_proposal (unchanged).
+	it('both channels empty → invalid_proposal unchanged', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-135-empty-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 1,
+			repairTurn: async () => ({
+				// No proposal key, empty text — both channels empty
+				text: '',
+			}),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 1000,
+		});
+
+		assert.equal(result.healed, false);
+		assert.equal(result.stopReason, 'invalid_proposal');
+	});
+});
+
 function repairText(path) {
 	return JSON.stringify({
 		files: [
