@@ -701,3 +701,97 @@ describe('R3: qwen duplicate-key-cluster split rule', () => {
 		);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// R4 — gpt-oss unclosed-file-object structural repair rule (phase 137)
+// Provenance: openai/gpt-oss-20b, ~/src/kodr-testing/phase-137/
+//   gptoss-truncated-envelope.json (975 bytes). The file object's closing }
+//   is missing before the files array ]. Raw wire failed JSON.parse at char 944;
+//   response.md looked valid (normalized rendering hid the truncation).
+// ---------------------------------------------------------------------------
+describe('R4: gpt-oss-unclosed-file-object structural repair rule', () => {
+	it('recovers a truncated envelope: 1 file at src/store.mjs, no {"0":...} artifact', async () => {
+		const content = await readFile(
+			fixturePath('gptoss-file-object-unclosed.txt'),
+			'utf8',
+		);
+		const proposal = extractProposal(content);
+		assert.ok(proposal, 'proposal should not be null');
+		assert.equal(proposal.files.length, 1, 'should recover exactly 1 file');
+		assert.equal(
+			proposal.files[0].path,
+			'src/store.mjs',
+			'recovered file path should be src/store.mjs',
+		);
+		// The junk {"0":...} artifact must not appear.
+		assert.ok(
+			!('0' in proposal),
+			'proposal must not contain a "0" key (no junk array-as-object)',
+		);
+		// Repair should be recorded.
+		const repairIds = (proposal._extractionMeta?.repairs || []).map(
+			(r) => r.ruleId,
+		);
+		assert.ok(
+			repairIds.includes('gpt-oss-unclosed-file-object'),
+			`gpt-oss-unclosed-file-object repair should be recorded; got: [${repairIds.join(', ')}]`,
+		);
+	});
+
+	it('direct extractJson on the capture does not return {"0":...} junk', async () => {
+		const content = await readFile(
+			fixturePath('gptoss-file-object-unclosed.txt'),
+			'utf8',
+		);
+		// Before the fix, extractJson returned the messages array parsed as {"0":{level,content}}.
+		// After the fix, it should return the real envelope with a files array.
+		const result = extractJson(content);
+		assert.ok(
+			!('0' in result),
+			'extractJson must not return an array-as-object with key "0"',
+		);
+		assert.ok(
+			Array.isArray(result.files),
+			'extractJson should return an object with a files array',
+		);
+		assert.equal(result.files.length, 1, 'should extract 1 file');
+	});
+
+	it('idempotent on a valid envelope (does not alter already-valid JSON)', () => {
+		const valid = JSON.stringify({
+			status: 'OK',
+			files: [{ path: 'a.mjs', content: 'export default 1;' }],
+			patches: [],
+			messages: [],
+			scratchpad: '',
+		});
+		const proposal = extractProposal(valid);
+		assert.ok(proposal, 'valid envelope should still extract correctly');
+		assert.equal(proposal.files.length, 1);
+		assert.equal(proposal.files[0].path, 'a.mjs');
+		// No structural repairs should fire on valid JSON.
+		const hasUnclosedRepair = proposal._extractionMeta?.repairs?.some(
+			(r) => r.ruleId === 'gpt-oss-unclosed-file-object',
+		);
+		assert.ok(
+			!hasUnclosedRepair,
+			'gpt-oss-unclosed-file-object must NOT fire on valid JSON',
+		);
+	});
+
+	it('does not insert spurious } in a string array like ["a","b"]', () => {
+		// A string array has no unclosed objects — the rule must not alter it.
+		const stringArray =
+			'{"status":"OK","files":[],"patches":[],"messages":[],"tags":["a","b","c"]}';
+		const proposal = extractProposal(stringArray);
+		assert.ok(proposal, 'string-array envelope should extract correctly');
+		// No unclosed-file-object repair.
+		const hasUnclosedRepair = proposal._extractionMeta?.repairs?.some(
+			(r) => r.ruleId === 'gpt-oss-unclosed-file-object',
+		);
+		assert.ok(
+			!hasUnclosedRepair,
+			'gpt-oss-unclosed-file-object must NOT fire on a string array',
+		);
+	});
+});

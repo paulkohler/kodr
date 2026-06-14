@@ -17,32 +17,73 @@ export function extractJson(text) {
 		throw new JsonExtractionError('JSON extraction input must be a string');
 	}
 
-	const candidates = candidateTexts(text);
 	const errors = [];
 
-	for (const candidate of candidates) {
-		// First attempt: blanket rules only (safe, never mutates valid JSON).
-		const { text: repaired } = repairJsonText(candidate);
-		try {
-			assertNoDuplicateKeys(repaired);
-			return JSON.parse(repaired);
-		} catch (error) {
-			errors.push(error.message);
-		}
-
-		// Second attempt: structural rules (repair path — safe to mutate since
-		// the first attempt already failed to parse).
-		const { text: repairedStructural } = repairJsonText(candidate, {
-			structural: true,
-		});
-		if (repairedStructural !== repaired) {
+	function tryExtractFromCandidates(candidates) {
+		for (const candidate of candidates) {
+			// First attempt: blanket rules only (safe, never mutates valid JSON).
+			const { text: repaired } = repairJsonText(candidate);
 			try {
-				assertNoDuplicateKeys(repairedStructural);
-				return JSON.parse(repairedStructural);
+				assertNoDuplicateKeys(repaired);
+				return JSON.parse(repaired);
 			} catch (error) {
 				errors.push(error.message);
 			}
+
+			// Second attempt: structural rules (repair path — safe to mutate since
+			// the first attempt already failed to parse).
+			const { text: repairedStructural } = repairJsonText(candidate, {
+				structural: true,
+			});
+			if (repairedStructural !== repaired) {
+				try {
+					assertNoDuplicateKeys(repairedStructural);
+					return JSON.parse(repairedStructural);
+				} catch (error) {
+					errors.push(error.message);
+				}
+			}
 		}
+		return undefined;
+	}
+
+	// Candidate resolution strategy:
+	//
+	// 1. Apply the unclosed-file-object repair rule to the full text to produce
+	//    a structurally-repaired version and enumerate additional candidates from
+	//    it. This rule is applied to the full text (rather than per-candidate)
+	//    because outer-level corruption prevents braceWalkFrom from producing the
+	//    outer object as a candidate at all. Without this step, the brace-walker
+	//    falls back to inner candidates (e.g. the messages array) that parse as
+	//    valid JSON but are not the intended result.
+	//    Only this specific rule is applied here (not all structural rules) to
+	//    avoid unintended transformations such as the qwen-duplicate-key-cluster
+	//    split, which would silently mask duplicate-key errors.
+	//
+	// 2. Try structurally-repaired candidates FIRST (before raw candidates), so
+	//    the repaired outer envelope wins over any inner candidate that happens
+	//    to parse cleanly.
+	//
+	// 3. Fall back to raw candidates (with blanket + per-candidate structural
+	//    repair) for inputs where the unclosed-object rule did not fire.
+	const rawCandidates = candidateTexts(text);
+	const { text: unclosedRepaired, fixCount: unclosedFixCount } =
+		applyUnclosedFileObjectRule(text);
+	const repairedCandidates =
+		unclosedFixCount > 0 ? candidateTexts(unclosedRepaired) : rawCandidates;
+
+	// Candidates unique to the repaired pass (not already in rawCandidates).
+	const repairedOnlyCandidates = repairedCandidates.filter(
+		(c) => !rawCandidates.includes(c),
+	);
+
+	// Try repaired candidates first (the outer envelope, now parse-able),
+	// then fall through to raw candidates.
+	const orderedCandidates = [...repairedOnlyCandidates, ...rawCandidates];
+
+	const result = tryExtractFromCandidates(orderedCandidates);
+	if (result !== undefined) {
+		return result;
 	}
 
 	throw new JsonExtractionError(`Could not extract JSON: ${errors.join('; ')}`);
@@ -483,6 +524,11 @@ function firstJsonOpenFrom(text, from) {
 //   R2b (gpt-oss-missing-brace): `},"<key>":` → `},{"<key>":` — missing `{`.
 //     Both R2 rules are structural and MUST only run in the repair path
 //     (after a parse failure) to avoid corrupting valid string values.
+//   R4 (gpt-oss-unclosed-file-object): position-aware scan that inserts the
+//     missing `}` when a file object in the files array is never closed before `]`.
+//     Shape: "files":[{"path":"...","content":"..."  ] → insert } before ].
+//   R5 (qwen-duplicate-key-cluster): position-aware split for qwen's array-element
+//     collapse (duplicate keys inside one object).
 //   R0 (blanket-quote): blanket `<|"|>` → `"` catch-all, runs after R1.
 //
 // Provenance:
@@ -495,6 +541,8 @@ function firstJsonOpenFrom(text, from) {
 //   R2b: openai/gpt-oss-20b missing brace observed in phase-114 (two runs)
 //     (~/src/kodr-testing/phase-114/ab-gptoss-newprompt/.kodr/runs/2026-06-12T12-07-32.733Z/raw-response.json)
 //     (~/src/kodr-testing/phase-114/ab2-gptoss/.kodr/runs/2026-06-12T12-25-15.658Z/raw-response.json)
+//   R4: openai/gpt-oss-20b truncated envelope observed in phase-137
+//     (~/src/kodr-testing/phase-137/gptoss-truncated-envelope.json, 975 bytes)
 
 // Conservative JSON key charset: starts with letter or underscore, followed by
 // alphanumerics or underscores. Never .* — avoids false positives in string values.
@@ -526,7 +574,116 @@ const STRUCTURAL_RULES = [
 	},
 ];
 
-// R3: qwen duplicate-key-cluster split rule.
+// R3: gpt-oss unclosed-file-object repair rule.
+//
+// The gpt-oss truncated envelope: the file object's closing } is missing
+// immediately before the files array ]. Shape:
+//   "files":[{"path":"...","content":"..."  ]
+//                                          ^ } MISSING here
+//
+// This rule is position-aware (like applyDuplicateKeyClusterRule) because a
+// regex cannot safely determine brace balance. It scans for ] that would close
+// an array while an object is still open inside it (top of nesting stack is {
+// rather than the expected [), and inserts the missing }.
+//
+// Guards:
+//   - Only fires when a { was opened and not closed inside the current array.
+//   - Does not alter valid JSON (idempotent when no object is unclosed).
+//   - Does not fire on arrays of non-objects like ["a","b"] (stack top would
+//     be [ not {).
+//
+// Provenance: openai/gpt-oss-20b on LM Studio, phase-137 dogfood
+//   (~/src/kodr-testing/phase-137/gptoss-truncated-envelope.json, 975 bytes)
+//   summary.json: proposalFound:false, writeError: ProposalMissingError.
+//   The raw wire failed JSON.parse at char 944; response.md rendering looked
+//   valid (normalized rendering hid the truncation).
+const UNCLOSED_FILE_OBJECT_RULE_ID = 'gpt-oss-unclosed-file-object';
+
+function applyUnclosedFileObjectRule(text) {
+	// Track opens as '{' or '['. When we encounter ] but the top of the stack
+	// is '{' (an unclosed object), inject '}' to close it first.
+	const stack = [];
+	let result = '';
+	let inString = false;
+	let escaped = false;
+	let fixCount = 0;
+
+	for (let i = 0; i < text.length; i += 1) {
+		const c = text[i];
+
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+				result += c;
+				continue;
+			}
+			if (c === '\\') {
+				escaped = true;
+				result += c;
+				continue;
+			}
+			if (c === '"') {
+				inString = false;
+				result += c;
+				continue;
+			}
+			result += c;
+			continue;
+		}
+
+		if (c === '"') {
+			inString = true;
+			result += c;
+			continue;
+		}
+
+		if (c === '{') {
+			stack.push('{');
+			result += c;
+			continue;
+		}
+
+		if (c === '[') {
+			stack.push('[');
+			result += c;
+			continue;
+		}
+
+		if (c === '}') {
+			if (stack.length > 0 && stack[stack.length - 1] === '{') {
+				stack.pop();
+			}
+			result += c;
+			continue;
+		}
+
+		if (c === ']') {
+			// If top of stack is '{', an object is unclosed inside this array.
+			// Confirm there is a '[' beneath it (we are inside an array).
+			if (
+				stack.length >= 2 &&
+				stack[stack.length - 1] === '{' &&
+				stack[stack.length - 2] === '['
+			) {
+				result += '}'; // close the unclosed object
+				stack.pop(); // pop the {
+				fixCount += 1;
+			}
+			// Pop the [ that opened this array.
+			if (stack.length > 0 && stack[stack.length - 1] === '[') {
+				stack.pop();
+			}
+			result += c;
+			continue;
+		}
+
+		result += c;
+	}
+
+	return { text: result, fixCount };
+}
+
+// R5: qwen duplicate-key-cluster split rule.
 //
 // The qwen array-element collapse: both files[] entries are emitted inside a
 // single object literal with duplicate keys:
@@ -675,6 +832,7 @@ const BLANKET_RULES = [
 // Exported for tests so they can verify rule ordering and IDs.
 export const DECODE_ARTIFACT_RULES = [
 	...STRUCTURAL_RULES.map((r) => ({ ruleId: r.ruleId, type: 'structural' })),
+	{ ruleId: UNCLOSED_FILE_OBJECT_RULE_ID, type: 'structural' },
 	{ ruleId: DUPLICATE_KEY_CLUSTER_RULE_ID, type: 'structural' },
 	...BLANKET_RULES.map((r) => ({ ruleId: r.ruleId, type: 'blanket' })),
 ];
@@ -692,7 +850,20 @@ function applyStructuralRules(text) {
 			result = result.replace(rule.pattern, rule.replacement);
 		}
 	}
-	// R3: position-aware duplicate-key-cluster split (qwen array-element collapse).
+	// R4: position-aware unclosed-file-object repair (gpt-oss truncated envelope).
+	// Applied after R2a/R2b so those boundary patterns are handled first.
+	// Applied before R5 (duplicate-key-cluster) since both are position-aware;
+	// unclosed-object repair is safer to run first (structural completeness).
+	const { text: unclosedText, fixCount: unclosedCount } =
+		applyUnclosedFileObjectRule(result);
+	if (unclosedCount > 0) {
+		repairs.push({
+			ruleId: UNCLOSED_FILE_OBJECT_RULE_ID,
+			count: unclosedCount,
+		});
+		result = unclosedText;
+	}
+	// R5: position-aware duplicate-key-cluster split (qwen array-element collapse).
 	// Applied after regex rules so R2a/R2b handle gpt-oss patterns first.
 	const { text: splitText, splitCount } = applyDuplicateKeyClusterRule(result);
 	if (splitCount > 0) {

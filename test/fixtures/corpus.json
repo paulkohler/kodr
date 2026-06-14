@@ -48,5 +48,15 @@
 		"failureMode": "two ```json blocks (multi-block narration) plus <|\"|> pseudo-tokens terminating message content",
 		"expectedPaths": ["wordfreq.mjs", "test/wordfreq.test.mjs"],
 		"expectedRepairs": ["blanket-quote-token", "gemma-collapsed-key"]
+	},
+	{
+		"id": "gptoss-file-object-unclosed",
+		"file": "gptoss-file-object-unclosed.txt",
+		"model": "openai/gpt-oss-20b",
+		"phase": "137-dogfood",
+		"provenance": "~/src/kodr-testing/phase-137/gptoss-truncated-envelope.json (raw wire content, 975 bytes; run artifact ~/src/kodr-testing/phase-137/tasks-gptoss/.kodr/runs/)",
+		"failureMode": "truncated file-object envelope: file object closing } missing before files array ]: \"files\":[{\"path\":\"...\",\"content\":\"...\"]",
+		"expectedPaths": ["src/store.mjs"],
+		"expectedRepairs": ["gpt-oss-unclosed-file-object"]
 	}
 ]
