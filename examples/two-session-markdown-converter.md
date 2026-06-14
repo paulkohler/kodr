@@ -158,3 +158,68 @@ cd ~/src/kodr-testing/md-converter-devstral && node --test test/*.test.mjs
 | Final test count | 9/9 |
 | Session --continue worked? | No — context window overflow (24K token history) |
 | Workaround | Fresh run in same workspace |
+
+## Results from 2026-06-15 trial with Phase 146 (context window auto-discovery)
+
+Phase 146 probes `/api/v0/models/{id}` on LM Studio for `loaded_context_length`
+and scales the context budget accordingly. devstral was loaded at 131072 tokens;
+qwen at 262144 tokens.
+
+### devstral Session 1 (Phase 146)
+
+**1 run, no heal cycles.** All 4 files written in a single kodr run:
+`src/tokenizer.mjs`, `src/renderer.mjs`, `test/tokenizer.test.mjs`,
+`test/renderer.test.mjs`. 20 turns, 93,507 tokens.
+
+`contextWindowSource: 'lmstudio-api'` confirmed in summary.json.
+`budgetChars: 262144` (was 80,000 in the trial without Phase 146).
+
+**Improvement vs trial**: 3 separate runs reduced to 1.
+
+### Content-Length fix (HTTP 500 root cause)
+
+In the pre-Phase-146 trial, devstral S2 failed with HTTP 500 on every attempt
+(LM Studio log: `SyntaxError: Bad escaped character in JSON at position 620`).
+Manual curl replays always returned 200.
+
+**Root cause**: Node.js uses chunked transfer encoding when no `Content-Length`
+is set. Multi-turn tool-call history grows the request body to 15–30KB. LM
+Studio misparsed the chunked body when a multi-byte UTF-8 character (the em dash
+`—` in the system prompt) crossed a chunk boundary.
+
+**Fix**: Set `Content-Length: Buffer.byteLength(bodyText)` in
+`src/model-client.mjs`. This forces Node.js to send the full body in one write.
+curl sends `Content-Length` by default — why replay worked but kodr didn't.
+
+### devstral Session 2 (Phase 146, fresh run in clean workspace)
+
+**1 run, no 500 error.** Created `src/template.mjs`, `src/cli.mjs`,
+`test/cli.test.mjs`. 34 messages, 97,061 tokens.
+
+**Code quality artefacts** (expected — not harness bugs):
+- `template.mjs` imports `escapeHtml` from `renderer.mjs`, but `renderer.mjs`
+  only exports `render`. Import fails at runtime.
+- `cli.test.mjs` hangs: `Promise.all` for `stdout`+`stderr` never resolves when
+  no data arrives on one stream. Also uses a wrong relative path
+  (`../src/cli.mjs`) that resolves outside the project root.
+- Final test score: 8/8 for tokenizer + renderer; cli test suite hangs.
+
+### Session --continue (Phase 146)
+
+Still broken, but for a different reason. S1 history is now only 9,395 chars
+(well within 131K) — context overflow is no longer the issue. Instead, S1's
+session tail ends with a `repeat:true` sentinel tool result followed by a
+0-char empty assistant message. devstral's jinja template enforces strict
+role alternation; this tail state triggers: "conversation roles must alternate
+user and assistant roles except for tool calls and results."
+
+**Pending fix**: strip or avoid emitting the trailing empty assistant message
+before submitting continued history.
+
+| Dimension | Trial (no Phase 146) | Phase 146 |
+|-----------|----------------------|-----------|
+| S1 runs needed | 3 | 1 |
+| S1 context budget | 80,000 chars | 262,144 chars |
+| S2 HTTP 500 errors | Yes (every attempt) | None |
+| S2 code quality | 9/9 tests green | 8/8 (cli test hangs — model bug) |
+| --continue worked? | No (context overflow) | No (jinja role alternation) |

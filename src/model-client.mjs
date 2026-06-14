@@ -339,6 +339,12 @@ async function requestRaw(url, options) {
 	}
 
 	const bodyText = options.body ? JSON.stringify(options.body) : undefined;
+	// Set Content-Length so Node.js sends as a single body rather than using
+	// chunked transfer encoding. LM Studio's HTTP server misparses chunked
+	// bodies when a multi-byte UTF-8 sequence crosses a chunk boundary.
+	if (bodyText) {
+		headers['content-length'] = Buffer.byteLength(bodyText);
+	}
 	const startedAt = Date.now();
 	let response;
 	try {
