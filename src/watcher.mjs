@@ -157,7 +157,7 @@ export async function runWatchLoop(options, io, channel) {
 				state.pendingRepair = false;
 				if (state.noProgressCount >= 2) {
 					io.stdout.write(
-						'[watch] No repair proposed after multiple attempts. Waiting for file change.\n',
+						`[watch] No repair proposed after ${state.noProgressCount} attempts — waiting for a file change before retrying.\n`,
 					);
 					state.repairCount = DEFAULT_MAX_REPAIR_ATTEMPTS; // stop spinning
 				} else {
@@ -169,9 +169,47 @@ export async function runWatchLoop(options, io, channel) {
 			}
 
 			state.noProgressCount = 0;
+
+			// Show what the repair proposes to change.
+			const proposed = repairResult.proposal;
+			const changedPaths = [
+				...(proposed.files ?? []).map((f) => f.path),
+				...(proposed.patches ?? []).map((p) => p.path),
+			];
 			io.stdout.write(
-				'[watch] Repair proposed as pending review. Use /accept or /reject in TUI.\n',
+				`[watch] Repair proposed (${changedPaths.length} file${changedPaths.length === 1 ? '' : 's'}): ${changedPaths.join(', ')}\n`,
 			);
+
+			// In TTY mode: prompt the user to accept or reject.
+			if (io.stdin?.isTTY) {
+				const answer = await promptAccept(io);
+				if (answer) {
+					io.stdout.write('[watch] Applying repair...\n');
+					try {
+						await channel(
+							{
+								kind: 'apply-proposal',
+								options,
+								proposal: proposed,
+								runDir: repairResult.runDir || '',
+								sessionId: repairResult.sessionId || '',
+							},
+							io,
+						);
+						io.stdout.write('[watch] Repair applied.\n');
+					} catch (applyErr) {
+						io.stderr.write(`[watch] Apply failed: ${applyErr.message}\n`);
+					}
+				} else {
+					io.stdout.write('[watch] Repair rejected. Watching for changes.\n');
+				}
+				state.pendingRepair = false;
+			} else {
+				// Non-TTY: leave the proposal pending for TUI /accept or /reject.
+				io.stdout.write(
+					'[watch] Repair pending review. Use /accept or /reject in TUI.\n',
+				);
+			}
 		} catch (err) {
 			state.pendingRepair = false;
 			io.stderr.write(`[watch] Repair error: ${err.message}\n`);
@@ -187,6 +225,28 @@ export async function runWatchLoop(options, io, channel) {
 		// Expose state for testing
 		_state: state,
 	};
+}
+
+// Write the prompt and read one line from io.stdin.
+// Resolves to true when the answer is 'y' or 'yes'.
+function promptAccept(io) {
+	return new Promise((resolve) => {
+		io.stdout.write('[watch] Accept repair? [y/N] ');
+		let buffer = '';
+		function onData(chunk) {
+			buffer += chunk.toString();
+			const newlineIdx = buffer.indexOf('\n');
+			if (newlineIdx !== -1) {
+				io.stdin.off?.('data', onData);
+				io.stdin.removeListener?.('data', onData);
+				const answer = buffer.slice(0, newlineIdx).trim().toLowerCase();
+				resolve(answer === 'y' || answer === 'yes');
+			}
+		}
+		if (io.stdin.setEncoding) io.stdin.setEncoding('utf8');
+		if (io.stdin.resume) io.stdin.resume();
+		io.stdin.on('data', onData);
+	});
 }
 
 /**

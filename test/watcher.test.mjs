@@ -313,4 +313,223 @@ describe('runWatchLoop', () => {
 
 		handle.close();
 	});
+
+	// Phase 142: accept/reject prompt in TTY mode
+	describe('accept prompt (Phase 142)', () => {
+		it('non-TTY: shows pending-review message, does not clear pendingRepair', async () => {
+			const output = [];
+			const channelCalls = [];
+			const failRunner = async () => ({
+				ok: false,
+				exitCode: 1,
+				stdout: 'TAP not ok',
+				stderr: '',
+				command: 'node --test',
+				timedOut: false,
+				durationMs: 10,
+				startedAt: new Date().toISOString(),
+				finishedAt: new Date().toISOString(),
+				execution: { environment: 'host' },
+				trustBoundary: '',
+			});
+			const io = {
+				cwd: tmpDir,
+				// isTTY absent → non-TTY path
+				stdout: { write: (s) => output.push(s) },
+				stderr: { write: (s) => output.push(s) },
+			};
+			const proposal = { files: [{ path: 'src/fix.mjs', content: 'x' }] };
+			const channel = async (req) => {
+				channelCalls.push(req.kind);
+				if (req.kind === 'run-turn')
+					return { proposal, runDir: '/tmp/r', sessionId: 's' };
+				return { applied: true };
+			};
+
+			const handle = await runWatchLoop(
+				{
+					testCommand: 'node --test',
+					timeoutMs: 5000,
+					_verificationRunner: failRunner,
+				},
+				io,
+				channel,
+			);
+
+			// Trigger via file change (real write)
+			await writeFile(join(tmpDir, 'trigger-non-tty.mjs'), 'x');
+			await waitFor(() => output.some((s) => s.includes('pending')), 3000);
+
+			handle.close();
+
+			assert.ok(
+				output.some((s) => s.includes('pending')),
+				'should show pending-review message in non-TTY mode',
+			);
+			assert.ok(
+				!channelCalls.includes('apply-proposal'),
+				'should NOT call apply-proposal in non-TTY mode',
+			);
+		});
+
+		it('TTY accept: calls apply-proposal channel and clears pendingRepair', async () => {
+			const output = [];
+			const channelCalls = [];
+			const failRunner = async () => ({
+				ok: false,
+				exitCode: 1,
+				stdout: 'TAP not ok',
+				stderr: '',
+				command: 'node --test',
+				timedOut: false,
+				durationMs: 10,
+				startedAt: new Date().toISOString(),
+				finishedAt: new Date().toISOString(),
+				execution: { environment: 'host' },
+				trustBoundary: '',
+			});
+
+			// Simulate a TTY stdin that returns 'y\n'
+			const stdinLines = ['y\n'];
+			let lineIdx = 0;
+			const fakeTtyStdin = {
+				isTTY: true,
+				setEncoding() {},
+				resume() {},
+				pause() {},
+				on(event, handler) {
+					if (event === 'data' && lineIdx < stdinLines.length) {
+						// Feed the next line asynchronously
+						setTimeout(() => handler(stdinLines[lineIdx++]), 10);
+					}
+				},
+				off() {},
+				removeListener() {},
+			};
+
+			const proposal = { files: [{ path: 'src/fix.mjs', content: 'x' }] };
+			const io = {
+				cwd: tmpDir,
+				stdin: fakeTtyStdin,
+				stdout: { isTTY: true, write: (s) => output.push(s) },
+				stderr: { write: (s) => output.push(s) },
+			};
+			const channel = async (req) => {
+				channelCalls.push(req.kind);
+				if (req.kind === 'run-turn')
+					return { proposal, runDir: '/tmp/r', sessionId: 's' };
+				return { applied: true };
+			};
+
+			const handle = await runWatchLoop(
+				{
+					testCommand: 'node --test',
+					timeoutMs: 5000,
+					_verificationRunner: failRunner,
+				},
+				io,
+				channel,
+			);
+
+			await writeFile(join(tmpDir, 'trigger-tty-accept.mjs'), 'x');
+			await waitFor(
+				() =>
+					output.some((s) => s.includes('applied') || s.includes('Applied')),
+				5000,
+			);
+
+			handle.close();
+
+			assert.ok(
+				channelCalls.includes('apply-proposal'),
+				'should call apply-proposal on accept',
+			);
+			assert.ok(
+				output.some((s) => s.includes('applied') || s.includes('Applied')),
+				'should confirm repair applied',
+			);
+			assert.equal(
+				handle._state.pendingRepair,
+				false,
+				'pendingRepair should be cleared after accept',
+			);
+		});
+
+		it('TTY reject: does not apply, clears pendingRepair', async () => {
+			const output = [];
+			const channelCalls = [];
+			const failRunner = async () => ({
+				ok: false,
+				exitCode: 1,
+				stdout: 'TAP not ok',
+				stderr: '',
+				command: 'node --test',
+				timedOut: false,
+				durationMs: 10,
+				startedAt: new Date().toISOString(),
+				finishedAt: new Date().toISOString(),
+				execution: { environment: 'host' },
+				trustBoundary: '',
+			});
+
+			const stdinLines = ['n\n'];
+			let lineIdx = 0;
+			const fakeTtyStdin = {
+				isTTY: true,
+				setEncoding() {},
+				resume() {},
+				pause() {},
+				on(event, handler) {
+					if (event === 'data' && lineIdx < stdinLines.length) {
+						setTimeout(() => handler(stdinLines[lineIdx++]), 10);
+					}
+				},
+				off() {},
+				removeListener() {},
+			};
+
+			const proposal = { files: [{ path: 'src/fix.mjs', content: 'x' }] };
+			const io = {
+				cwd: tmpDir,
+				stdin: fakeTtyStdin,
+				stdout: { isTTY: true, write: (s) => output.push(s) },
+				stderr: { write: (s) => output.push(s) },
+			};
+			const channel = async (req) => {
+				channelCalls.push(req.kind);
+				if (req.kind === 'run-turn')
+					return { proposal, runDir: '/tmp/r', sessionId: 's' };
+				return { applied: true };
+			};
+
+			const handle = await runWatchLoop(
+				{
+					testCommand: 'node --test',
+					timeoutMs: 5000,
+					_verificationRunner: failRunner,
+				},
+				io,
+				channel,
+			);
+
+			await writeFile(join(tmpDir, 'trigger-tty-reject.mjs'), 'x');
+			await waitFor(() => output.some((s) => s.includes('ejected')), 5000);
+
+			handle.close();
+
+			assert.ok(
+				!channelCalls.includes('apply-proposal'),
+				'should NOT call apply-proposal on reject',
+			);
+			assert.ok(
+				output.some((s) => s.includes('ejected')),
+				'should confirm rejection',
+			);
+			assert.equal(
+				handle._state.pendingRepair,
+				false,
+				'pendingRepair should be cleared after reject',
+			);
+		});
+	});
 });

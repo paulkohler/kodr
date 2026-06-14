@@ -98,15 +98,6 @@ model handled which step. This is the bigger, riskier half (it touches several
 internal model-call sites); `kodr route` is the safe, evidence-backed first step
 and the `cheapModel` half of the recommendation can extend `recommendModel`.
 
-### Watch Meets TUI
-
-Phase 107's watch loop produces pending repair proposals, and the blog's usage
-story ("the user reviews it in the TUI") implies an integration that doesn't
-exist as a phase yet. Wire `kodr watch` proposals into the same pending-review
-state the TUI already has (`/review`, `/accept`, `/reject` from phases 46/98),
-or give watch its own minimal accept prompt. Also a natural place to surface
-the no-progress guard state to the user instead of silently stopping.
-
 ### Actually Publish @kodr/repomap
 
 **On hold by decision (2026-06-12): no publishing until more dogfooding/testing
@@ -178,8 +169,9 @@ arc (`kodr trends`/`route`/`evals` + windowing + HTML). What remains:
    with the per-step choice recorded in summary so `kodr why` shows which model
    handled which step. That's a bigger, riskier internal change; `--route-auto`
    is the safe, evidence-backed first step.
-3. **Daily-driver gaps** — watch-meets-TUI and TUI piped-input serialization
-   (the latter is underspecified; reproduce before touching the readline loop).
+3. **TUI piped-input serialization** — piped stdin races in-flight turns; watch
+   loop now has TTY accept prompt (phase 142). Reproduce the TUI race first
+   before touching the readline loop (it's the harder case).
 4. **Re-decide the repomap publish hold** with the user (precondition met), and
    **incremental index caching** (mind the `packages/repomap` mirror) if the
    watch loop's per-save recompute becomes a felt cost.
