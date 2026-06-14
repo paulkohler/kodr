@@ -1,6 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { inspectWorkspace, findReferences } from './repomap/index.mjs';
-import { prepareWrites, preparePatches } from './safe-writes.mjs';
+import {
+	prepareWrites,
+	preparePatches,
+	closestRegion,
+	countOccurrences,
+	normalizePatch,
+	jailedPath,
+	SafeWriteError,
+} from './safe-writes.mjs';
 import {
 	createChatCompletion,
 	firstAssistantMessage,
@@ -9,7 +17,6 @@ import {
 import { HookBlockedError } from './hooks.mjs';
 import { createLoopBudget, LoopBudgetError } from './loop-budgets.mjs';
 import { listContextFiles } from './context-packer.mjs';
-import { jailedPath, SafeWriteError } from './safe-writes.mjs';
 import { normalizeModelUsage } from './usage-normalizer.mjs';
 import { runVerification } from './verification-runner.mjs';
 import { renderHookStopFeedback } from './command-hooks.mjs';
@@ -597,6 +604,10 @@ function lastAssistantText(messages) {
 export function createBuiltinRegistry(cwd, options = {}) {
 	const proposalDraft = new ProposalDraft();
 	const applyMode = options.applyMode || 'proposal';
+	// Tracks accumulated file content per path for per-edit validation in proposal mode.
+	// Initialized lazily from disk on first edit_file call; updated after each accepted edit
+	// so subsequent calls in the same turn validate against the post-edit state.
+	const editAccum = new Map();
 	// toolAliases: merge caller-supplied aliases (e.g. from model profile) over defaults.
 	const toolAliases = {
 		...DEFAULT_TOOL_ALIASES,
@@ -960,6 +971,41 @@ export function createBuiltinRegistry(cwd, options = {}) {
 					applied: true,
 					writeRecord,
 				});
+			}
+			// Proposal mode: validate search text against accumulated content so the
+			// model gets per-edit feedback within the same tool-call session rather than
+			// learning about stale hunks only after the full inner loop ends.
+			if (!editAccum.has(path)) {
+				const jailed = await jailedPath(cwd, path);
+				let diskContent = null;
+				try {
+					diskContent = await readFile(jailed.absolute, 'utf8');
+				} catch {
+					// File not found on disk — preparePatches will handle 'missing_target'.
+				}
+				editAccum.set(path, diskContent);
+			}
+			const accumulated = editAccum.get(path);
+			if (accumulated !== null) {
+				const normalized = normalizePatch(accumulated, { search, replace });
+				const occurrences = countOccurrences(accumulated, normalized.search);
+				if (occurrences !== 1) {
+					const reasonLabel =
+						occurrences === 0
+							? 'search text not found'
+							: `search text matched ${occurrences} times (must match exactly 1)`;
+					const regionHint =
+						occurrences === 0
+							? `\nClosest region:\n${closestRegion(accumulated, search)}`
+							: '';
+					return JSON.stringify({
+						error: `edit_file patch failed: ${reasonLabel}. Recheck your search text against the current file content.${regionHint}`,
+					});
+				}
+				editAccum.set(
+					path,
+					accumulated.replace(normalized.search, normalized.replace),
+				);
 			}
 			return proposalDraft.recordPatch(path, search, replace);
 		},

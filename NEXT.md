@@ -49,23 +49,6 @@ These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
-### Heal Convergence — stale hunks within a turn (inner budget SHIPPED in 136)
-
-Phase 135 fixed the heal *channel*; phase 136 raised the inner repair budget
-(4→8) so a heal turn has room to read → edit → verify → recover. The remaining
-convergence problem is **stale patch hunks within a heal turn**: in the 135
-re-validation, turns 2–3 issued `edit_file` `search` strings against lines a
-*prior* edit in the same inner loop had already changed → `no_match` (3 in turn
-2, 5 in turn 3). The model planned a batch of edits from one snapshot and tripped
-over its own earlier changes; the harness returns a correct current-region hint,
-but the model has to spend a turn recovering. This is the deferred-from-120
-**materialise** problem in the heal context: have the model edit against the
-running draft it's accumulating (or force a fresh read between its own edits) so
-the hunks don't drift. More turns (136) is room to recover, not a cure — this is
-the cure. Verify in artifacts whether `edit_file` already matches against the
-accumulated draft vs the original before designing.
-Evidence: `~/src/kodr-testing/phase-135/heal-revalidate-qwen/` repairs/turn-*.
-
 ### Trap-Provoking Measurement Fixtures (the redirect from 124)
 
 Phase 124 built the guidance A/B (`--no-language-guidance` + `evals/code-quality.json`)

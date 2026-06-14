@@ -2497,3 +2497,92 @@ describe('createBuiltinRegistry — T3 toolWritesMode envelope', () => {
 		);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Phase 138 — per-edit validation in proposal mode (edit accumulator)
+// ---------------------------------------------------------------------------
+
+describe('edit_file proposal-mode per-edit validation (Phase 138)', () => {
+	it('P1: second edit searching stale text returns immediate error, is not recorded', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ef-p1-'));
+		await writeFile(join(cwd, 'a.mjs'), 'const x = 1;\nconst y = 2;\n');
+		const registry = createBuiltinRegistry(cwd);
+		// First edit: changes 'const x = 1;' → 'const x = 10;'
+		const r1 = await registry.dispatch(
+			'edit_file',
+			'{"path":"a.mjs","search":"const x = 1;","replace":"const x = 10;"}',
+		);
+		assert.match(r1, /recorded edit_file/u);
+		assert.equal(registry.proposalDraft.patches.length, 1);
+		// Second edit: searches for the OLD text that the first edit already changed
+		const r2 = await registry.dispatch(
+			'edit_file',
+			'{"path":"a.mjs","search":"const x = 1;","replace":"const x = 99;"}',
+		);
+		const parsed2 = JSON.parse(r2);
+		assert.ok(parsed2.error, 'stale search should return an error');
+		assert.match(parsed2.error, /search text not found/u);
+		// The failed edit must NOT be recorded in the draft
+		assert.equal(
+			registry.proposalDraft.patches.length,
+			1,
+			'only the first edit should be in draft',
+		);
+	});
+
+	it('P2: two sequential valid edits on the same file both succeed and are recorded', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ef-p2-'));
+		await writeFile(join(cwd, 'b.mjs'), 'const a = 1;\nconst b = 2;\n');
+		const registry = createBuiltinRegistry(cwd);
+		// First edit: a → 10
+		const r1 = await registry.dispatch(
+			'edit_file',
+			'{"path":"b.mjs","search":"const a = 1;","replace":"const a = 10;"}',
+		);
+		assert.match(r1, /recorded edit_file/u);
+		// Second edit: searches for 'const b = 2;' (still present after first edit)
+		const r2 = await registry.dispatch(
+			'edit_file',
+			'{"path":"b.mjs","search":"const b = 2;","replace":"const b = 20;"}',
+		);
+		assert.match(r2, /recorded edit_file/u);
+		assert.equal(
+			registry.proposalDraft.patches.length,
+			2,
+			'both edits should be recorded',
+		);
+	});
+
+	it('P3: edit_file on non-existent file falls through to draft without error', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ef-p3-'));
+		// No file created — path does not exist on disk
+		const registry = createBuiltinRegistry(cwd);
+		const result = await registry.dispatch(
+			'edit_file',
+			'{"path":"ghost.mjs","search":"old","replace":"new"}',
+		);
+		assert.match(
+			result,
+			/recorded edit_file/u,
+			'should still record; preparePatches will report missing_target',
+		);
+		assert.equal(registry.proposalDraft.patches.length, 1);
+	});
+
+	it('P4: proposal-mode validation does not fire in live mode (live path unchanged)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ef-p4-'));
+		await writeFile(join(cwd, 'c.mjs'), 'const z = 3;\n');
+		const registry = createBuiltinRegistry(cwd, { applyMode: 'live' });
+		// Live mode should apply to disk immediately; the error path comes from preparePatches
+		// A successful live-mode edit should record in draft with applied:true
+		const result = await registry.dispatch(
+			'edit_file',
+			'{"path":"c.mjs","search":"const z = 3;","replace":"const z = 30;"}',
+		);
+		// Live mode returns 'edited <path>' (applied immediately)
+		assert.match(result, /edited c\.mjs/u);
+		const patch = registry.proposalDraft.patches[0];
+		assert.ok(patch, 'patch should be in draft');
+		assert.equal(patch.applied, true, 'live mode should mark patch as applied');
+	});
+});

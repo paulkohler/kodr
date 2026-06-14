@@ -562,7 +562,7 @@ function renderHunk(hunk) {
 	return `${lines.join('\n')}\n`;
 }
 
-function countOccurrences(value, search) {
+export function countOccurrences(value, search) {
 	if (search === '') {
 		return 0;
 	}
@@ -579,7 +579,7 @@ function countOccurrences(value, search) {
 	}
 }
 
-function normalizePatch(content, patch) {
+export function normalizePatch(content, patch) {
 	if (countOccurrences(content, patch.search) !== 0) {
 		return patch;
 	}
