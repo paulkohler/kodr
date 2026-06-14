@@ -89,7 +89,12 @@ import {
 	runSyntaxGateIfNeeded,
 	syntaxResultToVerification,
 } from './syntax-gate.mjs';
-import { applyModelProfileDefaults } from './model-profiles.mjs';
+import {
+	applyModelProfileDefaults,
+	contextBudgetCharsForWindow,
+	probeLMStudioContextWindow,
+	sessionContextCharsForProfile,
+} from './model-profiles.mjs';
 import {
 	applyProjectConfig,
 	APPLY_MODES,
@@ -2977,6 +2982,30 @@ export async function runPrompt(options, io) {
 				: {}),
 		};
 
+		// Phase 146: probe LM Studio /api/v0/models/{model} for the actual loaded
+		// context window. Overrides the static profile value when the server reports
+		// a larger window and the user has not set --context-window explicitly.
+		if (!options._contextWindowSet) {
+			const probedWindow = await probeLMStudioContextWindow(
+				options.baseUrl,
+				options.model,
+			);
+			if (probedWindow !== null && probedWindow !== options.contextWindow) {
+				options.contextWindow = probedWindow;
+				options.contextWindowSource = 'lmstudio-api';
+				options.contextBudgetChars = contextBudgetCharsForWindow(
+					probedWindow,
+					options.completionReserve,
+				);
+				if (!options._sessionContextSet) {
+					options.sessionContextChars = sessionContextCharsForProfile({
+						contextWindow: probedWindow,
+						completionReserve: options.completionReserve,
+					});
+				}
+			}
+		}
+
 		// Resolve parent session (if --continue or --session was passed).
 		const parent = await resolveParentSession(options, io.cwd);
 
@@ -3263,6 +3292,7 @@ export async function runPrompt(options, io) {
 					},
 					baseUrl: options.baseUrl,
 					contextBudget: context.contextBudget || null,
+					contextWindowSource: options.contextWindowSource || 'profile',
 					promptPrefix: context.promptPrefix || null,
 					finishReasons: orchestrationResult.finishReasons,
 					loopBudget: orchestrationResult.loopBudget,
@@ -3481,6 +3511,7 @@ export async function runPrompt(options, io) {
 			baseUrl: options.baseUrl,
 			configSources: options.configSources || {},
 			contextBudget: context.contextBudget || null,
+			contextWindowSource: options.contextWindowSource || 'profile',
 			contextPacking: resolveContextPackingRecord(
 				contextPackingResult,
 				options,
@@ -4608,6 +4639,7 @@ async function runStagedPrompt({
 		baseUrl: options.baseUrl,
 		configSources: options.configSources || {},
 		contextBudget: context.contextBudget || null,
+		contextWindowSource: options.contextWindowSource || 'profile',
 		promptPrefix: context.promptPrefix || null,
 		finishReasons,
 		healed: healingResult ? healingResult.healed : false,

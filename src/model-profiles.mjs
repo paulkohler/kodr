@@ -166,9 +166,9 @@ export function applyModelProfileDefaults(
 	const next = {
 		...options,
 		completionReserve,
-		contextBudgetChars: Math.min(
-			sessionContextCharsForProfile(effectiveProfile),
-			80000,
+		contextBudgetChars: contextBudgetCharsForWindow(
+			contextWindow,
+			completionReserve,
 		),
 		contextWindow,
 		modelProfile: serializeProfile(profile),
@@ -223,6 +223,51 @@ export function sessionContextCharsForProfile(profile) {
 	// A conservative 4 chars/token estimate keeps compaction below the profile
 	// window without requiring a tokenizer dependency.
 	return usableTokens * 4;
+}
+
+// Phase 146: compute the workspace-context packing budget from the active context
+// window. Scales with context window so large-context models (131K+) actually use
+// the extra capacity instead of being capped at the 32K-era 80 000-char ceiling.
+//
+// Formula: min(320 000, max(80 000, contextWindow * 2))
+//   32 768 → 80 000 chars (≈ 20 K tokens) — unchanged from prior cap
+//   131 072 → 262 144 chars (≈ 65 K tokens)
+//   262 144 → 320 000 chars (≈ 80 K tokens, ceiling)
+export function contextBudgetCharsForWindow(
+	contextWindow,
+	completionReserve = DEFAULT_COMPLETION_RESERVE,
+) {
+	const raw = sessionContextCharsForProfile({
+		contextWindow,
+		completionReserve,
+	});
+	const scaledCap = Math.min(320000, Math.max(80000, contextWindow * 2));
+	return Math.min(raw, scaledCap);
+}
+
+// Phase 146: probe the LM Studio /api/v0/models/{model} endpoint for the
+// actual loaded context length. Returns the integer loaded_context_length when
+// found, null on any error or missing field. Callers should prefer this value
+// over the static profile when not explicitly overridden by --context-window.
+export async function probeLMStudioContextWindow(baseUrl, model) {
+	if (!baseUrl || !model) return null;
+	try {
+		const origin = new URL(baseUrl).origin;
+		// Model IDs contain slashes (e.g. mistralai/devstral-small-2-2512);
+		// encode each segment so the path is valid.
+		const encodedModel = model
+			.split('/')
+			.map((s) => encodeURIComponent(s))
+			.join('/');
+		const url = `${origin}/api/v0/models/${encodedModel}`;
+		const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
+		if (!response.ok) return null;
+		const data = await response.json();
+		const loaded = data?.loaded_context_length;
+		return Number.isInteger(loaded) && loaded > 0 ? loaded : null;
+	} catch {
+		return null;
+	}
 }
 
 function addProfile(profiles, profile) {

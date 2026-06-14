@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	applyModelProfileDefaults,
+	contextBudgetCharsForWindow,
+	probeLMStudioContextWindow,
 	resolveModelProfile,
 	sessionContextCharsForProfile,
 } from '../src/model-profiles.mjs';
@@ -280,5 +282,53 @@ describe('model profiles', () => {
 			{},
 		);
 		assert.equal(options.modelProfile.toolWrites, 'auto');
+	});
+
+	// Phase 146: contextBudgetCharsForWindow scales the packing budget with context window.
+	it('phase 146: contextBudgetCharsForWindow keeps 80000 cap for 32K contexts', () => {
+		// 32768 - 4096 = 28672 usable tokens; raw = 114688; scaledCap = max(80000, 65536) = 80000
+		assert.equal(contextBudgetCharsForWindow(32768, 4096), 80000);
+	});
+
+	it('phase 146: contextBudgetCharsForWindow scales up for 131K context', () => {
+		// 131072 - 4096 = 126976 usable; raw = 507904; scaledCap = min(320000, 262144) = 262144
+		assert.equal(contextBudgetCharsForWindow(131072, 4096), 262144);
+	});
+
+	it('phase 146: contextBudgetCharsForWindow caps at 320000 for very large contexts', () => {
+		// 262144 - 4096 = 258048 usable; raw = 1032192; scaledCap = min(320000, 524288) = 320000
+		assert.equal(contextBudgetCharsForWindow(262144, 4096), 320000);
+	});
+
+	it('phase 146: applyModelProfileDefaults uses scaled budget for large context window', () => {
+		const options = applyModelProfileDefaults(
+			{
+				model: 'somemodel',
+				provider: 'local',
+				_contextWindowSet: true,
+				contextWindow: 131072,
+				completionReserve: 4096,
+			},
+			{},
+		);
+		// Should use contextBudgetCharsForWindow(131072, 4096) = 262144
+		assert.equal(options.contextBudgetChars, 262144);
+	});
+
+	it('phase 146: probeLMStudioContextWindow returns null when server unreachable', async () => {
+		// Non-existent server — should fail silently.
+		const result = await probeLMStudioContextWindow(
+			'http://localhost:9999/v1',
+			'some/model',
+		);
+		assert.equal(result, null);
+	});
+
+	it('phase 146: probeLMStudioContextWindow returns null for missing inputs', async () => {
+		assert.equal(await probeLMStudioContextWindow('', 'some/model'), null);
+		assert.equal(
+			await probeLMStudioContextWindow('http://localhost:1234/v1', ''),
+			null,
+		);
 	});
 });

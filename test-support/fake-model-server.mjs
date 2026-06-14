@@ -8,6 +8,14 @@ export async function startFakeModelServer(options = {}) {
 	const modelId = options.modelId || DEFAULT_MODEL_ID;
 
 	const server = createServer(async (request, response) => {
+		// Phase 146: absorb the LM Studio context-window probe without recording it.
+		// The probe hits GET /api/v0/models/{id}; the fake server is not LM Studio
+		// so we return 404 silently — no recording entry, no effect on test assertions.
+		if (request.method === 'GET' && request.url.startsWith('/api/v0/models')) {
+			response.writeHead(404, { 'content-type': 'application/json' });
+			response.end(JSON.stringify({ error: 'not found' }));
+			return;
+		}
 		const startedAt = new Date().toISOString();
 		const started = performance.now();
 		const requestBodyText = await readRequestBody(request);
