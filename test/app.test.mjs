@@ -44,6 +44,14 @@ describe('parseArgs', () => {
 		assert.equal(parseArgs([], {}).suppressLanguageGuidance, false);
 	});
 
+	it('parses --no-model-guidance (phase 145 A-arm)', () => {
+		assert.equal(
+			parseArgs(['--no-model-guidance'], {}).suppressModelGuidance,
+			true,
+		);
+		assert.equal(parseArgs([], {}).suppressModelGuidance, false);
+	});
+
 	it('parses --route-auto (phase 141)', () => {
 		assert.equal(parseArgs(['--route-auto'], {}).routeAuto, true);
 		assert.equal(parseArgs([], {}).routeAuto, false);

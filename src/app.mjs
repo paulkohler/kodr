@@ -298,6 +298,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 124: force the Node/ESM language-guidance block off even when the
 		// workspace signals Node/ESM. The A-arm of the guidance A/B measurement.
 		suppressLanguageGuidance: false,
+		// Phase 145: force the model-family guidance block off even when the model
+		// matches a known family. The A-arm of the model-guidance A/B measurement.
+		suppressModelGuidance: false,
 		maxCostUsd: '',
 		maxRetries: 7,
 		maxThinkingTokens: '',
@@ -507,6 +510,10 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--no-language-guidance') {
 			options.suppressLanguageGuidance = true;
+			continue;
+		}
+		if (arg === '--no-model-guidance') {
+			options.suppressModelGuidance = true;
 			continue;
 		}
 
@@ -1144,6 +1151,9 @@ OpenRouter:
                        Force the Node/ESM contract block off even when the
                        workspace signals Node/ESM. The A-arm for measuring the
                        guidance's effect (phase 124); not for normal use.
+  --no-model-guidance  Force the model-family guidance block off even when the
+                       model matches a known family. The A-arm for measuring
+                       model-guidance's effect (phase 145); not for normal use.
   --staged             Force plan-first staged execution for complex work.
   --no-staged          Disable automatic staged execution.
   --subagent-stages    Run planner, implementer, and reviewer as isolated tool agents.
@@ -4766,6 +4776,8 @@ function workspaceContextOptions(options, cwd) {
 		// Phase 143: pass model so context-packer can detect the model family and
 		// inject model-specific guidance (model:devstral etc.).
 		model: options.model || '',
+		// Phase 145: A-arm of the model-guidance A/B — suppress model-family block.
+		suppressModelGuidance: options.suppressModelGuidance || false,
 		...(options.contextBudgetChars
 			? { totalBytes: options.contextBudgetChars }
 			: {}),

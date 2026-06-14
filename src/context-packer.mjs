@@ -71,7 +71,10 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 	// Complements lang:node (fires from workspace); model guidance fires from model
 	// identity so it applies even in non-Node workspaces. In Node workspaces both
 	// blocks appear; model guidance covers model-specific quirks beyond the ESM rules.
-	const modelFamily = detectModelFamily(options.model || '');
+	// Phase 145: suppressModelGuidance (--no-model-guidance) forces it off — A-arm.
+	const modelFamily = options.suppressModelGuidance
+		? null
+		: detectModelFamily(options.model || '');
 	const modelGuidance = modelFamily
 		? await resolveModelGuidance(modelFamily, cwd, options)
 		: null;

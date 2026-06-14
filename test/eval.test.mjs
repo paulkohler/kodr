@@ -69,6 +69,7 @@ describe('loadEvalSuite', () => {
 			'cq-esm-cli',
 			'cq-multi-file-esm',
 			'cq-nodetest',
+			'cq-nonode-esm',
 		]);
 		// Every trap case pairs a files_exist with content_absent so a no-write
 		// cannot pass vacuously (content_absent is true for a missing file).

@@ -1,6 +1,6 @@
 {
 	"name": "code-quality",
-	"description": "ESM generation tasks targeting recurring local-model code-quality traps: CommonJS-in-ESM (require/module.exports), invented node:test API (t.assert()), and non-ESM test wiring. Includes both greenfield (phase 124) and brownfield/multi-file cases (phase 140). Each case asserts the target file exists (so a no-write cannot pass vacuously) and that the trap pattern is absent. Run with and without --no-language-guidance to measure the guidance contract's effect.",
+	"description": "ESM generation tasks targeting recurring local-model code-quality traps: CommonJS-in-ESM (require/module.exports), invented node:test API (t.assert()), and non-ESM test wiring. Includes greenfield (phase 124), brownfield/multi-file (phase 140), and non-Node workspace (phase 145) cases. Each case asserts the target file exists and that trap patterns are absent. Run with --no-language-guidance or --no-model-guidance to measure each guidance block's independent effect.",
 	"cases": [
 		{
 			"id": "cq-esm-cli",
@@ -43,6 +43,22 @@
 				{ "type": "content_absent", "path": "test/counter.test.mjs", "pattern": "t\\.assert\\s*\\(" },
 				{ "type": "content_absent", "path": "test/counter.test.mjs", "pattern": "\\brequire\\s*\\(" },
 				{ "type": "tests_pass", "command": "node --test" }
+			]
+		},
+		{
+			"id": "cq-nonode-esm",
+			"fixture": "fixtures/cq-nonode-esm",
+			"test": "node --test test/timer.test.mjs",
+			"requires": [],
+			"expectFailingBaseline": false,
+			"heal": false,
+			"prompt": "Create src/timer.mjs exporting a Timer class with start(), stop(), and elapsed() returning elapsed milliseconds. Create test/timer.test.mjs with node:test tests for Timer. Use ES modules.",
+			"assertions": [
+				{ "type": "files_exist", "paths": ["src/timer.mjs", "test/timer.test.mjs"] },
+				{ "type": "content_absent", "path": "src/timer.mjs", "pattern": "\\brequire\\s*\\(" },
+				{ "type": "content_absent", "path": "test/timer.test.mjs", "pattern": "t\\.assert\\s*\\(" },
+				{ "type": "content_absent", "path": "test/timer.test.mjs", "pattern": "\\brequire\\s*\\(" },
+				{ "type": "tests_pass", "command": "node --test test/timer.test.mjs" }
 			]
 		},
 		{

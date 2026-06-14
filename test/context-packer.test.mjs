@@ -611,6 +611,17 @@ describe('model-family guidance (phase 143)', () => {
 		assert.equal(context.modelGuidance, null);
 	});
 
+	it('phase 145: suppressModelGuidance suppresses the model-family block', async () => {
+		const cwd = await mkWorkspace({ 'main.py': 'print(1)' });
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			model: 'mistralai/devstral-small-2-2512',
+			suppressModelGuidance: true,
+		});
+		assert.doesNotMatch(context.systemPrompt, /# Devstral Contract/u);
+		assert.equal(context.modelGuidance, null);
+	});
+
 	it('lets a workspace model:devstral skill override the builtin guidance', async () => {
 		const cwd = await mkWorkspace({
 			'main.py': 'print(1)',
