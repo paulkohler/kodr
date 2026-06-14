@@ -47,35 +47,40 @@ export async function runTui(options, io, channel) {
 	);
 	output.write(`${view.infoText('Type /help for commands.')}\n\n`);
 
+	// Phase 144: use the readline async iterator so lines buffered while a turn
+	// is in-flight are not lost. With rl.question() each call registers a one-time
+	// 'line' listener; if a line arrives before the next call is made (e.g. during
+	// a slow model turn), it fires into the void and is dropped. The async iterator
+	// queues every 'line' event internally and yields them in order.
+	if (terminal) {
+		rl.setPrompt(view.userPrompt());
+		rl.prompt();
+	}
+
 	try {
-		while (true) {
-			let line;
-			try {
-				line = await rl.question(view.userPrompt());
-			} catch (error) {
-				if (isReadlineClosed(error)) {
-					return { ok: true, reason: 'eof', state };
-				}
-				throw error;
+		for await (const line of rl) {
+			if (!terminal) {
+				output.write(view.userPrompt());
 			}
 			let result;
 			try {
 				result = await handleTuiLine(state, line, io, channel);
 			} catch (error) {
 				output.write(view.error(`error: ${error.message}`));
+				if (terminal) rl.prompt();
 				continue;
 			}
 			if (result.exit) {
 				return { ok: true, reason: 'quit', state };
 			}
+			if (terminal) {
+				rl.prompt();
+			}
 		}
+		return { ok: true, reason: 'eof', state };
 	} finally {
 		rl.close();
 	}
-}
-
-function isReadlineClosed(error) {
-	return /readline was closed/iu.test(error.message || '');
 }
 
 export function createTuiView(io = {}) {

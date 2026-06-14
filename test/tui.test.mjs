@@ -209,6 +209,35 @@ describe('terminal turn ui', () => {
 		assert.match(stdout.text, /assistant> bye/u);
 	});
 
+	it('phase 144: serialises piped commands — /quit after /status is not dropped', async () => {
+		const stdout = captureStream();
+		const result = await runTui(
+			{ model: 'test-model' },
+			{
+				stderr: captureStream(),
+				stdin: Readable.from(['/status\n/quit\n']),
+				stdout,
+			},
+			async () => {
+				return {
+					applied: false,
+					ok: true,
+					response: 'ok',
+					runDir: '/tmp',
+					sessionId: 's1',
+					writeResult: { writes: [] },
+				};
+			},
+		);
+
+		assert.equal(
+			result.reason,
+			'quit',
+			'/quit should be processed, not dropped',
+		);
+		assert.match(stdout.text, /bye/u);
+	});
+
 	it('exits cleanly when piped input ends after a turn', async () => {
 		const stdout = captureStream();
 		const result = await runTui(

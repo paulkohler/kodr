@@ -65,12 +65,6 @@ Evidence: `~/src/kodr-testing/phase-119-devstral/` (the write_file → ENOENT
 sequence), `process/failures.jsonl` phase 119-devstral.
 
 
-### TUI Piped-Input Serialization
-
-Piped stdin races in-flight turns: a scripted session ran /status fine, then
-the prompt turn was silently abandoned (no request line, no run dir, exit 0)
-when buffered /quit hit. The line loop should queue input during a turn and
-drain before exiting on EOF.
 
 ### Per-Task Model Routing (default-model activation SHIPPED in 131)
 
@@ -149,10 +143,7 @@ guidance (model:devstral fires from model identity). What remains:
    with the per-step choice recorded in summary so `kodr why` shows which model
    handled which step. That's a bigger, riskier internal change; `--route-auto`
    is the safe, evidence-backed first step.
-2. **TUI piped-input serialization** — piped stdin races in-flight turns; watch
-   loop now has TTY accept prompt (phase 142). Reproduce the TUI race first
-   before touching the readline loop (it's the harder case).
-3. **Re-decide the repomap publish hold** with the user (precondition met), and
+2. **Re-decide the repomap publish hold** with the user (precondition met), and
    **incremental index caching** (mind the `packages/repomap` mirror) if the
    watch loop's per-save recompute becomes a felt cost.
 4. **Web UI follow-ons** (shipped in 134) — live validation run (operator step),

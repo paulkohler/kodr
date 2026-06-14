@@ -143,6 +143,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 141 Route Auto
 - [x] 142 Watch Accept Prompt
 - [x] 143 Per-Model-Family Targeted Guidance
+- [x] 144 TUI Piped-Input Serialization
 
 ## Phase Contract
 
