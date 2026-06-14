@@ -6299,13 +6299,22 @@ describe('extractPromptFilePaths (Phase 139)', () => {
 		);
 	});
 
-	it('does not extract node: specifiers or version strings', () => {
-		const prompt = 'Use node:fs and node:path. Version 1.0.2 is fine.';
+	it('does not extract node: specifiers, version strings, or proper nouns like Node.js / Date.now', () => {
+		const prompt =
+			'Use node:fs and node:path. Version 1.0.2 is fine. Use Node.js and call Date.now().';
 		const paths = extractPromptFilePaths(prompt);
 		assert.ok(!paths.includes('node:fs'), 'should not include node: specifier');
 		assert.ok(
 			!paths.some((p) => /^\d/.test(p)),
 			'should not include version strings',
+		);
+		assert.ok(
+			!paths.some((p) => p.includes('Node')),
+			'should not include Node.js',
+		);
+		assert.ok(
+			!paths.some((p) => p.includes('Date')),
+			'should not include Date.now',
 		);
 	});
 

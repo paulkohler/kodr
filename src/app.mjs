@@ -5583,19 +5583,48 @@ function proposalPaths(proposal) {
 }
 
 // Exported for testing.
+// Known code/config file extensions for under-delivery guard.
+const FILE_EXTENSIONS = new Set([
+	'mjs',
+	'cjs',
+	'js',
+	'ts',
+	'tsx',
+	'jsx',
+	'json',
+	'jsonl',
+	'yaml',
+	'yml',
+	'md',
+	'txt',
+	'sh',
+	'html',
+	'css',
+	'toml',
+	'env',
+	'lock',
+]);
+
 // Extract explicit file paths mentioned in a task prompt, e.g. from bullet lists.
 // Returns a de-duplicated array of path-like strings found in the text.
 // Only matches things that look like workspace-relative paths (no leading /).
 export function extractPromptFilePaths(promptText) {
 	if (!promptText) return [];
-	// Match path-like tokens: word chars + /./- with a dot extension, not starting with /
-	const pathRe = /(?<![/\\])[\w][\w./-]*\.[a-z]{1,6}/g;
+	// Match lowercase-starting tokens with at least one / OR a known code extension.
+	// Require first char to be lowercase (excludes Node.js, Date.now);
+	// word-boundary lookbehind prevents matching mid-word (e.g. 'ode.js' from 'Node.js').
+	const pathRe = /(?<!\w)[a-z][\w./-]*\.[a-z]{1,6}/g;
 	const found = new Set();
 	for (const m of promptText.matchAll(pathRe)) {
 		const p = m[0];
-		// Skip common non-path patterns: URLs (node:fs), version strings (1.0.2), etc.
+		// Skip node: specifiers, URLs, and version strings.
 		if (p.includes(':') || /^\d/.test(p)) continue;
-		found.add(p);
+		// Accept if it has a directory separator (unambiguously a path),
+		// or if its extension is in the known code/config set.
+		const ext = p.split('.').at(-1);
+		if (p.includes('/') || FILE_EXTENSIONS.has(ext)) {
+			found.add(p);
+		}
 	}
 	return [...found];
 }
