@@ -85,6 +85,19 @@ export function hasNoTestsRun(testResult) {
 	return false;
 }
 
+// Phase 136: the inner tool-loop budget for a single heal repair turn. The cap
+// was 4, sized for one-shot envelope repair (read nothing, emit one proposal).
+// Tool-channel repair is multi-step — read -> edit(s) -> re-read/verify ->
+// recover from a no_match hunt — and the 135 re-validation showed every outer
+// turn hitting `turn_budget_exhausted` at 4. Raise the ceiling to 8 so a
+// default `--max-turns 8` run gets real repair room, while leaving the low end
+// (maxTurns <= 4) exactly as before and keeping a hard cap so a large
+// --max-turns can't make one heal turn run away.
+export function healRepairTurnBudget(maxTurns) {
+	const requested = Number.isFinite(maxTurns) ? Math.trunc(maxTurns) : 1;
+	return Math.min(Math.max(requested, 1), 8);
+}
+
 // C2 (phase 125): the anti-goal-substitution condition. The original run wrote
 // nothing AND verification ran no tests → the model failed to generate, not to
 // pass. Healing here only invents unrelated code with its own passing test

@@ -46,7 +46,11 @@ import {
 	taskCounts,
 	updateTasksFromRun,
 } from './task-plan.mjs';
-import { isNothingGenerated, runSelfHealingLoop } from './healing.mjs';
+import {
+	healRepairTurnBudget,
+	isNothingGenerated,
+	runSelfHealingLoop,
+} from './healing.mjs';
 import {
 	parseVerificationCommand,
 	runVerification,
@@ -4736,7 +4740,9 @@ async function runHealingIfNeeded({
 	const repairOptions = {
 		...options,
 		maxRetries: Math.min(options.maxRetries, 1),
-		maxTurns: Math.min(Math.max(options.maxTurns, 1), 4),
+		// Phase 136: inner tool-loop budget per heal turn — ceiling raised 4->8 so
+		// multi-step tool repair (read -> edits -> verify -> recover) has room.
+		maxTurns: healRepairTurnBudget(options.maxTurns),
 	};
 
 	return runSelfHealingLoop(cwd, testResult, {

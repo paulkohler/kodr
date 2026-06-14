@@ -8,6 +8,7 @@ import {
 	computeTestDelta,
 	extractFailCount,
 	hasNoTestsRun,
+	healRepairTurnBudget,
 	HealingTimeoutError,
 	isNothingGenerated,
 	oneShotHeal,
@@ -477,6 +478,30 @@ describe('one-shot healing', () => {
 		});
 
 		assert.equal(result.stopReason, 'healed');
+	});
+});
+
+describe('healRepairTurnBudget (phase 136)', () => {
+	it('raises the default-run ceiling from 4 to 8', () => {
+		// Default --max-turns is 8; the old cap throttled heal turns to 4.
+		assert.equal(healRepairTurnBudget(8), 8);
+	});
+
+	it('leaves the low end (maxTurns <= 4) unchanged', () => {
+		assert.equal(healRepairTurnBudget(4), 4);
+		assert.equal(healRepairTurnBudget(2), 2);
+		assert.equal(healRepairTurnBudget(1), 1);
+	});
+
+	it('holds the ceiling at 8 for large budgets', () => {
+		assert.equal(healRepairTurnBudget(12), 8);
+		assert.equal(healRepairTurnBudget(100), 8);
+	});
+
+	it('floors at 1 for zero/negative/non-finite input', () => {
+		assert.equal(healRepairTurnBudget(0), 1);
+		assert.equal(healRepairTurnBudget(-3), 1);
+		assert.equal(healRepairTurnBudget(Number.NaN), 1);
 	});
 });
 
