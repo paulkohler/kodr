@@ -139,6 +139,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 137 Extractor: Recover Truncated File-Object Envelope
 - [x] 138 Heal Edit Validation
 - [x] 139 Under-Delivery Guard
+- [x] 140 Trap-Provoking Measurement Fixtures
 
 ## Phase Contract
 

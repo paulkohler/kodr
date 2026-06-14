@@ -49,38 +49,20 @@ These are follow-ups the recent phases explicitly left open.
 
 _(Entries are deleted from this file when they ship; history lives in the roadmap, phase files, and blog.)_
 
-### Trap-Provoking Measurement Fixtures (the redirect from 124)
-
-Phase 124 built the guidance A/B (`--no-language-guidance` + `evals/code-quality.json`)
-and got a clean **null** on simple greenfield tasks: gpt-oss and devstral write
-clean ESM and real `node:test` with the block on *or* off. The traps from the
-117–121 record live in messier conditions — heal-loop repair context, larger or
-multi-file edits, multi-turn second-guessing — not first-shot single-file
-generation. So the next measurement needs **trap-provoking** fixtures: brownfield
-edit cases and heal-pressure cases that actually elicit `require.main`/`t.assert()`,
-run through the existing A/B apparatus. Only once a case shows a real mistake
-rate can the shared block (or any per-family addition) demonstrate a delta. This
-is the gating measurement for the Per-Model-Family work below.
-Evidence: `process/failures.jsonl` phase 124-validation.
-
 ### Per-Model-Family Targeted Guidance
 
-Phases 121/122 shipped the shared Node/ESM contract (now the builtin `lang:node`
-skill) and the `node --check` syntax gate; phase 124 showed it has no measurable
-effect on easy tasks. The remaining class: feed the *recurring per-model* mistake
-patterns back as targeted guidance injected only for those model families. gpt-oss has a CJS habit even with the ESM block;
-devstral still has argv-parse and `t.assert()` tendencies; qwen has off-by-one
-count logic. Phase 122 makes the shape obvious: a per-family guidance snippet is
-another auto-applied skill (e.g. `model:gpt-oss`) resolved from a model-family
-fingerprint (matched from the resolved model string), riding the exact same
-discover-override-or-builtin path as `lang:node` — data, not new prompt code.
-Requires live validation to measure the mistake-class delta before committing to
-the signal-to-noise tradeoff. **Blocked on measurement:** the shared block's
-mistake-REDUCTION effect is still unquantified (the 121 operator runs predated
-the greenfield fix). A bench run comparing block-present vs block-absent on the
-same task would quantify both the shared block and any per-family additions — so
-**Bench-Driven Suite Growth should land first** and give this its baseline.
-Evidence: `process/failures.jsonl` phases 117/119/120/121-validation.
+Phases 121/122 shipped the shared Node/ESM contract (`lang:node` builtin) and
+the `node --check` syntax gate. Phases 124 and 140 measured the effect: three
+rounds of A/B (greenfield, brownfield, multi-file) against qwen3.6-35b-a3b —
+all null. qwen inherently writes clean ESM + node:test without the block. The
+traps in the 117–121 record (CJS in `.mjs`, `t.assert()`) came from gpt-oss-20b
+and devstral, not qwen. The measurement fixtures now exist (`evals/code-quality.json`
+with four cases); measuring guidance vs no-guidance against gpt-oss or devstral
+would give the per-model-family baseline. Phase 122's shape is the implementation:
+a `model:gpt-oss` skill auto-applied from a model-family fingerprint, riding the
+same discover-override-or-builtin path as `lang:node`.
+Evidence: `process/failures.jsonl` phases 117/119/120/121-validation; phase 140
+null results confirm qwen is not the target model.
 
 ### Mid-Session Write Visibility — worktree materialise (deferred from 120)
 
@@ -153,22 +135,18 @@ forensics-as-instrument arc is complete: run archive and eval scores both
 readable the same way. Possible future polish: a combined `kodr trends --html`
 that embeds the eval sparklines, but that is cosmetic, not a gap.
 
-### Bench-Driven Suite Growth — code-quality brownfield fixtures (extractor half SHIPPED in 123)
+### Bench-Driven Suite Growth — code-quality brownfield fixtures (SHIPPED in 123 + 140)
 
-Phase 123 shipped the **extractor-replay** half: `test/fixtures/corpus.json` is
-now a manifest-driven, growable corpus of real corrupt responses (gpt-oss
-boundary, gemma pseudo-tokens/collapsed keys), self-documenting and offline.
+Phase 123 shipped the **extractor-replay** half: `test/fixtures/corpus.json`.
+Phase 140 shipped the **brownfield trap-check** half: `cq-brownfield-add-tests`
+and `cq-multi-file-esm` in `evals/code-quality.json` — four total cases with
+`files_exist` + `content_absent` + `tests_pass` assertions, A/B ready.
 
-The remaining half: **brownfield fixtures for the code-quality traps** — plant
-the recurring model mistakes (CJS-in-ESM `require.main` in `.mjs`, illegal
-top-level `return`, `t.assert()`, argv-as-single-string regex, off-by-one
-counts) as eval fixtures in the phase-100 suite, and run them as an A/B bench:
-guidance-present vs guidance-absent on the same task, measuring the
-mistake-class delta. This is the measurement 121/122 explicitly defer to, and
-it unblocks Per-Model-Family Targeted Guidance. It feeds bench (105) routing
-scores for free. Still-open captures worth fixturing later: devstral
-empty-arguments (a tool_calls-shape case, belongs in a tool-call normalization
-corpus, not the extractor corpus) and qwen duplicate-key clusters.
+The measurement against qwen3.6 is a null (model is inherently clean).
+The open capture: run the suite against gpt-oss or devstral to quantify their
+trap rate and the guidance block's delta for those families. Still-open corpus
+work: devstral empty-arguments (tool_calls shape) and qwen duplicate-key
+clusters.
 
 
 ## Theme D — Bigger swings (sequence after A)
@@ -188,11 +166,11 @@ skill, syntax-gate evidence), the A/B measurement apparatus, two heal-trust
 fixes, the inter-chunk idle deadline, and a complete **forensics-as-instrument**
 arc (`kodr trends`/`route`/`evals` + windowing + HTML). What remains:
 
-1. **Trap-provoking code-quality fixtures** — the 124 A/B got a clean null on
-   simple greenfield tasks. Build brownfield/heal-pressure fixtures that actually
-   elicit `require.main`/`t.assert()`, run them through the 124 apparatus, and
-   read the delta with `kodr trends --since`. This is the gating measurement for
-   per-model-family guidance and the next highest-signal step.
+1. **Per-model-family guidance** — brownfield and multi-file fixtures (phase 140)
+   confirmed qwen3.6 is trap-clean without guidance. Run `kodr eval --suite
+   evals/code-quality.json` against gpt-oss-20b or devstral to get a baseline
+   trap rate, then add a `model:gpt-oss` (or `model:devstral`) builtin skill and
+   re-measure. This is the remaining half of the per-family-guidance arc.
 2. **Per-Task / per-run model routing** — `kodr route --apply` (131) sets the
    default from history; the open work is `--route-auto` (resolve the run's model
    from history at run start — note the integration nuance: `parseArgs` is sync,

@@ -1,6 +1,6 @@
 {
 	"name": "code-quality",
-	"description": "Greenfield ESM generation tasks that target the recurring local-model code-quality traps: CommonJS-in-ESM (require/module.exports), invented node:test API (t.assert()), and non-ESM test wiring. Each case asserts the target file exists (so a no-write cannot pass vacuously) and that the trap pattern is absent. Run with and without --no-language-guidance to measure the phase-121/122 contract's effect.",
+	"description": "ESM generation tasks targeting recurring local-model code-quality traps: CommonJS-in-ESM (require/module.exports), invented node:test API (t.assert()), and non-ESM test wiring. Includes both greenfield (phase 124) and brownfield/multi-file cases (phase 140). Each case asserts the target file exists (so a no-write cannot pass vacuously) and that the trap pattern is absent. Run with and without --no-language-guidance to measure the guidance contract's effect.",
 	"cases": [
 		{
 			"id": "cq-esm-cli",
@@ -28,6 +28,38 @@
 				{ "type": "files_exist", "paths": ["sum.mjs", "test/sum.test.mjs"] },
 				{ "type": "content_absent", "path": "test/sum.test.mjs", "pattern": "t\\.assert\\s*\\(" },
 				{ "type": "content_absent", "path": "sum.mjs", "pattern": "\\brequire\\s*\\(" }
+			]
+		},
+		{
+			"id": "cq-brownfield-add-tests",
+			"fixture": "fixtures/cq-brownfield-add-tests",
+			"test": "node --test",
+			"requires": [],
+			"expectFailingBaseline": false,
+			"heal": false,
+			"prompt": "The project has a Counter class in src/counter.mjs but no tests. Write tests for it in test/counter.test.mjs.",
+			"assertions": [
+				{ "type": "files_exist", "paths": ["test/counter.test.mjs"] },
+				{ "type": "content_absent", "path": "test/counter.test.mjs", "pattern": "t\\.assert\\s*\\(" },
+				{ "type": "content_absent", "path": "test/counter.test.mjs", "pattern": "\\brequire\\s*\\(" },
+				{ "type": "tests_pass", "command": "node --test" }
+			]
+		},
+		{
+			"id": "cq-multi-file-esm",
+			"fixture": "fixtures/cq-multi-file-esm",
+			"test": "node --test",
+			"requires": [],
+			"expectFailingBaseline": false,
+			"heal": false,
+			"prompt": "Create src/store.mjs exporting a Store class with get(key) and set(key, val) backed by a Map; src/cache.mjs exporting a Cache class that wraps Store with a maxSize limit (evicts oldest entry when full); test/cache.test.mjs with tests for Cache.",
+			"assertions": [
+				{ "type": "files_exist", "paths": ["src/store.mjs", "src/cache.mjs", "test/cache.test.mjs"] },
+				{ "type": "content_absent", "path": "src/store.mjs", "pattern": "\\brequire\\s*\\(" },
+				{ "type": "content_absent", "path": "src/cache.mjs", "pattern": "\\brequire\\s*\\(" },
+				{ "type": "content_absent", "path": "test/cache.test.mjs", "pattern": "t\\.assert\\s*\\(" },
+				{ "type": "content_absent", "path": "test/cache.test.mjs", "pattern": "\\brequire\\s*\\(" },
+				{ "type": "tests_pass", "command": "node --test" }
 			]
 		}
 	]
