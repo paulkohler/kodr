@@ -170,20 +170,6 @@ scores for free. Still-open captures worth fixturing later: devstral
 empty-arguments (a tool_calls-shape case, belongs in a tool-call normalization
 corpus, not the extractor corpus) and qwen duplicate-key clusters.
 
-### gpt-oss Under-Delivery Guard — file-count check / continuation nudge (out-of-scope from 137)
-
-Phase-137 dogfood: gpt-oss-20b delivered 1 of 3 requested files with
-`finish_reason:stop` (not `tool_calls`, not `length`). After phase 137 the
-extractor recovers the one file that *was* delivered — but the other two are
-simply absent. A file-count guard would detect when a valid proposal has fewer
-files than the task requested (e.g. `task.files.length` vs
-`proposal.files.length`) and either surface a `kodr why` warning or issue a
-continuation nudge ("you returned 1 of 3 files; please continue with the
-remaining 2"). This is a separate model-behavior problem from the extractor
-truncation: the model finished early, not corruptly. The guard belongs in the
-proposal-acceptance or run-summary layer, not the extractor.
-Evidence: `~/src/kodr-testing/phase-137/tasks-gptoss/` (`summary.json`:
-`proposalFound:true` after 137 fix, but only 1 file written vs 3 expected).
 
 ## Theme D — Bigger swings (sequence after A)
 

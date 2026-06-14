@@ -6,6 +6,7 @@ import { basename, join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	CliError,
+	extractPromptFilePaths,
 	handleChannelRequest,
 	main,
 	NativeNoProposalError,
@@ -6277,6 +6278,49 @@ describe('Phase 119 D5 — summary fields: toolWritesMode + recoveredVia + propo
 		assert.ok(
 			proposalStep.detail.includes('envelope-fallback'),
 			`detail should mention envelope-fallback; got: ${proposalStep.detail}`,
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 139 — extractPromptFilePaths unit tests
+// ---------------------------------------------------------------------------
+
+describe('extractPromptFilePaths (Phase 139)', () => {
+	it('extracts bullet-list file paths from a typical 3-file task prompt', () => {
+		const prompt =
+			'Create three files:\n- src/store.mjs: exports ...\n- src/cli.mjs: exports ...\n- test/cli.test.mjs: coverage';
+		const paths = extractPromptFilePaths(prompt);
+		assert.ok(paths.includes('src/store.mjs'), 'should find src/store.mjs');
+		assert.ok(paths.includes('src/cli.mjs'), 'should find src/cli.mjs');
+		assert.ok(
+			paths.includes('test/cli.test.mjs'),
+			'should find test/cli.test.mjs',
+		);
+	});
+
+	it('does not extract node: specifiers or version strings', () => {
+		const prompt = 'Use node:fs and node:path. Version 1.0.2 is fine.';
+		const paths = extractPromptFilePaths(prompt);
+		assert.ok(!paths.includes('node:fs'), 'should not include node: specifier');
+		assert.ok(
+			!paths.some((p) => /^\d/.test(p)),
+			'should not include version strings',
+		);
+	});
+
+	it('returns empty array for null or empty prompt', () => {
+		assert.deepEqual(extractPromptFilePaths(null), []);
+		assert.deepEqual(extractPromptFilePaths(''), []);
+	});
+
+	it('returns de-duplicated paths when the same file appears twice', () => {
+		const prompt = 'Edit src/app.mjs. Also update src/app.mjs with tests.';
+		const paths = extractPromptFilePaths(prompt);
+		assert.equal(
+			paths.filter((p) => p === 'src/app.mjs').length,
+			1,
+			'should deduplicate',
 		);
 	});
 });

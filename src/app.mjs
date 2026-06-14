@@ -3611,6 +3611,86 @@ export async function runPrompt(options, io) {
 			}
 		}
 
+		// Under-delivery guard: when the prompt explicitly names files the model
+		// did not deliver, issue ONE continuation nudge so the missing files can be
+		// retrieved in the same run rather than failing at test time.
+		// Only fires when: proposal exists, status OK, model used finish_reason:stop,
+		// and at least one explicitly-named path is absent from the proposal.
+		// A single nudge is issued at most once to avoid loops.
+		if (
+			proposal?.status === 'OK' &&
+			completion.finishReasons?.at(-1) === 'stop' &&
+			options.deliveryNudge !== false
+		) {
+			const deliveredPaths = new Set([
+				...(proposal.files ?? []).map((f) => f.path),
+				...(proposal.patches ?? []).map((p) => p.path),
+			]);
+			const promptPaths = extractPromptFilePaths(prompt);
+			const missingPaths = promptPaths.filter((p) => !deliveredPaths.has(p));
+			if (missingPaths.length > 0) {
+				const nudge =
+					`Your response is missing ${missingPaths.length} file(s) mentioned in the task: ` +
+					missingPaths.map((p) => `\`${p}\``).join(', ') +
+					'. Please provide the complete content for each missing file now.';
+				let nudgeCompletion = null;
+				try {
+					nudgeCompletion = await completeWithContinuations(
+						runOptions,
+						model,
+						'',
+						context.systemPrompt,
+						{
+							initialMessages: [
+								...completion.messages,
+								{ role: 'user', content: nudge },
+							],
+						},
+					);
+				} catch {
+					// nudge failed — continue with partial proposal
+				}
+				if (nudgeCompletion) {
+					const nudgeDraft = nudgeCompletion.proposalDraft ?? null;
+					const nudgeDraftNonEmpty = nudgeDraft && !nudgeDraft.isEmpty;
+					let nudgeProposal = null;
+					if (nudgeDraftNonEmpty) {
+						nudgeProposal = mergeProposalWithDraft(nudgeDraft, null);
+					} else {
+						try {
+							nudgeProposal = extractProposal(nudgeCompletion.text);
+						} catch {
+							nudgeProposal = null;
+						}
+					}
+					if (nudgeProposal) {
+						// Merge: nudge files fill in what was missing; don't overwrite what
+						// the original proposal already delivered.
+						const existingPaths = new Set(deliveredPaths);
+						const newFiles = (nudgeProposal.files ?? []).filter(
+							(f) => !existingPaths.has(f.path),
+						);
+						const newPatches = (nudgeProposal.patches ?? []).filter(
+							(p) => !existingPaths.has(p.path),
+						);
+						proposal = {
+							...proposal,
+							files: [...(proposal.files ?? []), ...newFiles],
+							patches: [...(proposal.patches ?? []), ...newPatches],
+						};
+						// Extend completion for artifact accuracy.
+						completion.messages.push(...nudgeCompletion.messages.slice(-2));
+						completion.responses.push(...nudgeCompletion.responses);
+						completion.finishReasons.push(...nudgeCompletion.finishReasons);
+						summary.deliveryNudge = {
+							prompted: missingPaths,
+							recovered: [...newFiles, ...newPatches].map((e) => e.path),
+						};
+					}
+				}
+			}
+		}
+
 		// Alias hits for summary.json
 		const aliasHits = capturedDraft?.aliasHits ?? {};
 
@@ -5500,6 +5580,24 @@ function proposalPaths(proposal) {
 		...proposal.files.map((file) => file.path),
 		...proposal.patches.map((patch) => patch.path),
 	];
+}
+
+// Exported for testing.
+// Extract explicit file paths mentioned in a task prompt, e.g. from bullet lists.
+// Returns a de-duplicated array of path-like strings found in the text.
+// Only matches things that look like workspace-relative paths (no leading /).
+export function extractPromptFilePaths(promptText) {
+	if (!promptText) return [];
+	// Match path-like tokens: word chars + /./- with a dot extension, not starting with /
+	const pathRe = /(?<![/\\])[\w][\w./-]*\.[a-z]{1,6}/g;
+	const found = new Set();
+	for (const m of promptText.matchAll(pathRe)) {
+		const p = m[0];
+		// Skip common non-path patterns: URLs (node:fs), version strings (1.0.2), etc.
+		if (p.includes(':') || /^\d/.test(p)) continue;
+		found.add(p);
+	}
+	return [...found];
 }
 
 // L2: collect write records for entries already applied live during the tool loop.
