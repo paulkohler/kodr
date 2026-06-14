@@ -154,11 +154,14 @@ export function buildCausalStory(analysis) {
 		const transportSuffix =
 			ttftParts.length > 0 ? ` (${ttftParts.join('; ')})` : '';
 
+		const routeAutoSuffix = summary.routeAuto
+			? ` [route-auto: ${summary.routeAuto}]`
+			: '';
 		steps.push({
 			artifactPath: join(runDir, 'summary.json'),
 			detail: modelCallFailed
-				? `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} error=${errorJson?.message || 'no responses recorded'}`
-				: `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} finishReasons=[${finishReasons}]${transportSuffix}`,
+				? `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} error=${errorJson?.message || 'no responses recorded'}${routeAutoSuffix}`
+				: `model=${model} baseUrl=${baseUrl} turns=${turns} tokens=${tokens} finishReasons=[${finishReasons}]${transportSuffix}${routeAutoSuffix}`,
 			phase: 'Model Call',
 			status: modelCallFailed ? 'fail' : 'ok',
 		});

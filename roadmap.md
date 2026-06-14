@@ -140,6 +140,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 138 Heal Edit Validation
 - [x] 139 Under-Delivery Guard
 - [x] 140 Trap-Provoking Measurement Fixtures
+- [x] 141 Route Auto
 
 ## Phase Contract
 

@@ -44,6 +44,11 @@ describe('parseArgs', () => {
 		assert.equal(parseArgs([], {}).suppressLanguageGuidance, false);
 	});
 
+	it('parses --route-auto (phase 141)', () => {
+		assert.equal(parseArgs(['--route-auto'], {}).routeAuto, true);
+		assert.equal(parseArgs([], {}).routeAuto, false);
+	});
+
 	it('parses model endpoint flags', () => {
 		const options = parseArgs([
 			'--base-url',
@@ -6331,5 +6336,89 @@ describe('extractPromptFilePaths (Phase 139)', () => {
 			1,
 			'should deduplicate',
 		);
+	});
+});
+
+// Phase 141 — route-auto: model resolved from run-history in main()
+describe('route-auto in main() (Phase 141)', () => {
+	async function writeRunSummary(runsDir, slot, model, ok = true) {
+		const d = join(runsDir, `2025-01-0${slot}T00-00-00.000Z`);
+		await mkdir(d, { recursive: true });
+		await writeFile(
+			join(d, 'summary.json'),
+			JSON.stringify({
+				model,
+				ok,
+				timestamp: `2025-01-0${slot}T00:00:00.000Z`,
+			}),
+		);
+	}
+
+	it('selects model from run history when not explicitly set', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'kodr-route-auto-'));
+		const runsDir = join(dir, '.kodr', 'runs');
+		await mkdir(runsDir, { recursive: true });
+		for (let i = 1; i <= 3; i++) {
+			await writeRunSummary(runsDir, i, 'my-special-model');
+		}
+		let output = '';
+		await main(['run', '--route-auto', '--show-config'], {
+			env: {},
+			cwd: dir,
+			stdout: {
+				isTTY: false,
+				write: (c) => {
+					output += c;
+				},
+			},
+			stderr: { write: () => {} },
+		});
+		assert.ok(
+			output.includes('my-special-model'),
+			'route-auto model in show-config',
+		);
+	});
+
+	it('does not override --model when explicitly set', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'kodr-route-auto-explicit-'));
+		const runsDir = join(dir, '.kodr', 'runs');
+		await mkdir(runsDir, { recursive: true });
+		for (let i = 1; i <= 3; i++) {
+			await writeRunSummary(runsDir, i, 'history-model');
+		}
+		let output = '';
+		await main(
+			['run', '--model', 'explicit-model', '--route-auto', '--show-config'],
+			{
+				env: {},
+				cwd: dir,
+				stdout: {
+					isTTY: false,
+					write: (c) => {
+						output += c;
+					},
+				},
+				stderr: { write: () => {} },
+			},
+		);
+		assert.ok(output.includes('explicit-model'), 'explicit model wins');
+		assert.ok(!output.includes('history-model'), 'history model not used');
+	});
+
+	it('falls through silently when run history is empty', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'kodr-route-auto-empty-'));
+		let output = '';
+		await main(['run', '--route-auto', '--show-config'], {
+			env: {},
+			cwd: dir,
+			stdout: {
+				isTTY: false,
+				write: (c) => {
+					output += c;
+				},
+			},
+			stderr: { write: () => {} },
+		});
+		assert.ok(output.length > 0, 'show-config output still produced');
 	});
 });

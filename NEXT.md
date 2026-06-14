@@ -171,12 +171,13 @@ arc (`kodr trends`/`route`/`evals` + windowing + HTML). What remains:
    evals/code-quality.json` against gpt-oss-20b or devstral to get a baseline
    trap rate, then add a `model:gpt-oss` (or `model:devstral`) builtin skill and
    re-measure. This is the remaining half of the per-family-guidance arc.
-2. **Per-Task / per-run model routing** — `kodr route --apply` (131) sets the
-   default from history; the open work is `--route-auto` (resolve the run's model
-   from history at run start — note the integration nuance: `parseArgs` is sync,
-   so the async trends load + profile re-resolution belong in `main()`, and the
-   "model was explicit" signal must survive the `_modelSet` deletion) and the
-   per-step `cheapModel`/`editModel` split with the choice recorded in summary.
+2. **Per-step model routing** — `--route-auto` (141) ships the per-run half:
+   the best-history model is selected at run start when no explicit model is
+   given. The remaining open work is the **per-step** split: cheap tasks (commit
+   messages, compaction, summaries) to a `cheapModel`, edits to `editModel`,
+   with the per-step choice recorded in summary so `kodr why` shows which model
+   handled which step. That's a bigger, riskier internal change; `--route-auto`
+   is the safe, evidence-backed first step.
 3. **Daily-driver gaps** — watch-meets-TUI and TUI piped-input serialization
    (the latter is underspecified; reproduce before touching the readline loop).
 4. **Re-decide the repomap publish hold** with the user (precondition met), and

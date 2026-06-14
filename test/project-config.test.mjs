@@ -363,6 +363,12 @@ describe('parseArgs precedence', () => {
 		assert.equal(opts.configSources.protectExisting, 'config');
 	});
 
+	it('config sets routeAuto (phase 141)', async () => {
+		const cwd = await setup({ routeAuto: true });
+		const opts = parseArgs(['run', '-p', 'hi'], {}, cwd);
+		assert.equal(opts.routeAuto, true);
+	});
+
 	it('configSources uses profile for tools auto-resolved from profile', async () => {
 		const cwd = await setup({ model: 'config/model' });
 		const opts = parseArgs(['run', '-p', 'hi'], {}, cwd);

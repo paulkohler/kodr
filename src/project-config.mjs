@@ -42,6 +42,7 @@ const KNOWN_KEYS = new Set([
 	'skillsDirs',
 	'agentsDirs',
 	'applyMode',
+	'routeAuto',
 ]);
 
 // Known LSP server names from the default registry. Config may reference only
@@ -159,6 +160,7 @@ function validateValue(key, value, configPath) {
 		case 'heal':
 		case 'inspectContext':
 		case 'protectExisting':
+		case 'routeAuto':
 			if (typeof value !== 'boolean') fail('must be a boolean');
 			return value;
 
@@ -316,6 +318,8 @@ function shouldApply(key, options) {
 			return true;
 		case 'applyMode':
 			return !options._applyModeSet;
+		case 'routeAuto':
+			return !options.routeAuto;
 		default:
 			return false;
 	}

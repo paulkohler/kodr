@@ -265,6 +265,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 131: kodr route.
 		routeApply: false,
 		routeMinRuns: 0,
+		// Phase 141: --route-auto selects model from run-history at run start.
+		routeAuto: false,
+		routeAutoModel: '',
 		suitePath: '',
 		record: false,
 		evalCases: [],
@@ -467,6 +470,11 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--apply') {
 			options.routeApply = true;
+			continue;
+		}
+
+		if (arg === '--route-auto') {
+			options.routeAuto = true;
 			continue;
 		}
 
@@ -1046,6 +1054,7 @@ Usage:
   kodr replay <run-dir>
   kodr trends [--json | --html] [--runs-dir .kodr/runs] [--since <run-id>] [--last N]
   kodr route [--json] [--min-runs N] [--apply]
+  kodr run -p "task" --route-auto
   kodr evals [--json] [--runs-dir evals/results]
   kodr watch --test "npm test"
 
@@ -1126,6 +1135,11 @@ OpenRouter:
                                     (--no-tools) this flag is accepted but inert.
                        Configurable via applyMode in .kodr/config.json.
                        Precedence: flag > config > default (proposal).
+  --route-auto         At run start, load .kodr/runs history and use
+                       recommendModel to select the model — only when the model
+                       was not set explicitly by flag, env var, or project config.
+                       Silent no-op if history is empty. Also configurable as
+                       routeAuto: true in .kodr/config.json.
   --no-language-guidance
                        Force the Node/ESM contract block off even when the
                        workspace signals Node/ESM. The A-arm for measuring the
@@ -1362,6 +1376,25 @@ export async function main(argv, io) {
 	if (options.help || options.command === 'help') {
 		io.stdout.write(usage());
 		return { ok: true, command: 'help' };
+	}
+
+	// Phase 141: resolve model from run-history when --route-auto is set and
+	// the model was not explicitly specified by flag, env var, or project config.
+	if (options.routeAuto && !options.modelExplicit) {
+		try {
+			const { computeTrends, loadRunSummaries } = await import('./trends.mjs');
+			const { recommendModel } = await import('./routing.mjs');
+			const runsDir = join(io.cwd, '.kodr', 'runs');
+			const report = computeTrends(await loadRunSummaries(runsDir));
+			const rec = recommendModel(report);
+			if (rec.recommended) {
+				options.model = rec.recommended;
+				options.modelExplicit = true;
+				options.routeAutoModel = rec.recommended;
+			}
+		} catch {
+			// Trends load failure is non-fatal; proceed with the default model.
+		}
 	}
 
 	if (options.command === 'skills') {
@@ -3469,6 +3502,10 @@ export async function runPrompt(options, io) {
 		}
 		// L4: record resolved applyMode for forensics.
 		summary.applyMode = options.applyMode || 'proposal';
+		// Phase 141: record when model was auto-selected from run history.
+		if (options.routeAutoModel) {
+			summary.routeAuto = options.routeAutoModel;
+		}
 		if (inspectionPlan) {
 			summary.inspectionPlan = inspectionPlan.inspection;
 		}
