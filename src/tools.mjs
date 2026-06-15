@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { listContextFiles } from './context-packer.mjs';
 import { createHooks, HookBlockedError } from './hooks.mjs';
-import { createMcpClient } from './mcp-client.mjs';
 import {
 	createPermissionPolicy,
 	PermissionPolicyError,
@@ -30,7 +29,11 @@ export class ToolRunner {
 		this.taskPlan = options.taskPlan || createTaskPlan(options.task || '');
 		this.hooks = createHooks(options.hooks);
 		this.policy = createPermissionPolicy(options.policy);
-		this.mcp = createMcpClient(options.mcpProviders || options.mcp || []);
+		// Lazy MCP (phase 149): mcp-client.mjs is imported only when an MCP tool
+		// is actually called, so a bare run never loads it. Providers are kept
+		// here; the client is built on first use via getMcp().
+		this.mcpProviders = options.mcpProviders || options.mcp || [];
+		this.mcp = null;
 		this.commandRunner = options.commandRunner || null;
 		this.permissionApprover = options.permissionApprover || null;
 	}
@@ -77,13 +80,21 @@ export class ToolRunner {
 		return post.payload.result;
 	}
 
+	async getMcp() {
+		if (!this.mcp) {
+			const { createMcpClient } = await import('./mcp-client.mjs');
+			this.mcp = createMcpClient(this.mcpProviders);
+		}
+		return this.mcp;
+	}
+
 	async runTool(name, input = {}) {
 		if (name.startsWith('mcp:')) {
-			return this.mcp.callTool(name, input);
+			return (await this.getMcp()).callTool(name, input);
 		}
 
 		if (name === 'list_mcp_tools') {
-			return this.mcp.listTools();
+			return (await this.getMcp()).listTools();
 		}
 
 		if (name === 'list_files') {
