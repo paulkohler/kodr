@@ -10,6 +10,20 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+// Pure option helpers live in sandbox-options.mjs (phase 149) so parse-time
+// validation in cli/args.mjs does not statically pull in this heavy module.
+// OpenShellSandboxError + openshellDefaults are used below; all three are
+// re-exported so existing importers (cli/args, openshell-worker, tests) work.
+import {
+	openshellDefaults,
+	OpenShellSandboxError,
+} from './sandbox-options.mjs';
+
+export {
+	openshellDefaults,
+	OpenShellSandboxError,
+	validateOpenShellOptions,
+} from './sandbox-options.mjs';
 
 const DEFAULT_WORKDIR = '/sandbox';
 const SAFE_NAME = /[^a-zA-Z0-9_.-]+/gu;
@@ -35,46 +49,6 @@ const EXCLUDED_NAMES = new Set([
 	'node_modules',
 	'KODR_MEMORY.md',
 ]);
-
-export class OpenShellSandboxError extends Error {
-	constructor(message, details = {}) {
-		super(message);
-		this.name = 'OpenShellSandboxError';
-		this.details = details;
-	}
-}
-
-export function openshellDefaults(options = {}) {
-	return {
-		openshellFrom: options.openshellFrom || '',
-		openshellKeep: options.openshellKeep === true,
-		openshellPolicy: options.openshellPolicy || '',
-	};
-}
-
-export function validateOpenShellOptions(options = {}) {
-	if (!options.openshellSandbox && !options.openshellWorker) {
-		return;
-	}
-	if (options.dockerSandbox) {
-		throw new OpenShellSandboxError(
-			'--docker-sandbox cannot be used with OpenShell sandbox modes',
-		);
-	}
-	if (options.openshellSandbox && options.openshellWorker) {
-		throw new OpenShellSandboxError(
-			'--openshell-sandbox and --openshell-worker cannot be used together',
-		);
-	}
-	if (options.installDependencies && !options.openshellPolicy) {
-		if (options.openshellWorker) {
-			return;
-		}
-		throw new OpenShellSandboxError(
-			'--install with --openshell-sandbox requires --openshell-policy so dependency network access is explicit',
-		);
-	}
-}
 
 export function createOpenShellExecutor(hostCwd, runDir, options = {}) {
 	if (!options.openshellSandbox) {

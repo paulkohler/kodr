@@ -1,45 +1,19 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { basename } from 'node:path';
+// Pure option helpers live in sandbox-options.mjs (phase 149) so parse-time
+// validation in cli/args.mjs does not statically pull in this heavy module.
+// dockerDefaults is used by the executor below; the rest are re-exported so
+// existing importers (cli/args, tests) keep working.
+import { dockerDefaults } from './sandbox-options.mjs';
 
-const DEFAULT_DOCKER_IMAGE = 'node:24-bookworm-slim';
-const DEFAULT_DOCKER_WORKDIR = '/workspace';
+export {
+	DockerSandboxError,
+	dockerDefaults,
+	validateDockerOptions,
+} from './sandbox-options.mjs';
+
 const SAFE_CONTAINER_NAME = /[^a-zA-Z0-9_.-]+/gu;
-
-export class DockerSandboxError extends Error {
-	constructor(message) {
-		super(message);
-		this.name = 'DockerSandboxError';
-	}
-}
-
-export function dockerDefaults(options = {}) {
-	return {
-		dockerImage: options.dockerImage || DEFAULT_DOCKER_IMAGE,
-		dockerKeep: options.dockerKeep === true,
-		dockerNetwork:
-			options.dockerNetwork ||
-			(options.installDependencies ? 'bridge' : 'none'),
-		dockerWorkdir: options.dockerWorkdir || DEFAULT_DOCKER_WORKDIR,
-	};
-}
-
-export function validateDockerOptions(options = {}) {
-	if (!options.dockerSandbox) {
-		return;
-	}
-	if (!options.dockerImage || !options.dockerImage.trim()) {
-		throw new DockerSandboxError('--docker-image must not be empty');
-	}
-	if (!options.dockerWorkdir || !options.dockerWorkdir.startsWith('/')) {
-		throw new DockerSandboxError('--docker-workdir must be an absolute path');
-	}
-	if (!isAllowedNetwork(options.dockerNetwork)) {
-		throw new DockerSandboxError(
-			'--docker-network must be "none", "bridge", or a simple Docker network name',
-		);
-	}
-}
 
 export function createDockerExecutor(hostCwd, runDir, options = {}) {
 	if (!options.dockerSandbox) {
@@ -194,14 +168,6 @@ export class DockerExecutor {
 			},
 		};
 	}
-}
-
-function isAllowedNetwork(value) {
-	return (
-		value === 'none' ||
-		value === 'bridge' ||
-		/^[a-zA-Z0-9_.-]+$/u.test(value || '')
-	);
 }
 
 function safeName(value) {

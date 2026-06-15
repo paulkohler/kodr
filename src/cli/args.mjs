@@ -18,7 +18,6 @@ import {
 	OPENROUTER_BASE_URL,
 	OPENROUTER_EXTRA_HEADERS,
 } from '../completion.mjs';
-import { dockerDefaults, validateDockerOptions } from '../docker-executor.mjs';
 import { normalizeEditFormat } from '../edit-formats.mjs';
 import { applyModelProfileDefaults } from '../model-profiles.mjs';
 import {
@@ -27,10 +26,15 @@ import {
 	resolveAgentModels,
 	resolveModelOptions,
 } from '../model-specs.mjs';
+// Sandbox option validators/defaults come from the light sandbox-options.mjs
+// (phase 149) so parseArgs does not statically load docker-executor /
+// openshell-executor (node:child_process + the full sandbox machinery).
 import {
+	dockerDefaults,
 	openshellDefaults,
+	validateDockerOptions,
 	validateOpenShellOptions,
-} from '../openshell-executor.mjs';
+} from '../sandbox-options.mjs';
 import {
 	APPLY_MODES,
 	applyProjectConfig,
