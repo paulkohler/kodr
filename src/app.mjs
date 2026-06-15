@@ -93,6 +93,7 @@ import {
 	applyModelProfileDefaults,
 	contextBudgetCharsForWindow,
 	probeLMStudioContextWindow,
+	resolveProbedContextWindow,
 	sessionContextCharsForProfile,
 } from './model-profiles.mjs';
 import {
@@ -2985,22 +2986,31 @@ export async function runPrompt(options, io) {
 
 		// Phase 146: probe LM Studio /api/v0/models/{model} for the actual loaded
 		// context window. Overrides the static profile value when the server reports
-		// a larger window and the user has not set --context-window explicitly.
+		// a different window and the user has not set --context-window explicitly.
+		// Phase 147: a successful probe is labelled 'lmstudio-api' even when the
+		// value equals the default, so a confirmed window is distinguishable from a
+		// probe-failure fallback (the probe runs for ALL models, matched or not).
 		if (!options._contextWindowSet) {
 			const probedWindow = await probeLMStudioContextWindow(
 				options.baseUrl,
 				options.model,
 			);
-			if (probedWindow !== null && probedWindow !== options.contextWindow) {
-				options.contextWindow = probedWindow;
-				options.contextWindowSource = 'lmstudio-api';
+			const resolved = resolveProbedContextWindow(
+				probedWindow,
+				options.contextWindow,
+			);
+			if (resolved.source) {
+				options.contextWindowSource = resolved.source;
+			}
+			if (resolved.changed) {
+				options.contextWindow = resolved.window;
 				options.contextBudgetChars = contextBudgetCharsForWindow(
-					probedWindow,
+					resolved.window,
 					options.completionReserve,
 				);
 				if (!options._sessionContextSet) {
 					options.sessionContextChars = sessionContextCharsForProfile({
-						contextWindow: probedWindow,
+						contextWindow: resolved.window,
 						completionReserve: options.completionReserve,
 					});
 				}

@@ -7,6 +7,7 @@ import {
 	applyModelProfileDefaults,
 	contextBudgetCharsForWindow,
 	probeLMStudioContextWindow,
+	resolveProbedContextWindow,
 	resolveModelProfile,
 	sessionContextCharsForProfile,
 } from '../src/model-profiles.mjs';
@@ -330,5 +331,35 @@ describe('model profiles', () => {
 			await probeLMStudioContextWindow('http://localhost:1234/v1', ''),
 			null,
 		);
+	});
+
+	it('phase 147: resolveProbedContextWindow labels a confirmed default as lmstudio-api', () => {
+		// Probe succeeds and equals the profile default — the source must still be
+		// lmstudio-api (confirmed), not left to read as a profile fallback, and the
+		// window is unchanged so callers skip budget recomputation.
+		const r = resolveProbedContextWindow(32768, 32768);
+		assert.deepEqual(r, {
+			window: 32768,
+			source: 'lmstudio-api',
+			changed: false,
+		});
+	});
+
+	it('phase 147: resolveProbedContextWindow reports a larger probed window as changed', () => {
+		const r = resolveProbedContextWindow(131072, 32768);
+		assert.deepEqual(r, {
+			window: 131072,
+			source: 'lmstudio-api',
+			changed: true,
+		});
+	});
+
+	it('phase 147: resolveProbedContextWindow keeps the current window on probe failure', () => {
+		// Probe failed (null / not loaded) — keep the caller's window and let it
+		// retain its existing source label (returns source: null).
+		for (const bad of [null, undefined, 0, -1, 1.5]) {
+			const r = resolveProbedContextWindow(bad, 32768);
+			assert.deepEqual(r, { window: 32768, source: null, changed: false });
+		}
 	});
 });

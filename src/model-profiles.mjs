@@ -270,6 +270,27 @@ export async function probeLMStudioContextWindow(baseUrl, model) {
 	}
 }
 
+// Phase 147: resolve the effective context window after a live probe.
+// A SUCCESSFUL probe (non-null) is recorded as the source even when its value
+// equals the current/default window — so a value confirmed by the LM Studio API
+// is distinguishable from a probe-failure fallback. Previously the source was
+// only relabelled when the probed value DIFFERED from the default, so an
+// unmatched model whose default happened to match the loaded window read as
+// 'profile' and looked like discovery had been skipped (it had not).
+// Returns: window to use, source label ('lmstudio-api' when probed, or null to
+// keep the caller's existing label), and whether the window changed (so the
+// caller knows to recompute budgets).
+export function resolveProbedContextWindow(probedWindow, currentWindow) {
+	if (!Number.isInteger(probedWindow) || probedWindow <= 0) {
+		return { window: currentWindow, source: null, changed: false };
+	}
+	return {
+		window: probedWindow,
+		source: 'lmstudio-api',
+		changed: probedWindow !== currentWindow,
+	};
+}
+
 function addProfile(profiles, profile) {
 	profiles.set(profileKey(profile.provider, profile.id), profile);
 }
