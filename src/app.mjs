@@ -120,10 +120,7 @@ import {
 } from './eval-runner.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './repomap/index.mjs';
-import {
-	filterInspectionIndex,
-	renderInspection,
-} from './inspection-output.mjs';
+import { filterInspectionIndex } from './inspection-output.mjs';
 import { runDependencyInstall } from './dependency-installer.mjs';
 import { dockerDefaults, validateDockerOptions } from './docker-executor.mjs';
 import {
@@ -138,11 +135,7 @@ import {
 	initializeExecutor,
 	writeExecutorArtifacts,
 } from './active-executor.mjs';
-import {
-	checkAvailability,
-	inspectWithRegistry,
-	REGISTRY,
-} from './external-inspector-registry.mjs';
+import { inspectWithRegistry } from './external-inspector-registry.mjs';
 import {
 	completeWithContinuations,
 	OPENROUTER_BASE_URL,
@@ -181,6 +174,7 @@ import {
 	runTrends,
 	runWhy,
 } from './commands/forensics.mjs';
+import { runInspect, runRegistry } from './commands/inspect.mjs';
 
 export { VERSION };
 
@@ -1606,50 +1600,11 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'inspect') {
-		if (options.inspectFile) {
-			await jailedPath(io.cwd, options.inspectFile);
-		}
-		const index = await inspectWorkspace(io.cwd, {
-			languages:
-				options.inspectLanguages.length > 0
-					? options.inspectLanguages
-					: undefined,
-			symbol: options.inspectSymbol,
-		});
-		const filteredIndex = filterInspectionIndex(index, {
-			filePath: options.inspectFile,
-		});
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify(filteredIndex, null, 2)}\n`);
-		} else {
-			io.stdout.write(
-				renderInspection(filteredIndex, {
-					filePath: options.inspectFile,
-					symbolName: options.inspectSymbol,
-				}),
-			);
-		}
-		return { ok: true, command: 'inspect', index: filteredIndex };
+		return runInspect(options, io);
 	}
 
 	if (options.command === 'registry') {
-		const results = await Promise.all(
-			REGISTRY.map(async (entry) => ({
-				available: await checkAvailability(entry.command),
-				languages: entry.languages,
-				name: entry.name,
-			})),
-		);
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
-		} else {
-			for (const entry of results) {
-				const mark = entry.available ? '✓' : '✗';
-				const langs = entry.languages.join(',');
-				io.stdout.write(`${entry.name.padEnd(36)}${langs.padEnd(24)}${mark}\n`);
-			}
-		}
-		return { ok: true, command: 'registry', results };
+		return runRegistry(options, io);
 	}
 
 	if (options.command === 'replay') {
