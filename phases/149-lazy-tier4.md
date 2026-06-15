@@ -99,18 +99,21 @@ is recorded in `process/decisions.jsonl`.
 
 ## Done criteria
 
-- [ ] Bare-run static import graph from `app.mjs` excludes `orchestration`,
+- [x] Bare-run static import graph from `app.mjs` excludes `orchestration`,
       `subagents`, `docker-executor`, `openshell-executor`, `openshell-worker`,
       `external-inspector-registry`, `lsp-client`, `mcp-client`, `server`,
-      `watcher`.
-- [ ] Each lazy module still loads and works behind its flag/command (sandbox run,
-      `--lsp`, MCP tool, `--subagent-stages`, `serve`, `watch`) — covered by the
-      existing suite (no feature tests removed) + a live smoke check.
-- [ ] Full suite green; the only test change is the 3-line `await` in
-      `test/active-executor.test.mjs` (signature change), recorded in decisions.
-- [ ] `npm run check` + `npm run format` green.
-- [ ] Guard test `test/lazy-load.test.mjs` added and green.
-- [ ] `docs/ARCHITECTURE.md` lever #2 marked done; module-count before/after noted.
-- [ ] `process/decisions.jsonl` + `process/failures.jsonl` updated as relevant.
-- [ ] Blog post `blog/149-lazy-tier4.md`.
-- [ ] Roadmap line checked; version bumped to 0.0.149.
+      `watcher`. Measured: **84 → 59 modules** reachable from `app.mjs`.
+- [x] Each lazy module still loads and works behind its flag/command — covered by
+      the existing suite (no feature tests removed; orchestration / sandbox / lsp /
+      mcp / server / watcher suites all green) + a live CLI smoke check dispatching
+      `skills`, `inspect`, `why`, `registry`, `trends`, `route` through the real
+      binary (every dynamic `import()` path resolved; no module-not-found).
+- [x] Full suite green (1,447 = 1,431 + 16 guard); the only feature-test change is
+      the 3-line `await` in `test/active-executor.test.mjs` (signature change),
+      recorded in decisions.
+- [x] `npm run check` + `npm run format` green.
+- [x] Guard test `test/lazy-load.test.mjs` added and green.
+- [x] `docs/ARCHITECTURE.md` lever #2 marked done; module-count before/after noted.
+- [x] `process/decisions.jsonl` + `process/failures.jsonl` updated.
+- [x] Blog post `blog/149-lazy-tier4.md`.
+- [x] Roadmap line checked; version bumped to 0.0.149.

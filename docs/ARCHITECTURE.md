@@ -73,7 +73,23 @@ The layout now:
   `NativeNoProposalError`. `parseManagementInstances` now lives in
   `model-profiles.mjs`.
 
-The next cleanup hangs off these seams: make Tier 4 lazy-load (lever #2 below).
+Tier 4 now lazy-loads off these seams (phase 149, lever #2): a bare
+`run`/`chat`/`tui` does not statically import orchestration, the Docker/OpenShell
+sandboxes, LSP, MCP, or the web server. The static import graph reachable from
+`app.mjs` dropped **84 → 59 modules**. Each capability loads via a dynamic
+`import()` behind its flag/command:
+- `app.mjs` `main()` dynamic-imports each `commands/*` handler in its dispatch
+  branch → drops every command module + `server` (serve) + `subagents` (replay) +
+  the inspect→`external-inspector-registry`→`lsp-client` path.
+- `run-pipeline.mjs` dynamic-imports `orchestration` (`--subagent-stages`),
+  `openshell-worker` (worker mode), `external-inspector-registry` (inspection).
+- `active-executor.createActiveExecutor` (now async) dynamic-imports the
+  Docker/OpenShell backend only when its flag is set; the pure option helpers live
+  in light `sandbox-options.mjs` so `parseArgs` stays sandbox-free.
+- `post-write-sensor` dynamic-imports the registry + LSP only under `--lsp`;
+  `tools.mjs` builds the MCP client lazily on first `mcp:` call.
+A guard test (`test/lazy-load.test.mjs`) pins the bare-run graph so a future
+static import cannot quietly drag a Tier-4 module back onto the hot path.
 
 ## The takeaway
 
@@ -86,7 +102,10 @@ Levers to recover "simple" as a felt experience, in order:
 1. ~~**Split `app.mjs`** along tier lines~~ — **done (phase 148):** 5,806 → ~500
    lines, dispatcher + `commands/*` + `cli/*` + `run-pipeline.mjs`, zero behavior
    change. This was the biggest legibility win and it created the seams for #2.
-2. **Make Tier 4 opt-in / lazy** — a `run`/`chat` invocation shouldn't load orchestration, Docker, LSP, MCP, or the web server.
+2. ~~**Make Tier 4 opt-in / lazy**~~ — **done (phase 149):** a bare `run`/`chat`/
+   `tui` no longer statically loads orchestration, Docker/OpenShell, LSP, MCP, or
+   the web server; static graph from `app.mjs` 84 → 59 modules, guarded by
+   `test/lazy-load.test.mjs`. See the cross-cutting section above.
 3. **Shrink Tier 2** once generation-params land — delete repair rules rather than add them.
 4. **Leave Tier 3 alone** — it's small and it's the point of the project.
 
