@@ -116,8 +116,14 @@ and `cq-multi-file-esm` in `evals/code-quality.json` — four total cases with
 The measurement against qwen3.6 is a null (model is inherently clean).
 The open capture: run the suite against gpt-oss or devstral to quantify their
 trap rate and the guidance block's delta for those families. Still-open corpus
-work: devstral empty-arguments (tool_calls shape) and qwen duplicate-key
-clusters.
+work: devstral empty-arguments (tool_calls shape). (Shipped in 147: the qwen
+token-truncated-envelope shape — `truncated-envelope-tail` rule + corpus fixture,
+which also exercised the duplicate-key cluster split under truncation.)
+
+The genuinely-open follow-on from 147 is the model/transport side: qwen hit its
+output-token limit and truncated mid-envelope. Raising `max_tokens` or teaching
+the envelope channel to continue-on-length would stop the truncation at the
+source; R6 only recovers the bytes that arrived.
 
 
 ## Theme D — Bigger swings (sequence after A)

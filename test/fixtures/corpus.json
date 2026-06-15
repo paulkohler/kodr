@@ -58,5 +58,20 @@
 		"failureMode": "truncated file-object envelope: file object closing } missing before files array ]: \"files\":[{\"path\":\"...\",\"content\":\"...\"]",
 		"expectedPaths": ["src/store.mjs"],
 		"expectedRepairs": ["gpt-oss-unclosed-file-object"]
+	},
+	{
+		"id": "qwen-truncated-envelope",
+		"file": "qwen-truncated-envelope.txt",
+		"model": "qwen/qwen3.6-35b-a3b",
+		"phase": "147-examples-trial",
+		"provenance": "~/src/kodr-testing/md-converter-qwen/.kodr/runs/2026-06-14T21-02-23.704Z/raw-response.json (responses[-1].choices[0].message.content, 6763 chars); summary.json proposalFound:false, writeError: ProposalMissingError",
+		"failureMode": "token-limit truncation mid-envelope: files emitted as a duplicate-key cluster (R5), then the files array ] and root } are absent and a stray </parameter> token trails the last }",
+		"expectedPaths": [
+			"src/tokenizer.mjs",
+			"src/renderer.mjs",
+			"test/tokenizer.test.mjs",
+			"test/renderer.test.mjs"
+		],
+		"expectedRepairs": ["qwen-duplicate-key-cluster", "truncated-envelope-tail"]
 	}
 ]

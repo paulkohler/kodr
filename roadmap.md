@@ -146,6 +146,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 144 TUI Piped-Input Serialization
 - [x] 145 Model-Identity Guidance Validation
 - [x] 146 LM Studio Context Window Discovery
+- [x] 147 Extractor: Recover a Token-Truncated Envelope Tail
 
 ## Phase Contract
 

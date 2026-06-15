@@ -795,3 +795,153 @@ describe('R4: gpt-oss-unclosed-file-object structural repair rule', () => {
 		);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// R6 — truncated-envelope-tail structural repair rule (phase 147)
+// Provenance: qwen/qwen3.6-35b-a3b, 2026-06-15 examples-trial.
+//   ~/src/kodr-testing/md-converter-qwen/.kodr/runs/2026-06-14T21-02-23.704Z/
+//   raw-response.json (responses[-1].choices[0].message.content, 6763 chars).
+//   Token-limit truncation: files emitted as a duplicate-key cluster, then the
+//   files array ] and root } are absent and a stray </parameter> token trails
+//   the last }. summary.json: proposalFound:false, ProposalMissingError.
+// ---------------------------------------------------------------------------
+describe('R6: truncated-envelope-tail structural repair rule', () => {
+	it('recovers all four files from the real truncated qwen capture', async () => {
+		const content = await readFile(
+			fixturePath('qwen-truncated-envelope.txt'),
+			'utf8',
+		);
+		const proposal = extractProposal(content);
+		assert.ok(proposal, 'proposal should not be null');
+		const paths = proposal.files.map((f) => f.path);
+		assert.equal(proposal.files.length, 4, 'should recover exactly 4 files');
+		for (const expected of [
+			'src/tokenizer.mjs',
+			'src/renderer.mjs',
+			'test/tokenizer.test.mjs',
+			'test/renderer.test.mjs',
+		]) {
+			assert.ok(paths.includes(expected), `expected ${expected} in recovered`);
+		}
+		for (const file of proposal.files) {
+			assert.ok(
+				file.content.length > 0,
+				`${file.path} content should be non-empty`,
+			);
+		}
+		// This capture needs both R5 (split the cluster) and R6 (close the tail).
+		const repairIds = (proposal._extractionMeta?.repairs || []).map(
+			(r) => r.ruleId,
+		);
+		assert.ok(
+			repairIds.includes('truncated-envelope-tail'),
+			`truncated-envelope-tail should be recorded; got [${repairIds.join(', ')}]`,
+		);
+		assert.ok(
+			repairIds.includes('qwen-duplicate-key-cluster'),
+			`qwen-duplicate-key-cluster should be recorded; got [${repairIds.join(', ')}]`,
+		);
+	});
+
+	it('extractJson recovers a pure truncation (array ] and root } absent)', () => {
+		// No duplicate keys — extractJson alone recovers this via its R4+R6 pre-pass.
+		const truncated = '{"status":"OK","files":[{"path":"a.mjs","content":"x"}';
+		const result = extractJson(truncated);
+		assert.ok(Array.isArray(result.files), 'files array should be present');
+		assert.equal(result.files.length, 1, 'should recover the one closed file');
+		assert.equal(result.files[0].path, 'a.mjs');
+		assert.equal(result.files[0].content, 'x');
+	});
+
+	it('recovers a multi-file pure truncation with trailing garbage', () => {
+		// Two complete objects, array ] and root } absent, plus a stray tag.
+		const truncated =
+			'{"status":"OK","files":[{"path":"a.mjs","content":"x"},{"path":"b.mjs","content":"y"}\n</parameter>';
+		const proposal = extractProposal(truncated);
+		assert.ok(proposal, 'proposal should not be null');
+		assert.equal(proposal.files.length, 2);
+		assert.deepEqual(
+			proposal.files.map((f) => f.path),
+			['a.mjs', 'b.mjs'],
+		);
+		assert.ok(
+			proposal._extractionMeta.repairs?.some(
+				(r) => r.ruleId === 'truncated-envelope-tail',
+			),
+			'truncated-envelope-tail should be recorded',
+		);
+	});
+
+	it('idempotent on a valid envelope (does not fire)', () => {
+		const valid = JSON.stringify({
+			status: 'OK',
+			files: [{ path: 'a.mjs', content: 'export default 1;' }],
+			patches: [],
+			messages: [],
+			scratchpad: '',
+		});
+		const proposal = extractProposal(valid);
+		assert.ok(proposal);
+		assert.equal(proposal.files.length, 1);
+		const fired = proposal._extractionMeta?.repairs?.some(
+			(r) => r.ruleId === 'truncated-envelope-tail',
+		);
+		assert.ok(!fired, 'truncated-envelope-tail must NOT fire on valid JSON');
+	});
+
+	it('does not fire on prose-wrapped valid JSON (trailing prose, not garbage)', () => {
+		// The trailing prose is at depth 0 (stack empty) — not a truncation tail.
+		const value = extractJson('Here it is:\n{"ok":true,"n":2}\nThanks!');
+		assert.deepEqual(value, { ok: true, n: 2 });
+	});
+
+	it('no-false-positive: a string value containing stray < ] } is untouched', () => {
+		const valid = JSON.stringify({
+			status: 'OK',
+			files: [
+				{
+					path: 'x.mjs',
+					content: 'const s = "</parameter> ]} <div>"; // not structural',
+				},
+			],
+			patches: [],
+			messages: [],
+		});
+		const proposal = extractProposal(valid);
+		assert.ok(proposal);
+		assert.equal(proposal.files.length, 1);
+		assert.match(proposal.files[0].content, /<\/parameter> \]\} <div>/u);
+		assert.ok(
+			!proposal._extractionMeta?.repairs?.some(
+				(r) => r.ruleId === 'truncated-envelope-tail',
+			),
+			'truncated-envelope-tail must NOT fire on a string with structural chars',
+		);
+	});
+
+	it('no-anchor guard: truncation before any element completes is not mangled', () => {
+		// The first file object is cut mid-content — no completed element to close
+		// back to, so R6 leaves it alone and extractProposal returns null (clean
+		// miss, not a junk recovery).
+		const truncated =
+			'{"status":"OK","files":[{"path":"a.mjs","content":"half written and then the stream just st';
+		const proposal = extractProposal(truncated);
+		assert.equal(proposal, null, 'no safe anchor → null, never a mangled file');
+	});
+
+	it('truncated-envelope-tail is a structural rule preceding blanket rules', () => {
+		const ids = DECODE_ARTIFACT_RULES.map((r) => r.ruleId);
+		const idx = ids.indexOf('truncated-envelope-tail');
+		const blanketIdx = ids.indexOf('blanket-quote-token');
+		assert.ok(idx !== -1, 'truncated-envelope-tail should be in the rule list');
+		assert.equal(
+			DECODE_ARTIFACT_RULES[idx].type,
+			'structural',
+			'truncated-envelope-tail should be a structural rule',
+		);
+		assert.ok(
+			idx < blanketIdx,
+			'truncated-envelope-tail must precede blanket rules',
+		);
+	});
+});

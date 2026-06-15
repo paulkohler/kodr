@@ -66,11 +66,19 @@ export function extractJson(text) {
 	//
 	// 3. Fall back to raw candidates (with blanket + per-candidate structural
 	//    repair) for inputs where the unclosed-object rule did not fire.
+	// Apply the two full-text structural-completion rules (R4 unclosed-file-object,
+	// then R6 truncated-envelope-tail) so the outer object becomes brace-walkable
+	// and is enumerated as a candidate. R5 (duplicate-key split) is deliberately
+	// NOT applied here — extractJson must not silently mask genuine duplicate-key
+	// errors (the proposal path handles the R5+R6 combo via applyStructuralRules).
 	const rawCandidates = candidateTexts(text);
 	const { text: unclosedRepaired, fixCount: unclosedFixCount } =
 		applyUnclosedFileObjectRule(text);
+	const { text: prepassRepaired, fixCount: truncatedFixCount } =
+		applyTruncatedEnvelopeRule(unclosedRepaired);
+	const prepassFixCount = unclosedFixCount + truncatedFixCount;
 	const repairedCandidates =
-		unclosedFixCount > 0 ? candidateTexts(unclosedRepaired) : rawCandidates;
+		prepassFixCount > 0 ? candidateTexts(prepassRepaired) : rawCandidates;
 
 	// Candidates unique to the repaired pass (not already in rawCandidates).
 	const repairedOnlyCandidates = repairedCandidates.filter(
@@ -529,6 +537,9 @@ function firstJsonOpenFrom(text, from) {
 //     Shape: "files":[{"path":"...","content":"..."  ] → insert } before ].
 //   R5 (qwen-duplicate-key-cluster): position-aware split for qwen's array-element
 //     collapse (duplicate keys inside one object).
+//   R6 (truncated-envelope-tail): position-aware close of a token-limit-truncated
+//     envelope — appends the unclosed array/root delimiters back to the last
+//     completed element. Runs after R5 so a duplicate-key cluster is split first.
 //   R0 (blanket-quote): blanket `<|"|>` → `"` catch-all, runs after R1.
 //
 // Provenance:
@@ -543,6 +554,8 @@ function firstJsonOpenFrom(text, from) {
 //     (~/src/kodr-testing/phase-114/ab2-gptoss/.kodr/runs/2026-06-12T12-25-15.658Z/raw-response.json)
 //   R4: openai/gpt-oss-20b truncated envelope observed in phase-137
 //     (~/src/kodr-testing/phase-137/gptoss-truncated-envelope.json, 975 bytes)
+//   R6: qwen/qwen3.6-35b-a3b token-limit truncation observed 2026-06-15 (phase-147)
+//     (~/src/kodr-testing/md-converter-qwen/.kodr/runs/2026-06-14T21-02-23.704Z/raw-response.json)
 
 // Conservative JSON key charset: starts with letter or underscore, followed by
 // alphanumerics or underscores. Never .* — avoids false positives in string values.
@@ -818,6 +831,134 @@ function applyDuplicateKeyClusterRule(text) {
 	return { text: result, splitCount };
 }
 
+// R6: truncated-envelope-tail close rule.
+//
+// A token-limit cutoff ends the stream mid-envelope: the root object and the
+// files array are opened, the final file object is closed, but the array ] and
+// root } are never emitted. A stray trailing token (qwen emits </parameter>)
+// may follow the last }. Shape:
+//   {"status":"OK",...,"files":[{...}{...}{...}{...}   <-- ] and } absent
+// (the file objects may be a duplicate-key cluster — R5 splits that first.)
+//
+// This rule is position-aware (a regex cannot track brace balance). It walks
+// the text tracking string/escape state and a stack of expected closers, and
+// remembers lastSafeEnd: the index after the most recent container close that
+// left the stack still open — i.e. the end of a completed element we can close
+// back to. It stops at end-of-text or at the first structural-level garbage char
+// while the stack is non-empty, and (only if a safe anchor exists) returns the
+// prefix up to lastSafeEnd plus the still-open closers in innermost-first order.
+//
+// Guards:
+//   - Fires only when the stack is still open at the stop point (genuine
+//     truncation); idempotent on balanced JSON.
+//   - Fires only when an element completed inside the open container
+//     (lastSafeEnd > 0). A container truncated before any element completes has
+//     no safe anchor and is left untouched — a half-written file is not a
+//     produced file (phase-137 recover-or-reject discipline).
+//   - Strings are opaque: a <, ] or } inside a string value never triggers.
+//
+// Provenance: qwen/qwen3.6-35b-a3b on LM Studio, 2026-06-15 examples-trial.
+//   ~/src/kodr-testing/md-converter-qwen/.kodr/runs/2026-06-14T21-02-23.704Z/
+//   raw-response.json (responses[-1].choices[0].message.content, 6763 chars).
+//   summary.json: proposalFound:false, writeError: ProposalMissingError.
+const TRUNCATED_ENVELOPE_RULE_ID = 'truncated-envelope-tail';
+
+// Characters that may legally appear at the structural level as part of a bare
+// literal (numbers, true/false/null). Anything else outside a string while a
+// container is open is treated as the truncation/garbage tail.
+const BARE_LITERAL_CHAR = /[A-Za-z0-9_+\-.]/u;
+
+function applyTruncatedEnvelopeRule(text) {
+	// Decode artifacts such as <|"|> introduce spurious string boundaries that
+	// would make a complete envelope look truncated (the pseudo-token's inner "
+	// closes a value string early, exposing | as structural-level garbage).
+	// Normalize them before the structural scan so we measure real delimiters.
+	// If the rule does NOT fire we return the ORIGINAL text so the blanket rule
+	// can still count and replace the artifact downstream.
+	const scan = applyBlanketRules(text).text;
+	const stack = []; // expected closers in open order: '}' for {, ']' for [
+	let inString = false;
+	let escaped = false;
+	let lastSafeEnd = -1;
+	let lastSafeClosers = null;
+
+	for (let i = 0; i < scan.length; i += 1) {
+		const c = scan[i];
+
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+			} else if (c === '\\') {
+				escaped = true;
+			} else if (c === '"') {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (c === '"') {
+			inString = true;
+			continue;
+		}
+
+		if (c === '{') {
+			stack.push('}');
+			continue;
+		}
+
+		if (c === '[') {
+			stack.push(']');
+			continue;
+		}
+
+		if (c === '}' || c === ']') {
+			if (stack.length > 0) {
+				stack.pop();
+			}
+			// A close that leaves the stack open marks a completed element we can
+			// safely close back to. Snapshot the still-open closers here.
+			if (stack.length > 0) {
+				lastSafeEnd = i + 1;
+				lastSafeClosers = [...stack].reverse().join('');
+			}
+			continue;
+		}
+
+		// Whitespace and structural punctuation between tokens are benign.
+		if (
+			c === ' ' ||
+			c === '\t' ||
+			c === '\r' ||
+			c === '\n' ||
+			c === ',' ||
+			c === ':'
+		) {
+			continue;
+		}
+
+		// Bare-literal characters (numbers, true/false/null) are benign.
+		if (BARE_LITERAL_CHAR.test(c)) {
+			continue;
+		}
+
+		// Any other char at the structural level while a container is still open
+		// is the truncation/garbage tail (e.g. '<' from a stray </parameter>).
+		// Stop here so the garbage is dropped by the slice below.
+		if (stack.length > 0) {
+			break;
+		}
+	}
+
+	// Fire only on genuine truncation (stack still open) with a safe anchor.
+	// On fire we return the blanket-normalized prefix + closers (positions are
+	// relative to `scan`); blanket re-application downstream is a no-op.
+	if (stack.length > 0 && lastSafeEnd > 0 && lastSafeClosers) {
+		return { text: scan.slice(0, lastSafeEnd) + lastSafeClosers, fixCount: 1 };
+	}
+
+	return { text, fixCount: 0 };
+}
+
 // Blanket token rules applied character-by-character (replaceAll).
 const BLANKET_RULES = [
 	{
@@ -834,6 +975,7 @@ export const DECODE_ARTIFACT_RULES = [
 	...STRUCTURAL_RULES.map((r) => ({ ruleId: r.ruleId, type: 'structural' })),
 	{ ruleId: UNCLOSED_FILE_OBJECT_RULE_ID, type: 'structural' },
 	{ ruleId: DUPLICATE_KEY_CLUSTER_RULE_ID, type: 'structural' },
+	{ ruleId: TRUNCATED_ENVELOPE_RULE_ID, type: 'structural' },
 	...BLANKET_RULES.map((r) => ({ ruleId: r.ruleId, type: 'blanket' })),
 ];
 
@@ -869,6 +1011,15 @@ function applyStructuralRules(text) {
 	if (splitCount > 0) {
 		repairs.push({ ruleId: DUPLICATE_KEY_CLUSTER_RULE_ID, count: splitCount });
 		result = splitText;
+	}
+	// R6: position-aware truncated-envelope-tail close (qwen token-limit cutoff).
+	// Applied LAST so a duplicate-key cluster (R5) is split into separate objects
+	// before the unclosed array/root are closed back to the last completed element.
+	const { text: closedText, fixCount: truncatedCount } =
+		applyTruncatedEnvelopeRule(result);
+	if (truncatedCount > 0) {
+		repairs.push({ ruleId: TRUNCATED_ENVELOPE_RULE_ID, count: truncatedCount });
+		result = closedText;
 	}
 	return { text: result, repairs };
 }
