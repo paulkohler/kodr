@@ -312,6 +312,19 @@ export function sanitizeSessionTail(messages) {
 		}
 	}
 
+	// Sanitization must not EXPOSE a trailing user turn. Dropping a dangling
+	// empty assistant (above) can uncover the user message that preceded it
+	// (e.g. [user, assistant(tool_calls, empty), repeat-tool, empty-assistant]);
+	// appending the next continuation's user turn on top of that re-introduces
+	// the user → user role-alternation violation this function exists to
+	// prevent. Only peel when sanitization already removed something — a clean,
+	// untouched history is returned unchanged.
+	if (end < messages.length) {
+		while (end > 0 && messages[end - 1]?.role === 'user') {
+			end -= 1;
+		}
+	}
+
 	return end === messages.length ? messages : messages.slice(0, end);
 }
 

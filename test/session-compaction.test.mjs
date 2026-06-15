@@ -295,4 +295,32 @@ describe('sanitizeSessionTail', () => {
 		const result = sanitizeSessionTail(messages);
 		assert.deepEqual(result, [userMsg, realAssistant, prevTool]);
 	});
+
+	it('does not expose a trailing user turn after dropping a dangling assistant', () => {
+		// The model's first action for the task was a tool call that the F1 guard
+		// flagged as a repeat. Stripping the sentinel pair and then the dangling
+		// empty assistant(tool_calls) would otherwise leave the tail ending on the
+		// user task — appending the next continuation user turn would be user→user.
+		const emptyWithCalls = {
+			role: 'assistant',
+			content: '',
+			tool_calls: [{ id: 'call_1', function: { name: 'write_file' } }],
+		};
+		const taskUser = { role: 'user', content: 'Build the thing' };
+		const messages = [
+			userMsg,
+			realAssistant,
+			taskUser,
+			emptyWithCalls,
+			repeatTool,
+			emptyAssistant,
+		];
+		const result = sanitizeSessionTail(messages);
+		assert.deepEqual(result, [userMsg, realAssistant]);
+		assert.notEqual(
+			result.at(-1)?.role,
+			'user',
+			'sanitized tail must not end on a user turn',
+		);
+	});
 });
