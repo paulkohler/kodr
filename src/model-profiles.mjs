@@ -467,3 +467,63 @@ function stringValue(value) {
 function positiveInteger(value, fallback) {
 	return Number.isInteger(value) && value > 0 ? value : fallback;
 }
+
+// Parse the LM Studio management API model list into loaded-instance facts.
+// Accepts the real LM Studio shape (models[].loaded_instances[].config), an
+// OpenAI-style {data:[...]} list, or a bare array. Reports each loaded instance
+// (id, context_length, parallel, trained_for_tool_use) and warns when a loaded
+// context_length differs from the profile's assumed window. Extracted from
+// app.mjs in phase 148.
+export function parseManagementInstances(body, profileContextWindow) {
+	const items = Array.isArray(body?.models)
+		? body.models
+		: Array.isArray(body?.data)
+			? body.data
+			: Array.isArray(body)
+				? body
+				: [];
+	const instances = [];
+	for (const item of items) {
+		const trainedForToolUse = item.capabilities?.trained_for_tool_use ?? null;
+		const loaded = Array.isArray(item.loaded_instances)
+			? item.loaded_instances
+			: null;
+		if (loaded && loaded.length > 0) {
+			// Real LM Studio shape: report each loaded instance.
+			for (const inst of loaded) {
+				instances.push({
+					id: inst.id || item.key || item.id || '(unknown)',
+					context_length: inst.config?.context_length ?? null,
+					parallel: inst.config?.parallel ?? null,
+					trained_for_tool_use: trainedForToolUse,
+				});
+			}
+		} else if (loaded) {
+			// Model present in the catalog but not loaded — nothing to report.
+			continue;
+		} else {
+			// Flat fallback (OpenAI-style or older servers).
+			instances.push({
+				id: item.id || item.key || item.modelKey || '(unknown)',
+				context_length: item.context_length ?? null,
+				parallel: item.parallel ?? null,
+				trained_for_tool_use: trainedForToolUse,
+			});
+		}
+	}
+	// Warn on context_length mismatch.
+	const warnings = [];
+	if (profileContextWindow) {
+		for (const instance of instances) {
+			if (
+				instance.context_length !== null &&
+				instance.context_length !== profileContextWindow
+			) {
+				warnings.push(
+					`context_length mismatch for ${instance.id}: loaded ${instance.context_length}, profile assumes ${profileContextWindow}`,
+				);
+			}
+		}
+	}
+	return { instances, warnings };
+}
