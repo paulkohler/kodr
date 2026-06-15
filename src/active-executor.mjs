@@ -8,7 +8,9 @@ import { writeJson } from './artifacts.mjs';
 // (run-pipeline.runPrompt, app.handleChannelRequest) already await it.
 export async function createActiveExecutor(cwd, runDir, options = {}) {
 	if (options.openshellSandbox) {
-		const { createOpenShellExecutor } = await import('./openshell-executor.mjs');
+		const { createOpenShellExecutor } = await import(
+			'./openshell-executor.mjs'
+		);
 		const executor = createOpenShellExecutor(cwd, runDir, options);
 		if (executor) {
 			return executor;
