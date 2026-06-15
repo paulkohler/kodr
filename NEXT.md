@@ -38,6 +38,22 @@ Record the chosen params in `summary` so `kodr why` shows them. Context length
 and context-overflow policy are load-time (`lms` CLI / SDK), not per-request;
 Kodr already reads the loaded context window via the management API (146).
 
+### Bring orchestration to tool-channel parity (envelope island)
+The multi-agent path (implementer, file-author) is the last place still on the
+pre-117 text envelope. `runAgentCompletion` gives subagents `write_file`/
+`edit_file` and runs them through `completeWithToolCalls` (which captures tool
+writes into `proposalDraft`), but the callers read only the text envelope —
+`extractProposal(completion.text)` at orchestration.mjs:426 (implementer) and
+:776 (file-author); `proposalDraft` is ignored. So a model that writes via the
+tool channel has its writes silently dropped — the phase-135 bug class, unfixed
+here. Model-dependent: qwen emits the envelope and works; gpt-oss uses tools
+exclusively (stocktake) and would lose everything. The envelope steer is weakest
+where it's needed — `response_format` is `none` for local models. Fix: prefer
+`completion.proposalDraft` (135 pattern) with envelope fallback in both callers,
+then update `roles/file-author` and `roles/implementer` SKILL.md to "write via
+tools; envelope is fallback." Validate with a live gpt-oss staged run. (Also an
+AGENTS.md "route through shared channel handling" violation.)
+
 ### Multi-file coordinated edits
 The eval suite only measures single-defect fixes. Plant a cross-file refactor
 fixture and measure it — this exposes whether plan manifests (91) and
