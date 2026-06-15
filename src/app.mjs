@@ -111,12 +111,7 @@ import {
 	renderShowConfig,
 } from './project-config.mjs';
 import { isWorkspaceCase, loadEvalSuite, scoreCase } from './eval.mjs';
-import {
-	recordResults,
-	runWorkspaceCase,
-	runWorkspaceSuite,
-	slugify,
-} from './eval-runner.mjs';
+import { recordResults, runWorkspaceCase, slugify } from './eval-runner.mjs';
 import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './repomap/index.mjs';
 import { filterInspectionIndex } from './inspection-output.mjs';
@@ -153,14 +148,6 @@ import { runTui } from './tui.mjs';
 import { VERSION } from './version.mjs';
 import { buildHarnessManifest } from './harness.mjs';
 import { runPostWriteDiagnostics } from './post-write-sensor.mjs';
-import {
-	computeRoutingTable,
-	discoverModels,
-	loadBenchScores,
-	renderBenchResults,
-	saveBenchScores,
-	saveRoutingTable,
-} from './bench.mjs';
 import { saveProbeResult } from './probe-persistence.mjs';
 import { CliError, NativeNoProposalError } from './cli-errors.mjs';
 import {
@@ -170,6 +157,7 @@ import {
 	runWhy,
 } from './commands/forensics.mjs';
 import { runInspect, runRegistry } from './commands/inspect.mjs';
+import { runBench } from './commands/bench.mjs';
 import { runCycleReview, runReplay } from './commands/replay.mjs';
 import { runPromptHistory, runSession, runUndo } from './commands/session.mjs';
 
@@ -1818,92 +1806,7 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'bench') {
-		if (!options.suitePath) {
-			throw new CliError('kodr bench requires --suite');
-		}
-		const suitePath = await jailedPath(io.cwd, options.suitePath);
-		const suiteText = await readFile(suitePath.absolute, 'utf8');
-		const suite = loadEvalSuite(suiteText);
-		const suiteDir = dirname(suitePath.absolute);
-
-		const models = await discoverModels(options.baseUrl, options.timeoutMs);
-		if (models.length === 0) {
-			throw new CliError(
-				`No models found at ${options.baseUrl}. Is LM Studio running?`,
-			);
-		}
-
-		if (!options.json) {
-			io.stdout.write(`Bench: ${suite.name}\n`);
-			io.stdout.write(`Models: ${models.join(', ')}\n`);
-		}
-
-		const runDir = await createRunArtifacts(io.cwd, options.out);
-		const existingScores = await loadBenchScores(io.cwd);
-
-		for (const modelId of models) {
-			if (!options.json) {
-				io.stdout.write(`\nRunning suite against: ${modelId}\n`);
-			}
-			const modelOptions = {
-				...options,
-				model: modelId,
-				_runPrompt: runPrompt,
-			};
-
-			const caseResults = await runWorkspaceSuite(
-				suite,
-				suiteDir,
-				modelOptions,
-				io,
-				runDir,
-				null,
-			);
-
-			const ranCases = caseResults.filter((r) => r.status === 'ran');
-			const passCount = ranCases.filter((r) => r.ok).length;
-			const totalCount = ranCases.length;
-			const score = totalCount > 0 ? passCount / totalCount : 0;
-			const editFormat =
-				ranCases.length > 0 ? (ranCases[0].editFormat ?? 'patch') : 'patch';
-
-			const entry = {
-				score,
-				passCount,
-				totalCount,
-				timestamp: new Date().toISOString(),
-				editFormat,
-			};
-			existingScores.set(modelId, entry);
-
-			if (!options.json) {
-				io.stdout.write(
-					`  ${modelId}: ${passCount}/${totalCount} (score ${score.toFixed(2)})\n`,
-				);
-			}
-		}
-
-		await saveBenchScores(io.cwd, existingScores);
-
-		const routingTable = computeRoutingTable(existingScores);
-		await saveRoutingTable(io.cwd, routingTable);
-
-		const benchResults = {
-			suite: suite.name,
-			models: Object.fromEntries(existingScores),
-			routingTable,
-			timestamp: new Date().toISOString(),
-		};
-
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify(benchResults, null, 2)}\n`);
-		} else {
-			io.stdout.write(`\n${renderBenchResults(existingScores, routingTable)}`);
-			io.stdout.write(`Scores saved to .kodr/bench-scores.json\n`);
-			io.stdout.write(`Routing saved to .kodr/routing.json\n`);
-		}
-
-		return { ok: true, command: 'bench', benchResults };
+		return runBench(options, io, runPrompt);
 	}
 
 	if (options.command === 'why') {
