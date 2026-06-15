@@ -1,11 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import {
-	discoverInspectors,
-	REGISTRY,
-} from './external-inspector-registry.mjs';
-import { runLspInspector } from './lsp-client.mjs';
 import { classifyLanguage } from './repomap/index.mjs';
+
+// Lazy (phase 149): the external inspector registry and lsp-client load only on
+// the LSP-enabled path inside inspectChangedFiles, so post-write diagnostics
+// (a core, always-imported module) do not drag LSP onto the bare-run graph.
 
 /**
  * Determine whether a registry LSP entry is allowed given the lsp option value.
@@ -32,13 +31,16 @@ function lspEntryAllowed(entry, lspEnabled) {
  * @param {object[]} registry - Inspector registry (defaults to REGISTRY).
  * @returns {object|null}
  */
-export async function inspectChangedFiles(
-	cwd,
-	paths,
-	options = {},
-	registry = REGISTRY,
-) {
+export async function inspectChangedFiles(cwd, paths, options = {}, registry) {
 	if (!options.lsp) return null;
+
+	// Resolve the registry + LSP runner lazily so a non-LSP run never imports
+	// them (phase 149). An explicit registry arg (tests) is used as-is.
+	const { REGISTRY, discoverInspectors } = await import(
+		'./external-inspector-registry.mjs'
+	);
+	const { runLspInspector } = await import('./lsp-client.mjs');
+	const effectiveRegistry = registry ?? REGISTRY;
 
 	const start = performance.now();
 	const skipped = [];
@@ -82,7 +84,7 @@ export async function inspectChangedFiles(
 
 	// Discover LSP inspectors for the languages we need
 	const languages = [...new Set(baseFiles.map((f) => f.language))];
-	const lspRegistry = registry.filter(
+	const lspRegistry = effectiveRegistry.filter(
 		(e) => e.protocol === 'lsp' && lspEntryAllowed(e, options.lsp),
 	);
 	const inspectors = await discoverInspectors(languages, lspRegistry);
@@ -161,7 +163,7 @@ export async function runPostWriteDiagnostics(
 	cwd,
 	writeResult,
 	options = {},
-	registry = REGISTRY,
+	registry,
 ) {
 	try {
 		if (!options.lsp) return null;
