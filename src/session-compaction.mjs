@@ -245,30 +245,90 @@ export function appendCompletionToRawConversation(
 // when the F1 repeat-call guard fires at end of turn: the model receives the
 // repeat signal, emits an empty assistant message, and the loop exits. Models
 // with strict role-alternation jinja templates (e.g. devstral) reject the
-// resulting tail when the next user turn is appended because they see the empty
-// assistant as a non-turn and interpret the sequence as tool → user.
+// resulting tail when the next user turn is appended.
+//
+// After stripping the repeat pairs, the preceding assistant message may still
+// carry tool_calls whose results were only in the stripped region. Devstral's
+// jinja rejects assistant-with-tool_calls → user without intervening tool results.
+// Fix: strip the tool_calls field from that assistant (keeping its text). If the
+// text is also empty, drop the message entirely.
 export function sanitizeSessionTail(messages) {
 	let end = messages.length;
-	while (end >= 2) {
-		const last = messages[end - 1];
-		const prev = messages[end - 2];
-		if (isEmptyAssistant(last) && isRepeatSentinelTool(prev)) {
-			end -= 2;
-		} else {
-			break;
+	let anyStripped = true;
+
+	while (anyStripped) {
+		anyStripped = false;
+
+		// Strip trailing (user + empty-no-tool-call assistant) pairs. These
+		// accumulate when --continue retries land on a broken history: the model
+		// gives no response, the harness appends a "retry" user turn, and the
+		// next attempt appends another user turn on top. Each such pair is useless
+		// and must be removed before a fresh continuation can succeed.
+		while (end >= 2) {
+			const last = messages[end - 1];
+			const prev = messages[end - 2];
+			if (
+				isEmptyAssistant(last) &&
+				!hasToolCalls(last) &&
+				prev?.role === 'user'
+			) {
+				end -= 2;
+				anyStripped = true;
+			} else {
+				break;
+			}
+		}
+
+		// Strip trailing (repeat-sentinel tool + empty assistant) pairs. These
+		// form when the F1 repeat-call guard fires at end of turn.
+		while (end >= 2) {
+			const last = messages[end - 1];
+			const prev = messages[end - 2];
+			if (isEmptyAssistant(last) && isRepeatSentinelTool(prev)) {
+				end -= 2;
+				anyStripped = true;
+			} else {
+				break;
+			}
 		}
 	}
+
+	// After stripping, the last remaining assistant message may still carry
+	// tool_calls whose results were only in the stripped region. Devstral's
+	// jinja rejects assistant-with-tool_calls → user. Strip the tool_calls
+	// field; if the content is also empty, drop the message entirely.
+	if (end < messages.length && end > 0) {
+		const last = messages[end - 1];
+		if (last?.role === 'assistant' && hasToolCalls(last)) {
+			// eslint-disable-next-line no-unused-vars
+			const { tool_calls: _dropped, ...withoutCalls } = last;
+			if (isEmptyContent(withoutCalls.content)) {
+				end -= 1;
+			} else {
+				const result = messages.slice(0, end);
+				result[result.length - 1] = withoutCalls;
+				return result;
+			}
+		}
+	}
+
 	return end === messages.length ? messages : messages.slice(0, end);
 }
 
-function isEmptyAssistant(message) {
-	if (message?.role !== 'assistant') return false;
-	const { content } = message;
+function hasToolCalls(message) {
+	return Array.isArray(message?.tool_calls) && message.tool_calls.length > 0;
+}
+
+function isEmptyContent(content) {
 	if (content === '' || content == null) return true;
 	if (Array.isArray(content)) {
 		return content.length === 0 || content.every((b) => (b?.text ?? '') === '');
 	}
 	return false;
+}
+
+function isEmptyAssistant(message) {
+	return message?.role === 'assistant' && isEmptyContent(message.content);
 }
 
 function isRepeatSentinelTool(message) {

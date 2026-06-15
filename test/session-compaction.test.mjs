@@ -209,14 +209,90 @@ describe('sanitizeSessionTail', () => {
 		assert.strictEqual(sanitizeSessionTail(messages), messages);
 	});
 
-	it('does not strip an assistant with real content', () => {
+	it('does not strip an assistant with real content when no stripping occurred', () => {
 		const messages = [userMsg, repeatTool, realAssistant];
 		assert.strictEqual(sanitizeSessionTail(messages), messages);
+	});
+
+	it('strips trailing (user + empty-no-tool-call assistant) pairs from failed continuations', () => {
+		const retryUser = { role: 'user', content: 'Your last message was empty.' };
+		const messages = [
+			userMsg,
+			realAssistant,
+			{ role: 'user', content: 'S2 prompt' },
+			emptyAssistant,
+			retryUser,
+			emptyAssistant,
+		];
+		assert.deepEqual(sanitizeSessionTail(messages), [userMsg, realAssistant]);
+	});
+
+	it('strips compounded failure: accumulated retry pairs then repeat-tail then unresolved tool_calls', () => {
+		const assistantWithCalls = {
+			role: 'assistant',
+			content: 'Checking.',
+			tool_calls: [{ id: 'c1', function: { name: 'list_files' } }],
+		};
+		const retryUser = { role: 'user', content: 'retry' };
+		const messages = [
+			userMsg,
+			assistantWithCalls,
+			repeatTool,
+			emptyAssistant,
+			{ role: 'user', content: 'S2' },
+			emptyAssistant,
+			retryUser,
+			emptyAssistant,
+		];
+		const result = sanitizeSessionTail(messages);
+		assert.deepEqual(result, [
+			userMsg,
+			{ role: 'assistant', content: 'Checking.' },
+		]);
+		assert.ok(!('tool_calls' in result[1]));
 	});
 
 	it('handles empty-array assistant content as empty', () => {
 		const arrayEmpty = { role: 'assistant', content: [] };
 		const messages = [userMsg, realAssistant, repeatTool, arrayEmpty];
 		assert.deepEqual(sanitizeSessionTail(messages), [userMsg, realAssistant]);
+	});
+
+	it('strips tool_calls from preceding assistant after repeat-tail stripped (has real content)', () => {
+		const assistantWithCalls = {
+			role: 'assistant',
+			content: 'I see the issue.',
+			tool_calls: [{ id: 'call_1', function: { name: 'read_file' } }],
+		};
+		const messages = [userMsg, assistantWithCalls, repeatTool, emptyAssistant];
+		const result = sanitizeSessionTail(messages);
+		assert.deepEqual(result, [
+			userMsg,
+			{ role: 'assistant', content: 'I see the issue.' },
+		]);
+		assert.ok(!('tool_calls' in result[1]));
+	});
+
+	it('drops preceding assistant entirely after repeat-tail stripped when content also empty', () => {
+		const emptyWithCalls = {
+			role: 'assistant',
+			content: '',
+			tool_calls: [{ id: 'call_1', function: { name: 'write_file' } }],
+		};
+		const prevTool = {
+			role: 'tool',
+			content: '{"ok":true}',
+			tool_call_id: 'call_0',
+		};
+		const messages = [
+			userMsg,
+			realAssistant,
+			prevTool,
+			emptyWithCalls,
+			repeatTool,
+			emptyAssistant,
+		];
+		const result = sanitizeSessionTail(messages);
+		assert.deepEqual(result, [userMsg, realAssistant, prevTool]);
 	});
 });
