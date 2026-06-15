@@ -173,14 +173,14 @@ import {
 	saveBenchScores,
 	saveRoutingTable,
 } from './bench.mjs';
-import {
-	buildCausalStory,
-	loadRunAnalysis,
-	renderForensicsCli,
-	resolveRunDir,
-} from './forensics.mjs';
 import { saveProbeResult } from './probe-persistence.mjs';
 import { CliError, NativeNoProposalError } from './cli-errors.mjs';
+import {
+	runEvals,
+	runRoute,
+	runTrends,
+	runWhy,
+} from './commands/forensics.mjs';
 
 export { VERSION };
 
@@ -2107,101 +2107,19 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'why') {
-		const runDir = await resolveRunDir(io.cwd, options.whyRunId || '');
-		const analysis = await loadRunAnalysis(runDir);
-		const story = buildCausalStory(analysis);
-		if (options.json) {
-			io.stdout.write(
-				`${JSON.stringify({ analysis: { ...analysis, contextMd: undefined, promptMd: undefined, responseMd: undefined }, runDir, story }, null, 2)}\n`,
-			);
-		} else {
-			io.stdout.write(renderForensicsCli(analysis, story));
-		}
-		return { command: 'why', ok: true, runDir, story };
+		return runWhy(options, io);
 	}
 
 	if (options.command === 'trends') {
-		const {
-			computeComparison,
-			computeTrends,
-			loadRunSummaries,
-			renderComparisonCli,
-			renderTrendsCli,
-			renderTrendsHtml,
-			windowSummaries,
-		} = await import('./trends.mjs');
-		const runsDir = options.runsDir
-			? options.runsDir.startsWith('/')
-				? options.runsDir
-				: join(io.cwd, options.runsDir)
-			: join(io.cwd, '.kodr', 'runs');
-		const all = await loadRunSummaries(runsDir);
-		const windowed =
-			options.trendsSince || options.trendsLast
-				? windowSummaries(all, {
-						since: options.trendsSince || '',
-						last: options.trendsLast || 0,
-					})
-				: { before: [], window: all };
-		const report = computeTrends(windowed.window);
-		const comparison =
-			windowed.before.length > 0
-				? computeComparison(computeTrends(windowed.before), report)
-				: null;
-		if (options.trendsHtml) {
-			io.stdout.write(renderTrendsHtml(report, comparison));
-		} else if (options.json) {
-			io.stdout.write(
-				`${JSON.stringify({ report, ...(comparison ? { comparison } : {}) }, null, 2)}\n`,
-			);
-		} else {
-			io.stdout.write(renderTrendsCli(report));
-			if (comparison) {
-				io.stdout.write(`\n${renderComparisonCli(comparison)}`);
-			}
-		}
-		return { command: 'trends', ok: true, comparison, report, runsDir };
+		return runTrends(options, io);
 	}
 
 	if (options.command === 'route') {
-		const { computeTrends, loadRunSummaries } = await import('./trends.mjs');
-		const { recommendModel, renderRouteCli } = await import('./routing.mjs');
-		const runsDir = options.runsDir
-			? options.runsDir.startsWith('/')
-				? options.runsDir
-				: join(io.cwd, options.runsDir)
-			: join(io.cwd, '.kodr', 'runs');
-		const report = computeTrends(await loadRunSummaries(runsDir));
-		const minRuns = options.routeMinRuns > 0 ? options.routeMinRuns : 3;
-		const rec = recommendModel(report, { minRuns });
-		let applied = false;
-		if (options.routeApply && rec.recommended) {
-			await applyRecommendedModel(io.cwd, rec.recommended);
-			applied = true;
-		}
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify({ ...rec, applied }, null, 2)}\n`);
-		} else {
-			io.stdout.write(renderRouteCli(rec, { applied }));
-		}
-		return { command: 'route', ok: true, recommendation: rec, applied };
+		return runRoute(options, io);
 	}
 
 	if (options.command === 'evals') {
-		const { loadEvalResults, renderEvalTrendsCli, summarizeEvalResults } =
-			await import('./eval-trends.mjs');
-		const evalsResultsDir = options.runsDir
-			? options.runsDir.startsWith('/')
-				? options.runsDir
-				: join(io.cwd, options.runsDir)
-			: join(io.cwd, 'evals', 'results');
-		const pairs = summarizeEvalResults(await loadEvalResults(evalsResultsDir));
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify(pairs, null, 2)}\n`);
-		} else {
-			io.stdout.write(renderEvalTrendsCli(pairs));
-		}
-		return { command: 'evals', ok: true, pairs };
+		return runEvals(options, io);
 	}
 
 	if (options.command === 'watch') {
@@ -4664,22 +4582,6 @@ function resolvedAgentsDirs(options, cwd) {
 // Phase 131: merge the recommended model into .kodr/config.json, preserving any
 // existing keys. Config writes only set the allowed `model` key; gate keys are
 // never touched. Used by `kodr route --apply`.
-async function applyRecommendedModel(cwd, model) {
-	const configPath = join(cwd, '.kodr/config.json');
-	let config = {};
-	try {
-		config = JSON.parse(await readFile(configPath, 'utf8'));
-		if (!config || typeof config !== 'object' || Array.isArray(config)) {
-			config = {};
-		}
-	} catch {
-		config = {};
-	}
-	config.model = model;
-	await mkdir(dirname(configPath), { recursive: true });
-	await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-}
-
 // Phase 128: compact extraction metadata for summary.json / forensics. Returns
 // undefined when no proposal or no metadata (omit the field entirely).
 function extractionSummary(proposal) {
