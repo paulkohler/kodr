@@ -38,7 +38,7 @@ import {
 	isOrchestrationRole,
 	parseAgentMarkdown,
 } from './agents.mjs';
-import { createCycleReviewRequest, runSubagent } from './subagents.mjs';
+import { runSubagent } from './subagents.mjs';
 import {
 	createInspectionTaskPlan,
 	createTaskPlan,
@@ -55,7 +55,6 @@ import {
 	parseVerificationCommand,
 	runVerification,
 } from './verification-runner.mjs';
-import { replayRun } from './replay.mjs';
 import {
 	completeWithToolCalls,
 	createBuiltinRegistry,
@@ -175,6 +174,7 @@ import {
 	runWhy,
 } from './commands/forensics.mjs';
 import { runInspect, runRegistry } from './commands/inspect.mjs';
+import { runCycleReview, runReplay } from './commands/replay.mjs';
 
 export { VERSION };
 
@@ -1608,57 +1608,11 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'replay') {
-		if (!options.replayDir) {
-			throw new CliError('kodr replay requires a run directory');
-		}
-		const replayDir = await jailedPath(io.cwd, options.replayDir);
-		const result = await replayRun(replayDir.absolute);
-		io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-		return { ok: true, command: 'replay', result };
+		return runReplay(options, io);
 	}
 
 	if (options.command === 'cycle-review') {
-		if (!options.transcriptFile) {
-			throw new CliError('kodr cycle-review requires --transcript-file');
-		}
-		const runDir = await createRunArtifacts(io.cwd, options.out);
-		const transcriptPath = await jailedPath(io.cwd, options.transcriptFile);
-		const transcript = await readFile(transcriptPath.absolute, 'utf8');
-		const review = await runSubagent(
-			io.cwd,
-			runDir,
-			createCycleReviewRequest({
-				transcript,
-				transcriptPath: options.transcriptFile,
-			}),
-		);
-		const result = {
-			ok: review.result.ok,
-			runDir,
-			subagent: {
-				artifactDir: review.artifactDir,
-				id: review.request.id,
-				kind: review.request.kind,
-			},
-			result: review.result,
-		};
-		await writeJson(join(runDir, 'summary.json'), {
-			artifacts: {
-				subagentRequest: 'subagents/cycle-review/request.json',
-				subagentResult: 'subagents/cycle-review/result.json',
-				summary: 'summary.json',
-			},
-			ok: result.ok,
-			subagent: result.subagent,
-		});
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-		} else {
-			io.stdout.write(`Cycle review ok\n`);
-			io.stdout.write(`Run: ${runDir}\n`);
-			io.stdout.write(`Findings: ${review.result.findings.length}\n`);
-		}
-		return { ok: result.ok, command: 'cycle-review', result };
+		return runCycleReview(options, io);
 	}
 
 	if (options.command === 'eval') {
