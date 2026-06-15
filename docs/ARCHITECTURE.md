@@ -52,28 +52,40 @@ Everything beyond "chat + edit + run." All opt-in.
 `project-config`, `usage-normalizer`, `ansi`, `progress`, `artifacts`,
 `install-local`, `version`, `prompt-id`.
 
-## Cross-cutting: `app.mjs` (~5,800 lines, ~22%)
-The CLI dispatcher + the core run pipeline, welded together. It touches **every
-tier**, which is why it feels heavy. Anatomy:
-- `parseArgs`, `usage` — arg parsing & help text
-- `main()` — a long `if (command === 'X')` chain dispatching ~22 subcommands
-- `runPrompt` (~2,800 lines) — the Tier-1 core pipeline (context discovery,
-  executor init, the run/tool loop, healing, writes, summary)
-- `handleChannelRequest`, `parseManagementInstances`, `renderSession*`,
-  `renderSkillsListing`, `extractPromptFilePaths`
+## Cross-cutting: the CLI entry (`app.mjs` + split-out modules)
+Phase 148 split the old 5,800-line `app.mjs` god-file along tier lines (pure,
+behavior-preserving, guarded by the test suite + an export-surface guard test).
+The layout now:
+- `app.mjs` (~500 lines) — the thin entry point: `main()`'s command dispatch,
+  `handleChannelRequest` (the channel), `listSessions`, the CLI approver/progress
+  helpers, and a **re-export barrel** preserving the public import surface.
+- `cli/args.mjs` — `parseArgs`, `assignValue`, option validators, `usage` help
+  text. `cli/defaults.mjs` — default constants. `cli/options.mjs` — shared input
+  helpers (`loadPrompt`, `workspaceContextOptions`, `resolved{Skills,Agents}Dirs`).
+- `commands/*.mjs` — one module per leaf subcommand (forensics, inspect, replay,
+  session, bench, serve, compare, probe, skills, init, eval). Handlers that need
+  the channel or `runPrompt` take them as injected params (extraction stays
+  one-directional — no module imports `app.mjs`).
+- `run-pipeline.mjs` (~2,980 lines) — the Tier-1 core: `runPrompt`,
+  `runStagedPrompt`, and ~35 private helpers (context discovery, executor init,
+  the run/tool loop, healing, writes, summary, `maybeCommitAppliedWrites`).
+- `render.mjs` — pure CLI renderers. `cli-errors.mjs` — `CliError` /
+  `NativeNoProposalError`. `parseManagementInstances` now lives in
+  `model-profiles.mjs`.
 
-Splitting it (phase 148) is the single highest-leverage cleanup — purely
-behavior-preserving, guarded by the test suite.
+The next cleanup hangs off these seams: make Tier 4 lazy-load (lever #2 below).
 
 ## The takeaway
 
 The research mission you set is only **~12%** of the code. The "too much" feeling
-is **Tier 4 (~26%, optional power features)** plus the **`app.mjs` god-file
+was **Tier 4 (~26%, optional power features)** plus the **`app.mjs` god-file
 (~22%)**. The simple tool — Tier 1 + infra — is **~36%** and is intact and
 working.
 
 Levers to recover "simple" as a felt experience, in order:
-1. **Split `app.mjs`** along tier lines (phase 148) — biggest legibility win, zero behavior change.
+1. ~~**Split `app.mjs`** along tier lines~~ — **done (phase 148):** 5,806 → ~500
+   lines, dispatcher + `commands/*` + `cli/*` + `run-pipeline.mjs`, zero behavior
+   change. This was the biggest legibility win and it created the seams for #2.
 2. **Make Tier 4 opt-in / lazy** — a `run`/`chat` invocation shouldn't load orchestration, Docker, LSP, MCP, or the web server.
 3. **Shrink Tier 2** once generation-params land — delete repair rules rather than add them.
 4. **Leave Tier 3 alone** — it's small and it's the point of the project.
