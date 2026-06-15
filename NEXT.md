@@ -21,11 +21,22 @@ summary so `kodr why` shows which model handled which step. Bigger and riskier �
 it touches several internal model-call sites; the `cheapModel` recommendation
 can extend `recommendModel`.
 
-### Stop truncation at the source (from 147)
-qwen hit its output-token limit and truncated mid-envelope; R6 only recovers the
-bytes that arrived. Raise `max_tokens` and/or teach the envelope channel to
-continue-on-length so long multi-file responses don't truncate in the first
-place.
+### Control generation params at the source (supersedes the 147 "truncation" item)
+Kodr sends only `{messages, model, tools}` to LM Studio — no `temperature`,
+`max_tokens`, `repeat_penalty`, or `response_format` — so it inherits each
+model's chat-tuned GUI preset (qwen: temp 0.8, repeat_penalty 1.1). The phase-147
+"lost envelope" was NOT a token-limit truncation: `finish_reason=stop`, 2309
+completion tokens against a 262144 context, no cap; the model emitted a malformed
+JSON envelope capped by a stray `</parameter>` tool-template token. Levers, all
+per-request via the OpenAI `/v1` API (no model reload):
+- Lower `temperature` (and `repeat_penalty` → 1.0) for code/structured output.
+- Optionally `response_format` json_schema to grammar-constrain the **envelope**
+  channel — would make the R0–R6 repair rules unnecessary for that path (verify
+  the server allows `tools` + `response_format` together first).
+- Set a generous explicit `max_tokens` so a real cap is known, not inherited.
+Record the chosen params in `summary` so `kodr why` shows them. Context length
+and context-overflow policy are load-time (`lms` CLI / SDK), not per-request;
+Kodr already reads the loaded context window via the management API (146).
 
 ### Multi-file coordinated edits
 The eval suite only measures single-defect fixes. Plant a cross-file refactor

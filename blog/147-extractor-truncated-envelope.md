@@ -12,8 +12,9 @@ correct response.
 ## The capture
 
 A 2026-06-15 examples-trial ran a four-file Markdown-to-HTML converter task
-against `qwen/qwen3.6-35b-a3b`. The model hit its output-token limit and the
-stream simply stopped mid-sentence. The envelope looked like this at the tail:
+against `qwen/qwen3.6-35b-a3b`. The model emitted an incomplete JSON envelope
+and stopped — `finish_reason: stop`, capped by a stray `</parameter>` (a Qwen
+tool-call template tag). The envelope looked like this at the tail:
 
 ```
 {"status":"OK","messages":[...],"files":[{"path":...,"content":...   <-- ] and } never came
@@ -101,6 +102,20 @@ extraction metadata (visible in `kodr why`). The capture is saved verbatim as a
 corpus fixture, so the manifest-driven replay (phase 123) guards it permanently.
 Full suite green at 1421 tests.
 
-The genuinely-open follow-on is the model/transport side: raising `max_tokens`
-or teaching the envelope channel to continue-on-length, so qwen doesn't truncate
-in the first place. Recovering the bytes that arrived is the floor, not the fix.
+## A correction worth recording
+
+The first draft of this post — and the failure log, and NEXT.md — called this an
+"output-token-limit truncation." Re-deriving from the raw artifacts disproved it:
+`finish_reason` was `stop`, not `length`; usage was 2309 completion tokens against
+a 262144 context; and the request body carried only `{messages, model, tools}` —
+no `max_tokens` cap and no sampling params at all. Nothing was length-capped. The
+model stopped on its own after producing a malformed envelope and leaking a
+`</parameter>` tool-template tag, while ignoring the tools channel it was offered.
+
+So the genuinely-open follow-on is *generation control*, not transport. Kodr
+sends no `temperature`, `repeat_penalty`, or `response_format`, so every run
+inherits the server's chat-tuned preset (qwen: temp 0.8, repeat_penalty 1.1) —
+poorly suited to structured/code output. Lowering temperature, setting
+`repeat_penalty` to 1.0, and optionally `response_format` json_schema for the
+envelope channel are the real source-level levers, all per-request. R6 recovers
+the bytes that arrived regardless — the floor, not the fix.
