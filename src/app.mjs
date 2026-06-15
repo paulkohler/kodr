@@ -112,7 +112,6 @@ import {
 } from './project-config.mjs';
 import { isWorkspaceCase, loadEvalSuite, scoreCase } from './eval.mjs';
 import { recordResults, runWorkspaceCase, slugify } from './eval-runner.mjs';
-import { startKodrServer } from './server.mjs';
 import { inspectWorkspace } from './repomap/index.mjs';
 import { filterInspectionIndex } from './inspection-output.mjs';
 import { runDependencyInstall } from './dependency-installer.mjs';
@@ -159,6 +158,7 @@ import {
 import { runInspect, runRegistry } from './commands/inspect.mjs';
 import { runBench } from './commands/bench.mjs';
 import { runCycleReview, runReplay } from './commands/replay.mjs';
+import { runServe, runWatch } from './commands/serve.mjs';
 import { runPromptHistory, runSession, runUndo } from './commands/session.mjs';
 
 export { VERSION };
@@ -1574,14 +1574,7 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'serve') {
-		const instance = await startKodrServer({
-			channel: handleChannelRequest,
-			cwd: io.cwd,
-			options,
-		});
-		io.stdout.write(`Serving: ${instance.url}\n`);
-		await instance.closed;
-		return { ok: true, command: 'serve', url: instance.url };
+		return runServe(options, io, handleChannelRequest);
 	}
 
 	if (options.command === 'inspect') {
@@ -1826,21 +1819,7 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'watch') {
-		if (!options.testCommand) {
-			throw new CliError('kodr watch requires --test <command>');
-		}
-		const { runWatchLoop } = await import('./watcher.mjs');
-		const handle = await runWatchLoop(options, io, handleChannelRequest);
-		// Block until the process is interrupted
-		await new Promise((resolve) => {
-			const onSignal = () => {
-				handle.close();
-				resolve();
-			};
-			process.once('SIGINT', onSignal);
-			process.once('SIGTERM', onSignal);
-		});
-		return { ok: true, command: 'watch' };
+		return runWatch(options, io, handleChannelRequest);
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);
