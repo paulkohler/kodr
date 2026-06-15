@@ -12,7 +12,6 @@ import { extractProposal } from './json-extractor.mjs';
 import {
 	buildChatRequestBody,
 	createChatCompletion,
-	firstAssistantMessage,
 	firstModelId,
 	listModels,
 } from './model-client.mjs';
@@ -146,7 +145,6 @@ import { runTui } from './tui.mjs';
 import { VERSION } from './version.mjs';
 import { buildHarnessManifest } from './harness.mjs';
 import { runPostWriteDiagnostics } from './post-write-sensor.mjs';
-import { saveProbeResult } from './probe-persistence.mjs';
 import { CliError, NativeNoProposalError } from './cli-errors.mjs';
 import {
 	runEvals,
@@ -157,6 +155,7 @@ import {
 import { runInspect, runRegistry } from './commands/inspect.mjs';
 import { runBench } from './commands/bench.mjs';
 import { runCompare } from './commands/compare.mjs';
+import { runProbe } from './commands/probe.mjs';
 import { runCycleReview, runReplay } from './commands/replay.mjs';
 import { runServe, runWatch } from './commands/serve.mjs';
 import {
@@ -179,7 +178,6 @@ const DEFAULT_TIMEOUT_MS = 600000;
 const DEFAULT_REVIEW_TIMEOUT_MS = 180000;
 const DEFAULT_SERVE_HOST = '127.0.0.1';
 const DEFAULT_SERVE_PORT = 8787;
-const PROBE_PROMPT = 'Reply with exactly: kodr-probe-ok';
 
 const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';
 
@@ -1445,38 +1443,7 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'probe') {
-		const result = await probe(options, io);
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-		} else {
-			io.stdout.write(`Probe ok\n`);
-			io.stdout.write(`Run: ${result.runDir}\n`);
-			io.stdout.write(`Model: ${result.model}\n`);
-			io.stdout.write(`Structured output: ${result.structuredOutputMode}\n`);
-			io.stdout.write(`Reply: ${result.reply}\n`);
-			// T1: tool-support classification.
-			io.stdout.write(`Tool support: ${result.toolSupport}\n`);
-			if (result.evidenceSnippet) {
-				io.stdout.write(`Evidence: ${result.evidenceSnippet.slice(0, 120)}\n`);
-			}
-			// T2: management API facts.
-			if (result.managementApi) {
-				const { instances = [], warnings = [], note } = result.managementApi;
-				if (note) {
-					io.stdout.write(`Management API: ${note}\n`);
-				} else {
-					for (const inst of instances) {
-						io.stdout.write(
-							`  ${inst.id}: context_length=${inst.context_length ?? '?'} parallel=${inst.parallel ?? '?'} trained_for_tool_use=${inst.trained_for_tool_use ?? '?'}\n`,
-						);
-					}
-					for (const warn of warnings) {
-						io.stdout.write(`  WARN: ${warn}\n`);
-					}
-				}
-			}
-		}
-		return { ok: true, command: 'probe', result };
+		return runProbe(options, io);
 	}
 
 	if (options.command === 'init') {
@@ -2076,208 +2043,10 @@ function assignValue(options, flag, value) {
 	}
 }
 
-// T1: classify the reply from a tool-support probe.
-// Returns 'native' | 'fallback' | 'none' and a short evidence snippet.
-function classifyToolSupport(chatBody) {
-	const choice = chatBody?.choices?.[0];
-	// Native: structured tool_calls in the response.
-	if (
-		Array.isArray(choice?.message?.tool_calls) &&
-		choice.message.tool_calls.length > 0
-	) {
-		const call = choice.message.tool_calls[0];
-		const snippet = JSON.stringify(call).slice(0, 200);
-		return { toolSupport: 'native', evidenceSnippet: snippet };
-	}
-	// Fallback: tool-call-like syntax leaked into text content.
-	const text = choice?.message?.content || '';
-	if (
-		text.includes('<tool_call') ||
-		text.includes('"function"') ||
-		text.includes('probe_echo')
-	) {
-		return { toolSupport: 'fallback', evidenceSnippet: text.slice(0, 200) };
-	}
-	// None: no tool-call signal.
-	return { toolSupport: 'none', evidenceSnippet: text.slice(0, 200) };
-}
-
-// T2: detect whether the baseUrl is an LM Studio endpoint (ends with /v1).
-// Returns the management API host or null if this isn't lmstudio.
-function lmstudioManagementHost(baseUrl) {
-	if (!baseUrl) return null;
-	// LM Studio base URLs end with /v1 (the OpenAI-compat path prefix).
-	if (!baseUrl.endsWith('/v1')) return null;
-	return baseUrl.slice(0, -3); // strip /v1 → the management host
-}
-
-// T2: query the LM Studio management API.
-// Returns null when unreachable (graceful degradation — never a probe failure).
-async function queryLmStudioManagement(host, profileContextWindow, timeoutMs) {
-	const url = `${host}/api/v1/models`;
-	const controller = new AbortController();
-	const timer = setTimeout(
-		() => controller.abort(),
-		Math.min(timeoutMs || 10000, 10000),
-	);
-	let response;
-	try {
-		response = await fetch(url, { signal: controller.signal });
-	} catch {
-		return { note: `Management API unreachable at ${url}`, instances: [] };
-	} finally {
-		clearTimeout(timer);
-	}
-	if (!response.ok) {
-		return {
-			note: `Management API ${url} returned HTTP ${response.status}`,
-			instances: [],
-		};
-	}
-	let body;
-	try {
-		body = await response.json();
-	} catch {
-		return { note: `Management API ${url} returned non-JSON`, instances: [] };
-	}
-	return parseManagementInstances(body, profileContextWindow);
-}
-
-// Parse an LM Studio management API (`GET /api/v1/models`) body into the loaded
-// instances kodr reports. The real response shape is { models: [...] }, where
-// each model entry carries `loaded_instances` (only non-empty when the model is
-// actually loaded) and the per-instance context_length/parallel live under
-// `loaded_instances[].config`. trained_for_tool_use is on the model entry's
-// `capabilities`. We fall back to OpenAI-style `data`/bare-array shapes and to
-// flat per-item fields so non-LM-Studio or older servers still parse.
-// parseManagementInstances moved to ./model-profiles.mjs in phase 148 (it parses
-// the LM Studio management API); imported above and re-exported here so the
-// public import surface is unchanged.
+// parseManagementInstances lives in ./model-profiles.mjs (it parses the LM
+// Studio management API). Imported above and re-exported here so the public
+// import surface is unchanged (phase 148 split).
 export { parseManagementInstances };
-
-async function probe(options, io) {
-	const runDir = await createRunArtifacts(io.cwd);
-
-	const modelsResponse = await listModels(options);
-
-	await writeJson(join(runDir, 'models-response.json'), modelsResponse);
-
-	const model = options.model || firstModelId(modelsResponse.body);
-	if (!model) {
-		throw new CliError(
-			'No model was provided and GET /models did not return a usable model id',
-		);
-	}
-
-	// Existing connectivity probe (original purpose).
-	const chatBody = {
-		messages: [
-			{
-				content: PROBE_PROMPT,
-				role: 'user',
-			},
-		],
-		model,
-		temperature: 0,
-	};
-
-	await writeJson(join(runDir, 'chat-request.json'), {
-		body: chatBody,
-		url: `${options.baseUrl}/chat/completions`,
-	});
-
-	const chatResponse = await createChatCompletion(options, chatBody);
-
-	await writeJson(join(runDir, 'chat-response.json'), chatResponse);
-
-	const reply = firstAssistantMessage(chatResponse.body);
-	if (!reply) {
-		throw new CliError(
-			'POST /chat/completions did not return a usable assistant message',
-		);
-	}
-
-	// T1: tool-support check via the existing transport.
-	// Send a trivial tool declaration and classify the response.
-	const PROBE_ECHO_TOOL = {
-		type: 'function',
-		function: {
-			name: 'probe_echo',
-			description: 'Echo back a value. Call this immediately.',
-			parameters: {
-				type: 'object',
-				properties: {
-					value: { type: 'string', description: 'Any string value.' },
-				},
-				required: ['value'],
-				additionalProperties: false,
-			},
-		},
-	};
-	const toolProbeBody = {
-		messages: [
-			{
-				role: 'user',
-				content: 'Call probe_echo with value "ok".',
-			},
-		],
-		model,
-		temperature: 0,
-		tools: [PROBE_ECHO_TOOL],
-		tool_choice: 'auto',
-	};
-
-	await writeJson(join(runDir, 'tool-probe-request.json'), {
-		body: toolProbeBody,
-		url: `${options.baseUrl}/chat/completions`,
-	});
-
-	const toolProbeResponse = await createChatCompletion(options, toolProbeBody);
-
-	await writeJson(join(runDir, 'tool-probe-response.json'), toolProbeResponse);
-
-	const { toolSupport, evidenceSnippet } = classifyToolSupport(
-		toolProbeResponse.body,
-	);
-
-	// T2: management API query (LM Studio only; skip silently for other providers).
-	const mgmtHost = lmstudioManagementHost(options.baseUrl);
-	let managementApi = null;
-	if (mgmtHost) {
-		managementApi = await queryLmStudioManagement(
-			mgmtHost,
-			options.contextWindow || null,
-			options.timeoutMs,
-		);
-	}
-
-	const result = {
-		baseUrl: options.baseUrl,
-		model,
-		modelProfile: options.modelProfile || null,
-		ok: true,
-		reply,
-		runDir,
-		structuredOutputMode: options.structuredOutputMode || 'none',
-		// T1
-		toolSupport,
-		evidenceSnippet,
-		// T2
-		...(managementApi ? { managementApi } : {}),
-	};
-
-	await writeJson(join(runDir, 'result.json'), result);
-
-	// T3: persist to .kodr/probe.json keyed by (baseUrl, model).
-	await saveProbeResult(io.cwd, options.baseUrl, model, {
-		toolSupport,
-		evidenceSnippet,
-		structuredOutputMode: options.structuredOutputMode || 'none',
-		...(managementApi ? { managementApi } : {}),
-	});
-
-	return result;
-}
 
 function renderPatchRetryPrompt(failedPatches) {
 	const lines = [
