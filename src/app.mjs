@@ -24,12 +24,7 @@ import {
 	gitTreeState,
 } from './git-workspace.mjs';
 import { undoLastApply } from './undo.mjs';
-import {
-	discoverSkills,
-	discoverSkillsTiered,
-	loadSkills,
-	renderSkillIndex,
-} from './skills.mjs';
+import { discoverSkills, loadSkills, renderSkillIndex } from './skills.mjs';
 import {
 	AgentError,
 	discoverAgents,
@@ -103,7 +98,6 @@ import {
 import {
 	applyProjectConfig,
 	APPLY_MODES,
-	defaultConfigPath,
 	loadProjectConfig,
 	ProjectConfigError,
 	renderShowConfig,
@@ -155,7 +149,9 @@ import {
 import { runInspect, runRegistry } from './commands/inspect.mjs';
 import { runBench } from './commands/bench.mjs';
 import { runCompare } from './commands/compare.mjs';
+import { runInitCommand } from './commands/init.mjs';
 import { runProbe } from './commands/probe.mjs';
+import { runSkills } from './commands/skills.mjs';
 import { runCycleReview, runReplay } from './commands/replay.mjs';
 import { runServe, runWatch } from './commands/serve.mjs';
 import {
@@ -1246,55 +1242,6 @@ async function maybeCommitAppliedWrites(cwd, options, state) {
 	});
 }
 
-async function runInit(options, io) {
-	const configPath = defaultConfigPath(io.cwd, io.env || {});
-
-	let exists = false;
-	try {
-		await readFile(configPath, 'utf8');
-		exists = true;
-	} catch {
-		exists = false;
-	}
-
-	if (exists && !options.force) {
-		throw new CliError(
-			`${configPath} already exists — use kodr init --force to overwrite`,
-		);
-	}
-
-	let testCommand = null;
-	try {
-		const pkg = JSON.parse(
-			await readFile(join(io.cwd, 'package.json'), 'utf8'),
-		);
-		if (pkg?.scripts?.test) testCommand = 'npm test';
-	} catch {
-		// No package.json or no test script — omit testCommand from starter.
-	}
-
-	const config = {
-		'//':
-			'kodr project config — see `kodr --help` and usage.md. ' +
-			'Gate keys (yes, gitCommit, installDependencies, enableHooks, apiKey) are not allowed.',
-		model: options.model,
-		baseUrl: options.baseUrl,
-	};
-	if (testCommand) {
-		config.testCommand = testCommand;
-	}
-
-	await mkdir(dirname(configPath), { recursive: true });
-	await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-
-	return {
-		configPath,
-		model: options.model,
-		baseUrl: options.baseUrl,
-		testCommand,
-	};
-}
-
 function withCliProgress(options, io) {
 	if (typeof options.onProgress === 'function') {
 		return options;
@@ -1395,51 +1342,7 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'skills') {
-		const { skills, shadows } = await discoverSkillsTiered(io.cwd, {
-			skillsDirs: resolvedSkillsDirs(options, io.cwd),
-		});
-		const { agents, shadows: agentShadows } = await discoverAgents(io.cwd, {
-			agentsDirs: resolvedAgentsDirs(options, io.cwd),
-		});
-		if (options.json) {
-			io.stdout.write(
-				`${JSON.stringify(
-					{
-						skills: skills.map((s) => ({
-							name: s.name,
-							description: s.description,
-							path: s.path,
-							tier: s.tier,
-							absoluteRoot: s.absoluteRoot,
-						})),
-						agents: agents.map((a) => ({
-							name: a.name,
-							description: a.description,
-							sourcePath: a.sourcePath,
-							tier: a.tier,
-							modelSpec: a.modelSpec,
-							modelAlias: a.modelAlias,
-						})),
-						shadows,
-						agentShadows,
-					},
-					null,
-					2,
-				)}\n`,
-			);
-		} else {
-			io.stdout.write(
-				renderSkillsListing({ skills, shadows, agents, agentShadows }),
-			);
-		}
-		return {
-			ok: true,
-			command: 'skills',
-			skills,
-			agents,
-			shadows,
-			agentShadows,
-		};
+		return runSkills(options, io);
 	}
 
 	if (options.command === 'probe') {
@@ -1447,13 +1350,7 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'init') {
-		const result = await runInit(options, io);
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-		} else {
-			io.stdout.write(`Wrote ${result.configPath}\n`);
-		}
-		return { ok: true, command: 'init', result };
+		return runInitCommand(options, io);
 	}
 
 	if (options.command === 'run') {
