@@ -141,11 +141,7 @@ import {
 	OPENROUTER_EXTRA_HEADERS,
 } from './completion.mjs';
 import { derivePromptId, promptIdFromFilename } from './prompt-id.mjs';
-import {
-	loadSessionConversation,
-	scanRunHistory,
-	scanSessions,
-} from './run-history.mjs';
+import { loadSessionConversation, scanSessions } from './run-history.mjs';
 import {
 	appendCompletionToRawConversation,
 	compactSessionConversation,
@@ -175,6 +171,7 @@ import {
 } from './commands/forensics.mjs';
 import { runInspect, runRegistry } from './commands/inspect.mjs';
 import { runCycleReview, runReplay } from './commands/replay.mjs';
+import { runPromptHistory, runSession, runUndo } from './commands/session.mjs';
 
 export { VERSION };
 
@@ -1809,121 +1806,15 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'prompt-history') {
-		if (!options.promptHistoryId) {
-			throw new CliError('kodr prompt-history requires a prompt id argument');
-		}
-		const runs = await scanRunHistory(io.cwd, options.promptHistoryId);
-		const result = { promptId: options.promptHistoryId, runs };
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-		} else {
-			io.stdout.write(`Prompt history: ${options.promptHistoryId}\n`);
-			if (runs.length === 0) {
-				io.stdout.write('  No runs found.\n');
-			}
-			for (const run of runs) {
-				const status = run.ok ? 'ok' : 'fail';
-				const evalPart =
-					run.evalScore !== null ? ` eval=${run.evalScore.toFixed(2)}` : '';
-				const tokenPart = run.tokens > 0 ? ` tokens=${run.tokens}` : '';
-				io.stdout.write(
-					`  ${run.timestamp}  ${run.model}  [${status}]${evalPart}${tokenPart}\n`,
-				);
-			}
-		}
-		return { ok: true, command: 'prompt-history', result };
+		return runPromptHistory(options, io);
 	}
 
 	if (options.command === 'session') {
-		const sub = options.sessionSubcommand;
-
-		if (sub === 'list') {
-			const list = await handleChannelRequest(
-				{ kind: 'session-list', options },
-				io,
-			);
-
-			if (options.json) {
-				io.stdout.write(`${JSON.stringify({ sessions: list }, null, 2)}\n`);
-			} else {
-				io.stdout.write(renderSessionList(list));
-			}
-			return {
-				ok: true,
-				command: 'session',
-				subcommand: 'list',
-				sessions: list,
-			};
-		}
-
-		if (sub === 'show') {
-			if (!options.sessionId) {
-				throw new CliError('kodr session show requires a session id');
-			}
-			const conv = await handleChannelRequest(
-				{ kind: 'session-show', options, sessionId: options.sessionId },
-				io,
-			);
-
-			if (options.json) {
-				io.stdout.write(`${JSON.stringify(conv, null, 2)}\n`);
-			} else {
-				io.stdout.write(renderSessionConversation(conv));
-			}
-			return {
-				ok: true,
-				command: 'session',
-				subcommand: 'show',
-				conversation: conv,
-			};
-		}
-
-		if (sub === 'export') {
-			if (!options.sessionId) {
-				throw new CliError('kodr session export requires a session id');
-			}
-			if (options.sessionFormat !== 'markdown') {
-				throw new CliError(
-					'kodr session export only supports --format markdown',
-				);
-			}
-			const conv = await handleChannelRequest(
-				{ kind: 'session-show', options, sessionId: options.sessionId },
-				io,
-			);
-			const markdown = renderSessionMarkdown(conv);
-			io.stdout.write(markdown);
-			return {
-				ok: true,
-				command: 'session',
-				subcommand: 'export',
-				conversation: conv,
-				format: options.sessionFormat,
-			};
-		}
-
-		throw new CliError(
-			`kodr session requires a subcommand: list, show <id>, export <id>`,
-		);
+		return runSession(options, io, handleChannelRequest);
 	}
 
 	if (options.command === 'undo') {
-		const result = await handleChannelRequest(
-			{ kind: 'undo-run', options },
-			io,
-		);
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-		} else {
-			io.stdout.write(`${result.message}\n`);
-			for (const file of result.files || []) {
-				io.stdout.write(`  ${file.action.padEnd(8)}${file.path}\n`);
-			}
-			for (const conflict of result.conflicts || []) {
-				io.stdout.write(`  conflict ${conflict.path}: ${conflict.reason}\n`);
-			}
-		}
-		return { ok: result.ok, command: 'undo', result };
+		return runUndo(options, io, handleChannelRequest);
 	}
 
 	if (options.command === 'bench') {
