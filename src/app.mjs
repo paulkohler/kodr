@@ -180,6 +180,7 @@ import {
 	resolveRunDir,
 } from './forensics.mjs';
 import { saveProbeResult } from './probe-persistence.mjs';
+import { CliError, NativeNoProposalError } from './cli-errors.mjs';
 
 export { VERSION };
 
@@ -196,22 +197,10 @@ const PROBE_PROMPT = 'Reply with exactly: kodr-probe-ok';
 
 const OPENROUTER_DEFAULT_MODEL = 'openai/gpt-4o-mini';
 
-export class CliError extends Error {
-	constructor(message) {
-		super(message);
-		this.name = 'CliError';
-	}
-}
-
-// D3 (phase 119): thrown when native-mode model produces no tool writes and no
-// parseable envelope after one re-prompt. Distinct from ProposalMissingError so
-// callers can distinguish native-mode failure from envelope-mode failure.
-export class NativeNoProposalError extends Error {
-	constructor(message) {
-		super(message);
-		this.name = 'NativeNoProposalError';
-	}
-}
+// CliError / NativeNoProposalError live in ./cli-errors.mjs so command modules
+// can import them without importing from app.mjs (circular). Re-exported here
+// (imported above) to preserve the public surface (phase 148 split).
+export { CliError, NativeNoProposalError };
 
 export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 	const options = {
