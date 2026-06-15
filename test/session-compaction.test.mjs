@@ -9,6 +9,7 @@ import {
 	createSessionSummary,
 	loadSessionEvidence,
 	renderSessionSummary,
+	sanitizeSessionTail,
 } from '../src/session-compaction.mjs';
 
 describe('session compaction', () => {
@@ -167,5 +168,55 @@ describe('session compaction', () => {
 			'node --test: one test failed',
 			'Patch was stale.',
 		]);
+	});
+});
+
+describe('sanitizeSessionTail', () => {
+	const repeatTool = {
+		role: 'tool',
+		content: '{"repeat":true,"message":"stop"}',
+	};
+	const emptyAssistant = { role: 'assistant', content: '' };
+	const realAssistant = { role: 'assistant', content: 'Done.' };
+	const userMsg = { role: 'user', content: 'Hi' };
+
+	it('returns the same array when no repeat-tail is present', () => {
+		const messages = [userMsg, realAssistant];
+		assert.strictEqual(sanitizeSessionTail(messages), messages);
+	});
+
+	it('strips one trailing (repeat-tool + empty-assistant) pair', () => {
+		const messages = [userMsg, realAssistant, repeatTool, emptyAssistant];
+		const result = sanitizeSessionTail(messages);
+		assert.deepEqual(result, [userMsg, realAssistant]);
+	});
+
+	it('strips multiple consecutive repeat-tail pairs', () => {
+		const messages = [
+			userMsg,
+			realAssistant,
+			repeatTool,
+			emptyAssistant,
+			repeatTool,
+			emptyAssistant,
+		];
+		assert.deepEqual(sanitizeSessionTail(messages), [userMsg, realAssistant]);
+	});
+
+	it('does not strip a tool message that is not a repeat sentinel', () => {
+		const normalTool = { role: 'tool', content: '{"ok":true}' };
+		const messages = [userMsg, realAssistant, normalTool, emptyAssistant];
+		assert.strictEqual(sanitizeSessionTail(messages), messages);
+	});
+
+	it('does not strip an assistant with real content', () => {
+		const messages = [userMsg, repeatTool, realAssistant];
+		assert.strictEqual(sanitizeSessionTail(messages), messages);
+	});
+
+	it('handles empty-array assistant content as empty', () => {
+		const arrayEmpty = { role: 'assistant', content: [] };
+		const messages = [userMsg, realAssistant, repeatTool, arrayEmpty];
+		assert.deepEqual(sanitizeSessionTail(messages), [userMsg, realAssistant]);
 	});
 });

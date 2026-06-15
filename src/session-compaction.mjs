@@ -240,6 +240,46 @@ export function appendCompletionToRawConversation(
 	];
 }
 
+// Strip trailing (repeat-sentinel tool + empty assistant) pairs from a session
+// conversation before using it as the base for --continue. These pairs accumulate
+// when the F1 repeat-call guard fires at end of turn: the model receives the
+// repeat signal, emits an empty assistant message, and the loop exits. Models
+// with strict role-alternation jinja templates (e.g. devstral) reject the
+// resulting tail when the next user turn is appended because they see the empty
+// assistant as a non-turn and interpret the sequence as tool → user.
+export function sanitizeSessionTail(messages) {
+	let end = messages.length;
+	while (end >= 2) {
+		const last = messages[end - 1];
+		const prev = messages[end - 2];
+		if (isEmptyAssistant(last) && isRepeatSentinelTool(prev)) {
+			end -= 2;
+		} else {
+			break;
+		}
+	}
+	return end === messages.length ? messages : messages.slice(0, end);
+}
+
+function isEmptyAssistant(message) {
+	if (message?.role !== 'assistant') return false;
+	const { content } = message;
+	if (content === '' || content == null) return true;
+	if (Array.isArray(content)) {
+		return content.length === 0 || content.every((b) => (b?.text ?? '') === '');
+	}
+	return false;
+}
+
+function isRepeatSentinelTool(message) {
+	if (message?.role !== 'tool') return false;
+	try {
+		return JSON.parse(message.content)?.repeat === true;
+	} catch {
+		return false;
+	}
+}
+
 function userLedSegments(messages) {
 	const segments = [];
 	let current = [];

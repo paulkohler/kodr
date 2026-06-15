@@ -151,6 +151,7 @@ import {
 	compactSessionConversation,
 	DEFAULT_SESSION_CONTEXT_CHARS,
 	loadSessionEvidence,
+	sanitizeSessionTail,
 } from './session-compaction.mjs';
 import { runTui } from './tui.mjs';
 import { VERSION } from './version.mjs';
@@ -5227,7 +5228,9 @@ async function resolveParentSession(options, cwd) {
 	}
 
 	return {
-		conversation: sanitizeSubagentSessionMessages(conversation),
+		conversation: sanitizeSessionTail(
+			sanitizeSubagentSessionMessages(conversation),
+		),
 		model: summary.model || '',
 		runDir,
 		sessionId: summary.sessionId || basename(runDir),
