@@ -159,6 +159,13 @@ import { runInspect, runRegistry } from './commands/inspect.mjs';
 import { runBench } from './commands/bench.mjs';
 import { runCycleReview, runReplay } from './commands/replay.mjs';
 import { runServe, runWatch } from './commands/serve.mjs';
+import {
+	loadOptionalPrompt,
+	loadPrompt,
+	resolvedAgentsDirs,
+	resolvedSkillsDirs,
+	workspaceContextOptions,
+} from './cli/options.mjs';
 import { runPromptHistory, runSession, runUndo } from './commands/session.mjs';
 
 export { VERSION };
@@ -4220,50 +4227,6 @@ function resolveReviewTimeoutMs(options) {
 	return Math.min(options.timeoutMs, DEFAULT_REVIEW_TIMEOUT_MS);
 }
 
-function workspaceContextOptions(options, cwd) {
-	return {
-		completionReserve: options.completionReserve,
-		contextWindow: options.contextWindow,
-		editFormat: options.editFormat,
-		// T4: pass resolved toolWritesMode so context-packer uses channel-aware wording.
-		toolWritesMode: options.toolWritesMode || 'auto',
-		// C2 (phase 121): the task text is an ESM signal for greenfield workspaces
-		// (a prompt naming a .mjs/.cjs target triggers the Node/ESM contract block
-		// even before any file exists on disk).
-		taskPrompt: options.prompt || '',
-		// C3 (phase 122): resolved skill dirs so a project/user `lang:node` override
-		// in a dot-folder tier can shadow the builtin Node/ESM guidance.
-		...(cwd ? { skillsDirs: resolvedSkillsDirs(options, cwd) } : {}),
-		// Phase 124: A-arm of the guidance A/B — suppress the Node/ESM block.
-		suppressLanguageGuidance: options.suppressLanguageGuidance || false,
-		// Phase 143: pass model so context-packer can detect the model family and
-		// inject model-specific guidance (model:devstral etc.).
-		model: options.model || '',
-		// Phase 145: A-arm of the model-guidance A/B — suppress model-family block.
-		suppressModelGuidance: options.suppressModelGuidance || false,
-		...(options.contextBudgetChars
-			? { totalBytes: options.contextBudgetChars }
-			: {}),
-	};
-}
-
-// K3: resolve skills-dir overrides, converting relative paths to absolute.
-function resolvedSkillsDirs(options, cwd) {
-	return (options.skillsDirs || []).map((dir) =>
-		dir.startsWith('/') ? dir : join(cwd, dir),
-	);
-}
-
-// K3: resolve agents-dir overrides, converting relative paths to absolute.
-function resolvedAgentsDirs(options, cwd) {
-	return (options.agentsDirs || []).map((dir) =>
-		dir.startsWith('/') ? dir : join(cwd, dir),
-	);
-}
-
-// Phase 131: merge the recommended model into .kodr/config.json, preserving any
-// existing keys. Config writes only set the allowed `model` key; gate keys are
-// never touched. Used by `kodr route --apply`.
 // Phase 128: compact extraction metadata for summary.json / forensics. Returns
 // undefined when no proposal or no metadata (omit the field entirely).
 function extractionSummary(proposal) {
@@ -4714,23 +4677,6 @@ async function readConversationArtifact(runDir) {
 	}
 }
 
-async function loadPrompt(options, cwd) {
-	if (options.prompt && options.promptFile) {
-		throw new CliError('Use either -p/--prompt or --prompt-file, not both');
-	}
-
-	if (options.prompt) {
-		return options.prompt;
-	}
-
-	if (options.promptFile) {
-		const promptPath = await jailedPath(cwd, options.promptFile);
-		return readFile(promptPath.absolute, 'utf8');
-	}
-
-	throw new CliError('kodr run requires -p/--prompt or --prompt-file');
-}
-
 async function createInspectionContext(cwd, options, prompt) {
 	if (options.inspectContext === false) {
 		return null;
@@ -4761,13 +4707,6 @@ async function createInspectionContext(cwd, options, prompt) {
 		}
 		throw error;
 	}
-}
-
-async function loadOptionalPrompt(options, cwd) {
-	if (!options.prompt && !options.promptFile) {
-		return '';
-	}
-	return loadPrompt(options, cwd);
 }
 
 function resolvePromptId(options, prompt) {
