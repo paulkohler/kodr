@@ -60,7 +60,6 @@ import {
 	createBuiltinRegistry,
 	mergeProposalWithDraft,
 } from './tool-calls.mjs';
-import { runComparison } from './compare.mjs';
 import { runSubagentStages } from './orchestration.mjs';
 import {
 	emitProgress,
@@ -157,6 +156,7 @@ import {
 } from './commands/forensics.mjs';
 import { runInspect, runRegistry } from './commands/inspect.mjs';
 import { runBench } from './commands/bench.mjs';
+import { runCompare } from './commands/compare.mjs';
 import { runCycleReview, runReplay } from './commands/replay.mjs';
 import { runServe, runWatch } from './commands/serve.mjs';
 import {
@@ -1758,39 +1758,7 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'compare') {
-		if (!options.models.length) {
-			throw new CliError('kodr compare requires --models');
-		}
-		const prompt = await loadPrompt(options, io.cwd);
-		const memory = await loadMemory(io.cwd);
-		const skills = await loadSkills(io.cwd, options.skills);
-		const context = await buildWorkspaceContext(io.cwd, {
-			memory,
-			skills,
-			...workspaceContextOptions(options, io.cwd),
-		});
-		const { compDir, comparison } = await runComparison(
-			options,
-			io.env,
-			prompt,
-			context.systemPrompt,
-			options.models,
-			io.cwd,
-			options.out,
-		);
-		if (options.json) {
-			io.stdout.write(`${JSON.stringify(comparison, null, 2)}\n`);
-		} else {
-			io.stdout.write(`Compare ok\n`);
-			io.stdout.write(`Run: ${compDir}\n`);
-			for (const model of comparison.models) {
-				const status = model.ok ? 'ok' : 'failed';
-				io.stdout.write(
-					`  ${model.modelSpec}: ${status} (${model.responseChars} chars)\n`,
-				);
-			}
-		}
-		return { ok: true, command: 'compare', comparison, compDir };
+		return runCompare(options, io);
 	}
 
 	if (options.command === 'prompt-history') {
