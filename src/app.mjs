@@ -34,22 +34,13 @@ import { loadSessionConversation, scanSessions } from './run-history.mjs';
 import { runTui } from './tui.mjs';
 import { VERSION } from './version.mjs';
 import { CliError, NativeNoProposalError } from './cli-errors.mjs';
-import {
-	runEvals,
-	runRoute,
-	runTrends,
-	runWhy,
-} from './commands/forensics.mjs';
-import { runInspect, runRegistry } from './commands/inspect.mjs';
-import { runBench } from './commands/bench.mjs';
-import { runCompare } from './commands/compare.mjs';
-import { runEval } from './commands/eval.mjs';
-import { runInitCommand } from './commands/init.mjs';
-import { runProbe } from './commands/probe.mjs';
-import { runSkills } from './commands/skills.mjs';
-import { runCycleReview, runReplay } from './commands/replay.mjs';
-import { runServe, runWatch } from './commands/serve.mjs';
-import { runPromptHistory, runSession, runUndo } from './commands/session.mjs';
+// Leaf subcommand handlers (commands/*) are NOT imported statically: main()
+// dynamic-imports each one in its dispatch branch (phase 149 lazy-load). This
+// keeps every command module — and the heavy modules they pull in (server via
+// serve, subagents via replay, the external inspector registry + lsp-client via
+// inspect) — off the bare `run`/`chat`/`tui` static import graph. run itself
+// stays static because runPrompt lives in run-pipeline.mjs (the core), imported
+// directly below.
 import { loadOptionalPrompt, workspaceContextOptions } from './cli/options.mjs';
 import { parseArgs, usage } from './cli/args.mjs';
 import {
@@ -174,14 +165,17 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'skills') {
+		const { runSkills } = await import('./commands/skills.mjs');
 		return runSkills(options, io);
 	}
 
 	if (options.command === 'probe') {
+		const { runProbe } = await import('./commands/probe.mjs');
 		return runProbe(options, io);
 	}
 
 	if (options.command === 'init') {
+		const { runInitCommand } = await import('./commands/init.mjs');
 		return runInitCommand(options, io);
 	}
 
@@ -277,66 +271,82 @@ export async function main(argv, io) {
 	}
 
 	if (options.command === 'serve') {
+		const { runServe } = await import('./commands/serve.mjs');
 		return runServe(options, io, handleChannelRequest);
 	}
 
 	if (options.command === 'inspect') {
+		const { runInspect } = await import('./commands/inspect.mjs');
 		return runInspect(options, io);
 	}
 
 	if (options.command === 'registry') {
+		const { runRegistry } = await import('./commands/inspect.mjs');
 		return runRegistry(options, io);
 	}
 
 	if (options.command === 'replay') {
+		const { runReplay } = await import('./commands/replay.mjs');
 		return runReplay(options, io);
 	}
 
 	if (options.command === 'cycle-review') {
+		const { runCycleReview } = await import('./commands/replay.mjs');
 		return runCycleReview(options, io);
 	}
 
 	if (options.command === 'eval') {
+		const { runEval } = await import('./commands/eval.mjs');
 		return runEval(options, io, runPrompt);
 	}
 
 	if (options.command === 'compare') {
+		const { runCompare } = await import('./commands/compare.mjs');
 		return runCompare(options, io);
 	}
 
 	if (options.command === 'prompt-history') {
+		const { runPromptHistory } = await import('./commands/session.mjs');
 		return runPromptHistory(options, io);
 	}
 
 	if (options.command === 'session') {
+		const { runSession } = await import('./commands/session.mjs');
 		return runSession(options, io, handleChannelRequest);
 	}
 
 	if (options.command === 'undo') {
+		const { runUndo } = await import('./commands/session.mjs');
 		return runUndo(options, io, handleChannelRequest);
 	}
 
 	if (options.command === 'bench') {
+		const { runBench } = await import('./commands/bench.mjs');
 		return runBench(options, io, runPrompt);
 	}
 
 	if (options.command === 'why') {
+		const { runWhy } = await import('./commands/forensics.mjs');
 		return runWhy(options, io);
 	}
 
 	if (options.command === 'trends') {
+		const { runTrends } = await import('./commands/forensics.mjs');
 		return runTrends(options, io);
 	}
 
 	if (options.command === 'route') {
+		const { runRoute } = await import('./commands/forensics.mjs');
 		return runRoute(options, io);
 	}
 
 	if (options.command === 'evals') {
+		const { runEvals } = await import('./commands/forensics.mjs');
 		return runEvals(options, io);
 	}
 
 	if (options.command === 'watch') {
+		const { runWatch } = await import('./commands/serve.mjs');
 		return runWatch(options, io, handleChannelRequest);
 	}
 
