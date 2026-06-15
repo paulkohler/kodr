@@ -204,7 +204,7 @@ export async function runPrompt(options, io) {
 			throw new CliError(`${error.message} Artifacts: ${runDir}`);
 		}
 	}
-	const activeExecutor = createActiveExecutor(io.cwd, runDir, options);
+	const activeExecutor = await createActiveExecutor(io.cwd, runDir, options);
 	try {
 		await initializeExecutor(activeExecutor, options.timeoutMs);
 	} catch (error) {

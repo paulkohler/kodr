@@ -443,7 +443,7 @@ export async function handleChannelRequest(request, io) {
 		if (!request.options.testCommand) {
 			throw new CliError('No test command configured');
 		}
-		const activeExecutor = createActiveExecutor(
+		const activeExecutor = await createActiveExecutor(
 			io.cwd,
 			join(io.cwd, '.kodr', 'verify'),
 			request.options,

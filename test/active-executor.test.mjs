@@ -10,19 +10,28 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 describe('active executor', () => {
-	it('selects no executor, Docker, or OpenShell without changing host behavior', () => {
-		assert.equal(createActiveExecutor('/tmp/project', '/tmp/run', {}), null);
+	// createActiveExecutor is async as of phase 149 (it dynamic-imports the heavy
+	// backend only when its flag is set), so these calls are awaited.
+	it('selects no executor, Docker, or OpenShell without changing host behavior', async () => {
+		assert.equal(
+			await createActiveExecutor('/tmp/project', '/tmp/run', {}),
+			null,
+		);
 		assert.equal(executorCommandRunner(null), null);
 		assert.equal(
-			createActiveExecutor('/tmp/project', '/tmp/run', {
-				dockerSandbox: true,
-			}).backend,
+			(
+				await createActiveExecutor('/tmp/project', '/tmp/run', {
+					dockerSandbox: true,
+				})
+			).backend,
 			'docker',
 		);
 		assert.equal(
-			createActiveExecutor('/tmp/project', '/tmp/run', {
-				openshellSandbox: true,
-			}).backend,
+			(
+				await createActiveExecutor('/tmp/project', '/tmp/run', {
+					openshellSandbox: true,
+				})
+			).backend,
 			'openshell',
 		);
 	});

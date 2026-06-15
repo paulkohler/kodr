@@ -1,13 +1,27 @@
 import { join } from 'node:path';
 import { writeJson } from './artifacts.mjs';
-import { createDockerExecutor } from './docker-executor.mjs';
-import { createOpenShellExecutor } from './openshell-executor.mjs';
 
-export function createActiveExecutor(cwd, runDir, options = {}) {
-	return (
-		createOpenShellExecutor(cwd, runDir, options) ||
-		createDockerExecutor(cwd, runDir, options)
-	);
+// Lazy backends (phase 149): the heavy sandbox executors (node:child_process +
+// the full Docker/OpenShell machinery) are imported only when their flag is set,
+// so a bare `run` never loads them. The original precedence — OpenShell wins over
+// Docker — is preserved. This makes createActiveExecutor async; both call sites
+// (run-pipeline.runPrompt, app.handleChannelRequest) already await it.
+export async function createActiveExecutor(cwd, runDir, options = {}) {
+	if (options.openshellSandbox) {
+		const { createOpenShellExecutor } = await import('./openshell-executor.mjs');
+		const executor = createOpenShellExecutor(cwd, runDir, options);
+		if (executor) {
+			return executor;
+		}
+	}
+	if (options.dockerSandbox) {
+		const { createDockerExecutor } = await import('./docker-executor.mjs');
+		const executor = createDockerExecutor(cwd, runDir, options);
+		if (executor) {
+			return executor;
+		}
+	}
+	return null;
 }
 
 export function executorCommandRunner(executor) {
