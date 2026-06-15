@@ -64,7 +64,6 @@ import {
 	createBuiltinRegistry,
 	mergeProposalWithDraft,
 } from './tool-calls.mjs';
-import { runSubagentStages } from './orchestration.mjs';
 import { emitProgress, runStartHook } from './progress.mjs';
 import {
 	proposalResponseFormat,
@@ -87,7 +86,6 @@ import {
 	sessionContextCharsForProfile,
 } from './model-profiles.mjs';
 import { runDependencyInstall } from './dependency-installer.mjs';
-import { runOpenShellWorker } from './openshell-worker.mjs';
 import {
 	createActiveExecutor,
 	executorCommandRunner,
@@ -95,7 +93,6 @@ import {
 	initializeExecutor,
 	writeExecutorArtifacts,
 } from './active-executor.mjs';
-import { inspectWithRegistry } from './external-inspector-registry.mjs';
 import { completeWithContinuations } from './completion.mjs';
 import { derivePromptId, promptIdFromFilename } from './prompt-id.mjs';
 import {
@@ -187,6 +184,8 @@ export async function runPrompt(options, io) {
 	const runDir = await createRunArtifacts(io.cwd, options.out);
 	if (options.openshellWorker) {
 		try {
+			// Lazy (phase 149): openshell-worker only loads in worker mode.
+			const { runOpenShellWorker } = await import('./openshell-worker.mjs');
 			const result = await runOpenShellWorker(
 				io.cwd,
 				runDir,
@@ -474,6 +473,9 @@ export async function runPrompt(options, io) {
 					agentPersona && isOrchestrationRole(agentPersona.name)
 						? { [agentPersona.name]: agentPersona.body }
 						: {};
+				// Lazy (phase 149): orchestration (subagents) only loads with
+				// --subagent-stages.
+				const { runSubagentStages } = await import('./orchestration.mjs');
 				const orchestrationResult = await runSubagentStages(
 					io.cwd,
 					runDir,
@@ -2504,6 +2506,11 @@ async function createInspectionContext(cwd, options, prompt) {
 	}
 	const auto = options.inspectContext === 'auto';
 	try {
+		// Lazy (phase 149): the external inspector registry (and lsp-client it
+		// pulls in) only loads when context inspection actually runs.
+		const { inspectWithRegistry } = await import(
+			'./external-inspector-registry.mjs'
+		);
 		const index = await inspectWithRegistry(cwd, {
 			languages:
 				options.inspectLanguages.length > 0
