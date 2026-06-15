@@ -147,6 +147,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 145 Model-Identity Guidance Validation
 - [x] 146 LM Studio Context Window Discovery
 - [x] 147 Extractor: Recover a Token-Truncated Envelope Tail
+- [ ] 148 Split app.mjs Into Dispatcher + Command/Pipeline Modules
 
 ## Phase Contract
 
