@@ -53,4 +53,35 @@ describe('builtin skills bundle', () => {
 		const skill2 = getBuiltinSkill('role:planner');
 		assert.notEqual(skill2.body, 'tampered');
 	});
+
+	// Phase 153: the writing roles must steer toward the tool channel (which
+	// phase 152 made safe), with the JSON envelope demoted to a fallback. Guard
+	// against the steer silently reverting to "return only a JSON proposal".
+	for (const name of ['role:implementer', 'role:file-author']) {
+		it(`${name} steers toward the write tools with the envelope as fallback`, () => {
+			const { body } = getBuiltinSkill(name);
+			assert.match(body, /write_file/, `${name} should mention write_file`);
+			assert.match(body, /edit_file/, `${name} should mention edit_file`);
+			assert.match(
+				body,
+				/preferred channel/i,
+				`${name} should present the tool channel as preferred`,
+			);
+			assert.match(
+				body,
+				/fallback channel/i,
+				`${name} should present the envelope as the fallback`,
+			);
+			assert.doesNotMatch(
+				body,
+				/Return only a standard Kodr JSON proposal/i,
+				`${name} should no longer instruct envelope-only output`,
+			);
+		});
+	}
+
+	it('role:planner stays read-only — no write-tool steer', () => {
+		const { body } = getBuiltinSkill('role:planner');
+		assert.doesNotMatch(body, /write_file|edit_file/);
+	});
 });
