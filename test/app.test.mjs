@@ -1402,6 +1402,7 @@ describe('run', () => {
 					server.baseUrl,
 					'--timeout-ms',
 					'1000',
+					'--dry-run',
 				],
 				{ cwd, env: {}, stderr, stdout },
 			);
@@ -2317,7 +2318,7 @@ describe('run', () => {
 		}
 	});
 
-	it('dry-runs extracted file proposals by default', async () => {
+	it('dry-runs extracted file proposals with --dry-run', async () => {
 		const server = await startFakeModelServer({
 			responses: [
 				{
@@ -2341,7 +2342,14 @@ describe('run', () => {
 			await writeFile(join(cwd, 'README.md'), 'old readme', 'utf8');
 
 			const result = await main(
-				['run', '-p', 'Update README', '--base-url', server.baseUrl],
+				[
+					'run',
+					'-p',
+					'Update README',
+					'--base-url',
+					server.baseUrl,
+					'--dry-run',
+				],
 				{
 					cwd,
 					env: {},
@@ -2407,7 +2415,14 @@ describe('run', () => {
 			await writeFile(join(cwd, 'README.md'), 'old readme', 'utf8');
 
 			const result = await main(
-				['run', '-p', 'Update README', '--base-url', server.baseUrl],
+				[
+					'run',
+					'-p',
+					'Update README',
+					'--base-url',
+					server.baseUrl,
+					'--dry-run',
+				],
 				{
 					cwd,
 					env: {},

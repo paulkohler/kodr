@@ -22,6 +22,9 @@ describe('channel contract', () => {
 				stdout: captureStream(),
 			};
 
+			// --dry-run on both so the CLI path (which applies by default as of
+			// phase 151) and the raw channel run-turn share the same apply mode and
+			// thus the same artifact shape — the contract under test.
 			const cli = await main(
 				[
 					'run',
@@ -33,6 +36,7 @@ describe('channel contract', () => {
 					'1000',
 					'--out',
 					'cli-run',
+					'--dry-run',
 				],
 				io,
 			);
@@ -46,6 +50,7 @@ describe('channel contract', () => {
 				'1000',
 				'--out',
 				'channel-run',
+				'--dry-run',
 			]);
 			const channel = await handleChannelRequest(
 				{ kind: 'run-turn', options: channelOptions },

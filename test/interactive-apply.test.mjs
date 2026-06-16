@@ -61,8 +61,16 @@ function singleFileProposal() {
 
 // Base args used in all TTY run tests. --wire-no-stream makes the fake model
 // server respond with plain JSON (no SSE); --no-stream suppresses display
-// rendering. The TTY flags on io are what trigger the interactive apply prompt.
-const BASE_ARGS = ['--timeout-ms', '5000', '--wire-no-stream', '--no-stream'];
+// rendering. --confirm opts into the interactive apply prompt (phase 151 made
+// run apply-by-default; the prompt is now opt-in). The TTY flags on io plus
+// --confirm are what trigger the interactive apply prompt.
+const BASE_ARGS = [
+	'--timeout-ms',
+	'5000',
+	'--wire-no-stream',
+	'--no-stream',
+	'--confirm',
+];
 
 describe('interactive apply prompt', () => {
 	it('_dryRunSet is false by default and true only with --dry-run', () => {
@@ -295,7 +303,7 @@ describe('interactive apply prompt', () => {
 		}
 	});
 
-	it('non-TTY stdout never prompts — records none', async () => {
+	it('phase 151: non-TTY run applies by default without prompting', async () => {
 		const server = await startFakeModelServer({
 			responses: [
 				{
@@ -308,6 +316,7 @@ describe('interactive apply prompt', () => {
 		});
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'kodr-iapply-notty-'));
+			const stdout = captureStream();
 			// captureStream has no isTTY property (undefined = falsy)
 			const result = await main(
 				[
@@ -319,11 +328,64 @@ describe('interactive apply prompt', () => {
 					'--timeout-ms',
 					'5000',
 				],
-				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
+				{ cwd, env: {}, stderr: captureStream(), stdout },
 			);
 
-			assert.equal(result.result.applied, false);
-			assert.equal(result.result.applyDecision, 'none');
+			assert.equal(result.result.applied, true);
+			assert.equal(result.result.applyDecision, 'flag');
+			assert.doesNotMatch(stdout.text, /apply\?/u, 'must not prompt');
+			assert.equal(
+				await readFile(join(cwd, 'out.mjs'), 'utf8'),
+				'export const x = 1;\n',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('phase 151: TTY run without --confirm applies by default (no prompt)', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: singleFileProposal(),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-iapply-default-'));
+			const stdout = makeTtyStdout();
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create out.mjs',
+					'--base-url',
+					server.baseUrl,
+					'--timeout-ms',
+					'5000',
+					'--wire-no-stream',
+					'--no-stream',
+				],
+				// 'n' on stdin would decline IF prompted — it must be ignored.
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout,
+					stdin: makeTtyStdin('n'),
+				},
+			);
+
+			assert.equal(result.result.applied, true);
+			assert.equal(result.result.applyDecision, 'flag');
+			assert.doesNotMatch(
+				stdout.text,
+				/apply\?/u,
+				'must not prompt by default',
+			);
 		} finally {
 			await server.close();
 		}
@@ -555,6 +617,7 @@ describe('interactive apply prompt', () => {
 		try {
 			const cwd = await mkdtemp(join(tmpdir(), 'kodr-iapply-tui-undo-'));
 			// Simulate a dry-run (as TUI does), then a late apply-proposal request.
+			// --dry-run is explicit now that run applies by default (phase 151).
 			const dryResult = await main(
 				[
 					'run',
@@ -564,6 +627,7 @@ describe('interactive apply prompt', () => {
 					server.baseUrl,
 					'--timeout-ms',
 					'5000',
+					'--dry-run',
 				],
 				{ cwd, env: {}, stderr: captureStream(), stdout: captureStream() },
 			);
