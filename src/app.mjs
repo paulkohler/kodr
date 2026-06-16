@@ -370,6 +370,12 @@ export async function main(argv, io) {
 		return runWatch(options, io, handleChannelRequest);
 	}
 
+	// Phase 163: run deterministic sensors on the workspace without a model.
+	if (options.command === 'check') {
+		const { runCheck } = await import('./commands/check.mjs');
+		return runCheck(options, io);
+	}
+
 	throw new CliError(`Command not implemented yet: ${options.command}`);
 }
 

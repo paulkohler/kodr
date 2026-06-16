@@ -949,6 +949,7 @@ Usage:
   kodr run -p "task" --route-auto
   kodr evals [--json] [--runs-dir evals/results]
   kodr watch --test "npm test"
+  kodr check [--no-smoke] [--no-sensors]
 
 Project config:
   kodr init             Write a starter .kodr/config.json with the currently

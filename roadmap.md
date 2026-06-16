@@ -162,6 +162,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 160 --no-sensors CLI Flag
 - [x] 161 Smoke-Check Network-Error Refinement
 - [x] 162 Multi-File Refactor Eval Fixture
+- [x] 163 kodr check Command
 
 ## Phase Contract
 
