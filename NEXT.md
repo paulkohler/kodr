@@ -21,14 +21,6 @@ summary so `kodr why` shows which model handled which step. Bigger and riskier â
 it touches several internal model-call sites; the `cheapModel` recommendation
 can extend `recommendModel`.
 
-### Partial: steer subagent SKILL.md toward the tool channel
-Phase 152 fixed the orchestration envelope-island bug (implementer/file-author now
-merge `proposalDraft` via `resolveProposalFromCompletion`, so tool-channel writes
-are no longer dropped). Remaining, prompt-only follow-up: update
-`roles/implementer` and `roles/file-author` SKILL.md to "write via tools; the JSON
-envelope is fallback," so tool-only models are steered toward the channel that now
-works. Low-risk; validate the steer doesn't regress qwen's envelope path.
-
 ### Multi-file coordinated edits
 The eval suite only measures single-defect fixes. Plant a cross-file refactor
 fixture and measure it â€” this exposes whether plan manifests (91) and
