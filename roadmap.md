@@ -160,6 +160,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 158 Deterministic Cross-Reference Sensors
 - [x] 159 Wire Cross-Reference Sensors into the Pipeline
 - [x] 160 --no-sensors CLI Flag
+- [x] 161 Smoke-Check Network-Error Refinement
 
 ## Phase Contract
 

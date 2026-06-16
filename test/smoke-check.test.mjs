@@ -134,6 +134,31 @@ describe('classifyLoadFailure', () => {
 		assert.equal(b.status, 'failed');
 		assert.equal(b.message, 'Error: boom at load');
 	});
+
+	it('phase 161: treats ECONNREFUSED as skipped (inconclusive)', () => {
+		const r = classifyLoadFailure(
+			'Error: connect ECONNREFUSED 127.0.0.1:5432\n    at TCPConnectWrap',
+		);
+		assert.equal(r.status, 'skipped');
+		assert.match(r.message, /network error at load time/u);
+	});
+
+	it('phase 161: treats ENOTFOUND as skipped', () => {
+		const r = classifyLoadFailure(
+			'Error: getaddrinfo ENOTFOUND db.internal\n    at GetAddrInfoReqWrap',
+		);
+		assert.equal(r.status, 'skipped');
+	});
+
+	it('phase 161: treats ETIMEDOUT as skipped', () => {
+		const r = classifyLoadFailure('Error: connect ETIMEDOUT 10.0.0.1:6379');
+		assert.equal(r.status, 'skipped');
+	});
+
+	it('phase 161: treats EADDRINUSE as skipped (port in use, not a code error)', () => {
+		const r = classifyLoadFailure('Error: listen EADDRINUSE :::3000');
+		assert.equal(r.status, 'skipped');
+	});
 });
 
 // ---------------------------------------------------------------------------

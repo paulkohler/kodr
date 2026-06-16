@@ -127,6 +127,24 @@ export function classifyLoadFailure(stderr) {
 				'entry has an unsettled top-level await — smoke-check inconclusive',
 		};
 	}
+	// Phase 161: network-connection errors at load time mean the entry tried to
+	// reach an external resource (DB, Redis, …) that is not available at probe
+	// time. The code itself may be fine — inconclusive, not a failure.
+	// Covers: ECONNREFUSED, ECONNRESET, ENOTFOUND, ETIMEDOUT, EHOSTUNREACH,
+	// EADDRINUSE (port already in use — code is fine, probe environment is not).
+	const networkError =
+		/\bECONNREFUSED\b/u.test(text) ||
+		/\bECONNRESET\b/u.test(text) ||
+		/\bENOTFOUND\b/u.test(text) ||
+		/\bETIMEDOUT\b/u.test(text) ||
+		/\bEHOSTUNREACH\b/u.test(text) ||
+		/\bEADDRINUSE\b/u.test(text);
+	if (networkError) {
+		return {
+			status: 'skipped',
+			message: `network error at load time (${message}) — smoke-check inconclusive`,
+		};
+	}
 	return { status: 'failed', message };
 }
 
