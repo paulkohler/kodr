@@ -27,7 +27,12 @@ escape the sandbox), which means sandboxed runs get no load probe at all. Runnin
 inside the active executor (like the test command already does) would restore
 coverage under `--docker-sandbox`. The HTML/static-site case (a load probe can't
 `import()` HTML) is a third, separate shape — a headless DOM/script check — not
-covered here.
+covered here. A fourth, **only if an artifact shows it bites**: a top-level
+`await pool.connect()` / network call in an entry would be classified `failed` on
+`ECONNREFUSED` even though the code is fine (no DB at probe time). The phase-155
+Express example used a lazy pool and did not trip this, so it stays unhandled until a
+real run reproduces it — at which point the dep-missing downgrade pattern in
+`classifyLoadFailure` extends naturally (network errors → inconclusive `skipped`).
 
 ### Per-step model routing
 `--route-auto` (141) picks the best-history model at run start. The open half is
