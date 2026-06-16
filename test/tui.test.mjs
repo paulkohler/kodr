@@ -15,6 +15,43 @@ import {
 	runTui,
 } from '../src/tui.mjs';
 
+describe('tui defaults favour work (phase 150)', () => {
+	it('defaults tools on and apply on for a bare tui session', () => {
+		const state = createTuiState({ model: 'm', tools: 'auto' });
+		assert.equal(state.tools, true);
+		assert.equal(state.apply, true);
+	});
+
+	it('keeps tools on when the model profile resolved --tools to true', () => {
+		const state = createTuiState({ model: 'm', tools: true });
+		assert.equal(state.tools, true);
+	});
+
+	it('turns tools off only with --no-tools (tools=false)', () => {
+		const state = createTuiState({ model: 'm', tools: false });
+		assert.equal(state.tools, false);
+	});
+
+	it('turns apply off when --dry-run was explicitly passed', () => {
+		const state = createTuiState({
+			model: 'm',
+			dryRun: true,
+			_dryRunSet: true,
+		});
+		assert.equal(state.apply, false);
+	});
+
+	it('keeps apply on with --yes even alongside --dry-run', () => {
+		const state = createTuiState({
+			model: 'm',
+			yes: true,
+			dryRun: true,
+			_dryRunSet: true,
+		});
+		assert.equal(state.apply, true);
+	});
+});
+
 describe('terminal turn ui', () => {
 	it('routes normal input through the run-turn channel request', async () => {
 		const state = createTuiState({

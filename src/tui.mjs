@@ -7,7 +7,11 @@ import { VERSION } from './version.mjs';
 
 export function createTuiState(options = {}) {
 	return {
-		apply: options.yes === true,
+		// Apply on by default for the interactive surface (phase 150): you watch
+		// each proposed change, so applying is the point of a tui session. Off
+		// only when --dry-run was explicitly passed (or /apply off in-session).
+		// One-shot `run` is unaffected — it keeps its dry-run default.
+		apply: options.yes === true || !options._dryRunSet,
 		baseOptions: {
 			...options,
 			command: 'run',
@@ -27,7 +31,13 @@ export function createTuiState(options = {}) {
 		pendingReview: null,
 		provider: options.provider || 'local',
 		sessionId: options.sessionId || '',
-		tools: options.tools === true,
+		// Tools on unless explicitly disabled with --no-tools. options.tools is
+		// 'auto' (default), true (--tools / matched native profile), or false
+		// (--no-tools / matched non-native profile). The one-shot `run` path
+		// treats 'auto' as on; mirror that here so `kodr tui` is agentic straight
+		// up (read_file/list_files/run_command/write_file) instead of starting
+		// inert and requiring `/tools on`.
+		tools: options.tools !== false,
 	};
 }
 
