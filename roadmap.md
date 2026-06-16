@@ -164,6 +164,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 162 Multi-File Refactor Eval Fixture
 - [x] 163 kodr check Command
 - [x] 164 Smoke-Check exports Field Entry Detection
+- [x] 165 kodr check --json Structured Output
 
 ## Phase Contract
 

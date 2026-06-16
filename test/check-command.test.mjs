@@ -82,4 +82,28 @@ describe('runCheck', () => {
 		await runCheck({ smoke: false, sensors: false }, io);
 		assert.ok(!io._output().includes('smoke check'));
 	});
+
+	it('--json emits structured JSON with ok and command fields', async () => {
+		await mkdir(join(cwd, 'src'));
+		await writeFile(join(cwd, 'src', 'app.mjs'), 'export const x = 1;\n');
+		const io = makeIo(cwd);
+		const result = await runCheck(
+			{ smoke: false, sensors: false, json: true },
+			io,
+		);
+		assert.equal(result.ok, true);
+		const parsed = JSON.parse(io._output());
+		assert.equal(parsed.ok, true);
+		assert.equal(parsed.command, 'check');
+		assert.ok(parsed.syntax !== undefined);
+	});
+
+	it('--json emits ok:false on syntax error', async () => {
+		await writeFile(join(cwd, 'bad.mjs'), 'const = 1;\n');
+		const io = makeIo(cwd);
+		await runCheck({ smoke: false, sensors: false, json: true }, io);
+		const parsed = JSON.parse(io._output());
+		assert.equal(parsed.ok, false);
+		assert.ok(Array.isArray(parsed.syntax?.failures));
+	});
 });

@@ -5,9 +5,12 @@
 // every write — syntax gate, smoke-check, cross-reference sensors — against the
 // current workspace files as a standalone diagnostic. Useful before/after a run
 // and as a CI gate.
+//
+// Phase 165: --json flag emits a structured JSON result object instead of ANSI
+// text, for CI integration and scripting.
 
-import { readdir, stat } from 'node:fs/promises';
-import { extname, join, relative } from 'node:path';
+import { readdir } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import { runCrossRefSensors } from '../cross-ref-sensor.mjs';
 import { runSmokeCheckIfNeeded } from '../smoke-check.mjs';
 import { runSyntaxGateIfNeeded } from '../syntax-gate.mjs';
@@ -60,27 +63,92 @@ function icon(status) {
 	return STATUS_ICON[status] ?? '?';
 }
 
+function renderAnsi(checkResult, fileCount, stdout) {
+	const write = (s) => stdout.write(s);
+
+	if (fileCount === 0) {
+		write(`${icon('skip')} no files found\n`);
+		write('\n\x1b[32mcheck passed\x1b[0m\n');
+		return;
+	}
+
+	const { syntax, smokeCheck, sensors } = checkResult;
+
+	// Syntax
+	if (syntax === null) {
+		write(`${icon('skip')} syntax check  – no JS files\n`);
+	} else if (syntax.ok) {
+		write(
+			`${icon('ok')} syntax check  ${syntax.checked} file${syntax.checked !== 1 ? 's' : ''} ok\n`,
+		);
+	} else {
+		const failures = syntax.failures
+			.map((f) => `  ${f.path}: ${f.message}`)
+			.join('\n');
+		write(`${icon('fail')} syntax check  FAILED\n${failures}\n`);
+	}
+
+	// Smoke-check
+	if (smokeCheck === undefined) {
+		// gate was disabled
+	} else if (smokeCheck === null) {
+		write(`${icon('skip')} smoke check   – no entry point detected\n`);
+	} else if (smokeCheck.status === 'ok') {
+		write(
+			`${icon('ok')} smoke check   ${smokeCheck.entry} loaded ok (${smokeCheck.durationMs}ms)\n`,
+		);
+	} else if (smokeCheck.status === 'failed') {
+		write(
+			`${icon('warn')} smoke check   ${smokeCheck.entry}: ${smokeCheck.message}\n`,
+		);
+	} else {
+		write(
+			`${icon('skip')} smoke check   ${smokeCheck.status}: ${smokeCheck.message || ''}\n`,
+		);
+	}
+
+	// Sensors
+	if (sensors === undefined) {
+		// gate was disabled
+	} else if (sensors.length === 0) {
+		write(`${icon('skip')} sensors       – no compose/HTML/CSS files\n`);
+	} else {
+		for (const sensor of sensors) {
+			const name = sensor.sensor.padEnd(22);
+			if (sensor.status === 'ok') {
+				write(`${icon('ok')} ${name} ${sensor.message}\n`);
+			} else if (sensor.status === 'warn') {
+				write(`${icon('warn')} ${name} ${sensor.message}\n`);
+			}
+		}
+	}
+
+	write('\n');
+	if (!checkResult.ok) {
+		write('\x1b[31mcheck failed\x1b[0m\n');
+	} else {
+		write('\x1b[32mcheck passed\x1b[0m\n');
+	}
+}
+
 /**
  * Run all deterministic gates against the current workspace.
  *
- * @param {object} options  Parsed CLI options (smoke, sensors).
+ * @param {object} options  Parsed CLI options (smoke, sensors, json).
  * @param {object} io       { cwd, stdout }
+ * @returns {Promise<{ok: boolean, command: string, syntax?, smokeCheck?, sensors?}>}
  */
 export async function runCheck(options, io) {
 	const cwd = io.cwd;
-	const write = (s) => io.stdout.write(s);
 
-	write('\x1b[1mkodr check\x1b[0m\n');
-	write(`  workspace: ${cwd}\n\n`);
+	if (!options.json) {
+		io.stdout.write('\x1b[1mkodr check\x1b[0m\n');
+		io.stdout.write(`  workspace: ${cwd}\n\n`);
+	}
 
 	// Collect all workspace files
 	const allFiles = [];
 	await collectFiles(cwd, cwd, allFiles);
-
-	if (allFiles.length === 0) {
-		write(`${icon('skip')} no files found\n`);
-		return { ok: true, command: 'check' };
-	}
 
 	// Build a fake writeResult covering the entire workspace so the gate
 	// functions (which normally operate on the write set) scan everything.
@@ -89,25 +157,14 @@ export async function runCheck(options, io) {
 		writes: allFiles.map((p) => ({ path: p })),
 	};
 
-	let anyFail = false;
+	const checkResult = { ok: true, command: 'check' };
 
 	// -----------------------------------------------------------------------
 	// 1. Syntax gate
 	// -----------------------------------------------------------------------
 	const syntaxResult = await runSyntaxGateIfNeeded(cwd, fakeWriteResult);
-	if (syntaxResult === null) {
-		write(`${icon('skip')} syntax check  – no JS files\n`);
-	} else if (syntaxResult.ok) {
-		write(
-			`${icon('ok')} syntax check  ${syntaxResult.checked} file${syntaxResult.checked !== 1 ? 's' : ''} ok\n`,
-		);
-	} else {
-		anyFail = true;
-		const failures = syntaxResult.failures
-			.map((f) => `  ${f.path}: ${f.message}`)
-			.join('\n');
-		write(`${icon('fail')} syntax check  FAILED\n${failures}\n`);
-	}
+	checkResult.syntax = syntaxResult;
+	if (syntaxResult !== null && !syntaxResult.ok) checkResult.ok = false;
 
 	// -----------------------------------------------------------------------
 	// 2. Smoke-check (informational — never fails kodr check)
@@ -117,22 +174,7 @@ export async function runCheck(options, io) {
 			enabled: true,
 			sandboxActive: false,
 		});
-		if (smokeResult === null) {
-			write(`${icon('skip')} smoke check   – no entry point detected\n`);
-		} else if (smokeResult.status === 'ok') {
-			write(
-				`${icon('ok')} smoke check   ${smokeResult.entry} loaded ok (${smokeResult.durationMs}ms)\n`,
-			);
-		} else if (smokeResult.status === 'failed') {
-			// Advisory in kodr check — warn, don't fail
-			write(
-				`${icon('warn')} smoke check   ${smokeResult.entry}: ${smokeResult.message}\n`,
-			);
-		} else {
-			write(
-				`${icon('skip')} smoke check   ${smokeResult.status}: ${smokeResult.message || ''}\n`,
-			);
-		}
+		checkResult.smokeCheck = smokeResult;
 	}
 
 	// -----------------------------------------------------------------------
@@ -142,25 +184,18 @@ export async function runCheck(options, io) {
 		const sensorResults = await runCrossRefSensors(cwd, fakeWriteResult, {
 			enabled: true,
 		});
-		if (sensorResults.length === 0) {
-			write(`${icon('skip')} sensors       – no compose/HTML/CSS files\n`);
-		} else {
-			for (const sensor of sensorResults) {
-				const name = sensor.sensor.padEnd(22);
-				if (sensor.status === 'ok') {
-					write(`${icon('ok')} ${name} ${sensor.message}\n`);
-				} else if (sensor.status === 'warn') {
-					write(`${icon('warn')} ${name} ${sensor.message}\n`);
-				}
-			}
-		}
+		checkResult.sensors = sensorResults;
 	}
 
-	write('\n');
-	if (anyFail) {
-		write('\x1b[31mcheck failed\x1b[0m\n');
-		return { ok: false, command: 'check' };
+	// -----------------------------------------------------------------------
+	// Output
+	// -----------------------------------------------------------------------
+	if (options.json) {
+		io.stdout.write(JSON.stringify(checkResult, null, 2));
+		io.stdout.write('\n');
+	} else {
+		renderAnsi(checkResult, allFiles.length, io.stdout);
 	}
-	write('\x1b[32mcheck passed\x1b[0m\n');
-	return { ok: true, command: 'check' };
+
+	return { ok: checkResult.ok, command: 'check' };
 }
