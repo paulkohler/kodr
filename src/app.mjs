@@ -12,7 +12,7 @@ import { jailedPath, prepareChanges } from './safe-writes.mjs';
 import { gitTreeState } from './git-workspace.mjs';
 import { undoLastApply } from './undo.mjs';
 import { discoverSkills, renderSkillIndex } from './skills.mjs';
-import { runVerification } from './verification-runner.mjs';
+import { detectTestCommand, runVerification } from './verification-runner.mjs';
 import { formatProgressEvent } from './progress.mjs';
 import { parseManagementInstances } from './model-profiles.mjs';
 import {
@@ -161,6 +161,26 @@ export async function main(argv, io) {
 			}
 		} catch {
 			// Trends load failure is non-fatal; proceed with the default model.
+		}
+	}
+
+	// Phase 150: auto-detect a verification command for run/tui when none was
+	// configured, so a fresh workspace can verify straight up. An explicit
+	// --test / project-config command wins; --no-test (autoTest=false) opts out.
+	if (
+		(options.command === 'run' || options.command === 'tui') &&
+		options.autoTest !== false &&
+		!options.testCommand
+	) {
+		const detected = await detectTestCommand(io.cwd);
+		if (detected) {
+			options.testCommand = detected;
+			if (options.configSources) {
+				options.configSources.testCommand = 'auto-detected';
+			}
+			io.stderr?.write?.(
+				`info: auto-detected test command "${detected}" (--no-test to disable)\n`,
+			);
 		}
 	}
 

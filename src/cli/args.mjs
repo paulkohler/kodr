@@ -114,6 +114,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		routeAuto: false,
 		routeAutoModel: '',
 		suitePath: '',
+		// Phase 150: auto-detect a test command for run/tui when none is set.
+		// --no-test sets this false.
+		autoTest: true,
 		record: false,
 		evalCases: [],
 		testCommand: '',
@@ -350,6 +353,15 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		if (arg === '--no-tools') {
 			options.tools = false;
 			options._toolsSet = true;
+			continue;
+		}
+
+		// Phase 150: opt out of test auto-detection (and any inherited test
+		// command). An explicit --test still wins if given.
+		if (arg === '--no-test') {
+			options.testCommand = '';
+			options._testCommandSet = true;
+			options.autoTest = false;
 			continue;
 		}
 

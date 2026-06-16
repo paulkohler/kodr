@@ -4,11 +4,94 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
+	detectTestCommand,
 	parseVerificationCommand,
 	resolveVerificationCommand,
 	runVerification,
 	VerificationError,
 } from '../src/verification-runner.mjs';
+
+describe('detectTestCommand (phase 150)', () => {
+	async function workspace(files) {
+		const dir = await mkdtemp(join(tmpdir(), 'kodr-detect-'));
+		for (const [name, content] of Object.entries(files)) {
+			const path = join(dir, name);
+			await mkdir(join(path, '..'), { recursive: true });
+			await writeFile(path, content);
+		}
+		return dir;
+	}
+
+	const withTest = JSON.stringify({ scripts: { test: 'node --test' } });
+
+	it('picks npm test for a package.json with a test script', async () => {
+		const cwd = await workspace({ 'package.json': withTest });
+		assert.equal(await detectTestCommand(cwd), 'npm test');
+	});
+
+	it('picks pnpm test when a pnpm lockfile is present', async () => {
+		const cwd = await workspace({
+			'package.json': withTest,
+			'pnpm-lock.yaml': '',
+		});
+		assert.equal(await detectTestCommand(cwd), 'pnpm test');
+	});
+
+	it('picks yarn test when a yarn lockfile is present', async () => {
+		const cwd = await workspace({ 'package.json': withTest, 'yarn.lock': '' });
+		assert.equal(await detectTestCommand(cwd), 'yarn test');
+	});
+
+	it('falls back to node --test when package.json has no test script but test files exist', async () => {
+		const cwd = await workspace({
+			'package.json': JSON.stringify({ name: 'x' }),
+			'test/x.test.mjs': 'import "node:test";',
+		});
+		assert.equal(await detectTestCommand(cwd), 'node --test');
+	});
+
+	it('detects cargo test for a Rust crate', async () => {
+		const cwd = await workspace({ 'Cargo.toml': '[package]\nname="x"' });
+		assert.equal(await detectTestCommand(cwd), 'cargo test');
+	});
+
+	it('detects go test for a Go module', async () => {
+		const cwd = await workspace({ 'go.mod': 'module x' });
+		assert.equal(await detectTestCommand(cwd), 'go test ./...');
+	});
+
+	it('detects pytest when pytest config markers are present', async () => {
+		const cwd = await workspace({
+			'pyproject.toml': '[tool.pytest.ini_options]\n',
+		});
+		assert.equal(await detectTestCommand(cwd), 'pytest');
+	});
+
+	it('detects unittest for a plain Python project', async () => {
+		const cwd = await workspace({ 'setup.py': 'from setuptools import setup' });
+		assert.equal(await detectTestCommand(cwd), 'python3 -m unittest discover');
+	});
+
+	it('returns empty string when nothing is recognised', async () => {
+		const cwd = await workspace({ 'README.md': '# hi' });
+		assert.equal(await detectTestCommand(cwd), '');
+	});
+
+	it('only returns allowlisted commands', async () => {
+		for (const files of [
+			{ 'package.json': withTest },
+			{ 'package.json': withTest, 'pnpm-lock.yaml': '' },
+			{ 'Cargo.toml': '[package]' },
+			{ 'go.mod': 'module x' },
+			{ 'pytest.ini': '' },
+			{ 'setup.cfg': '' },
+		]) {
+			const cwd = await workspace(files);
+			const cmd = await detectTestCommand(cwd);
+			assert.doesNotThrow(() => parseVerificationCommand(cmd));
+		}
+	});
+});
 
 describe('verification runner', () => {
 	it('parses allowlisted commands', () => {
@@ -28,6 +111,32 @@ describe('verification runner', () => {
 			args: ['--check', 'src/app.mjs'],
 			bin: 'node',
 		});
+	});
+
+	it('parses the phase-150 package-manager and python test commands', () => {
+		assert.deepEqual(parseVerificationCommand('pnpm test'), {
+			args: ['test'],
+			bin: 'pnpm',
+		});
+		assert.deepEqual(parseVerificationCommand('yarn test'), {
+			args: ['test'],
+			bin: 'yarn',
+		});
+		assert.deepEqual(parseVerificationCommand('pytest'), {
+			args: [],
+			bin: 'pytest',
+		});
+	});
+
+	it('still rejects injection through the new commands', () => {
+		assert.throws(
+			() => parseVerificationCommand('pnpm test && rm -rf .'),
+			VerificationError,
+		);
+		assert.throws(
+			() => parseVerificationCommand('pytest -k "x"; cat /etc/passwd'),
+			VerificationError,
+		);
 	});
 
 	it('rejects injection-shaped commands', () => {

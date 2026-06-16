@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { access, mkdir, readdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 
 export class VerificationError extends Error {
@@ -17,6 +17,22 @@ export function parseVerificationCommand(command) {
 			args: ['test'],
 			bin: 'npm',
 		};
+	}
+
+	// pnpm/yarn run the workspace's own "test" script, exactly like `npm test`
+	// (same no-shell spawn, same trust boundary). Allowlisted so auto-detection
+	// (phase 150) can pick the right package manager from the lockfile.
+	if (parts.length === 2 && parts[0] === 'pnpm' && parts[1] === 'test') {
+		return { args: ['test'], bin: 'pnpm' };
+	}
+
+	if (parts.length === 2 && parts[0] === 'yarn' && parts[1] === 'test') {
+		return { args: ['test'], bin: 'yarn' };
+	}
+
+	// `pytest` discovers and runs the project's test suite from the cwd.
+	if (parts.length === 1 && parts[0] === 'pytest') {
+		return { args: [], bin: 'pytest' };
 	}
 
 	if (
@@ -103,15 +119,16 @@ export async function runVerification(cwd, command, options = {}) {
 	const runner = options.runner || spawnCommand;
 	const startedAt = new Date().toISOString();
 	const started = performance.now();
-	if (parsed.bin === 'npm' && !(await fileExists(join(cwd, 'package.json')))) {
+	const needsPackageJson =
+		parsed.bin === 'npm' || parsed.bin === 'pnpm' || parsed.bin === 'yarn';
+	if (needsPackageJson && !(await fileExists(join(cwd, 'package.json')))) {
 		const summary = {
 			command,
 			durationMs: Math.round(performance.now() - started),
 			exitCode: null,
 			finishedAt: new Date().toISOString(),
 			ok: false,
-			stderr:
-				'npm verification requires package.json in the verification cwd; refusing to let npm climb to a parent package.',
+			stderr: `${parsed.bin} verification requires package.json in the verification cwd; refusing to let ${parsed.bin} climb to a parent package.`,
 			stdout: '',
 			timedOut: false,
 			startedAt,
@@ -165,6 +182,72 @@ export async function resolveVerificationCommand(cwd, command) {
 		reason: '',
 		requestedCommand: command,
 	};
+}
+
+/**
+ * Detect a sensible, allowlisted verification command from the workspace by file
+ * presence (phase 150). Returns '' when nothing recognisable is found. Node is
+ * checked first (kodr's home turf); the package manager is chosen from the
+ * lockfile when package.json declares a test script.
+ *
+ * @param {string} cwd - Workspace root (absolute path).
+ * @returns {Promise<string>}
+ */
+export async function detectTestCommand(cwd) {
+	const present = (name) => fileExists(join(cwd, name));
+
+	if (await present('package.json')) {
+		if (await packageJsonHasTestScript(cwd)) {
+			if (await present('pnpm-lock.yaml')) return 'pnpm test';
+			if (await present('yarn.lock')) return 'yarn test';
+			return 'npm test';
+		}
+		// package.json without a test script: use native Node tests if present.
+		if (await hasTestFiles(cwd)) return 'node --test';
+	} else if (await hasTestFiles(cwd)) {
+		return 'node --test';
+	}
+
+	if (await present('Cargo.toml')) return 'cargo test';
+	if (await present('go.mod')) return 'go test ./...';
+
+	// Python: prefer pytest when its config markers are present, else unittest.
+	if (
+		(await present('pytest.ini')) ||
+		(await present('conftest.py')) ||
+		(await pyprojectUsesPytest(cwd))
+	) {
+		return 'pytest';
+	}
+	if (
+		(await present('pyproject.toml')) ||
+		(await present('setup.py')) ||
+		(await present('setup.cfg')) ||
+		(await present('tox.ini'))
+	) {
+		return 'python3 -m unittest discover';
+	}
+
+	return '';
+}
+
+async function packageJsonHasTestScript(cwd) {
+	try {
+		const pkg = JSON.parse(await readFile(join(cwd, 'package.json'), 'utf8'));
+		return Boolean(pkg?.scripts?.test);
+	} catch {
+		return false;
+	}
+}
+
+async function pyprojectUsesPytest(cwd) {
+	try {
+		return /\[tool\.pytest/u.test(
+			await readFile(join(cwd, 'pyproject.toml'), 'utf8'),
+		);
+	} catch {
+		return false;
+	}
 }
 
 async function fileExists(path) {

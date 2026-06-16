@@ -798,7 +798,7 @@ export function createBuiltinRegistry(cwd, options = {}) {
 
 	registry.register('run_command', {
 		description:
-			'Run an allowlisted verification command in the workspace. Supported commands include npm test, npm run test, node --test, and node --check <file>.',
+			'Run an allowlisted verification command in the workspace. Supported commands include npm/pnpm/yarn test, npm run test, node --test [<file>], node --check <file>, pytest, python3 -m unittest [discover], go test ./..., and cargo test.',
 		parameters: {
 			type: 'object',
 			properties: {
