@@ -166,6 +166,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 164 Smoke-Check exports Field Entry Detection
 - [x] 165 kodr check --json Structured Output
 - [x] 166 kodr check --strict Mode
+- [x] 167 Local Import-Path Existence Sensor
 
 ## Phase Contract
 

@@ -13,6 +13,9 @@ import {
 	extractLinkedCssPaths,
 	checkHtmlCssSelectors,
 	runCssSelectorSensor,
+	extractLocalImportPaths,
+	resolveLocalImport,
+	runLocalImportSensor,
 	runCrossRefSensors,
 } from '../src/cross-ref-sensor.mjs';
 
@@ -321,6 +324,124 @@ describe('runCssSelectorSensor', () => {
 		await writeFile(join(cwd, 'index.html'), '<html><body>hello</body></html>');
 		const r = await runCssSelectorSensor(cwd, ['index.html']);
 		assert.equal(r.status, 'skipped');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// extractLocalImportPaths (Phase 167)
+// ---------------------------------------------------------------------------
+
+describe('extractLocalImportPaths', () => {
+	it('extracts named and default imports from relative paths', () => {
+		const code = `
+import x from './utils.mjs';
+import { y } from '../lib/helper.mjs';
+`;
+		const result = extractLocalImportPaths(code);
+		assert.ok(result.includes('./utils.mjs'));
+		assert.ok(result.includes('../lib/helper.mjs'));
+	});
+
+	it('extracts side-effect imports', () => {
+		const code = `import './polyfill.mjs';`;
+		assert.ok(extractLocalImportPaths(code).includes('./polyfill.mjs'));
+	});
+
+	it('extracts export-from specifiers', () => {
+		const code = `export { foo } from './foo.mjs';\nexport * from '../bar.mjs';`;
+		const result = extractLocalImportPaths(code);
+		assert.ok(result.includes('./foo.mjs'));
+		assert.ok(result.includes('../bar.mjs'));
+	});
+
+	it('ignores bare specifiers', () => {
+		const code = `import x from 'express';\nimport y from 'node:fs';`;
+		assert.deepEqual(extractLocalImportPaths(code), []);
+	});
+
+	it('deduplicates repeated imports of the same path', () => {
+		const code = `import x from './utils.mjs';\nimport y from './utils.mjs';`;
+		const result = extractLocalImportPaths(code);
+		assert.equal(result.filter((p) => p === './utils.mjs').length, 1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// resolveLocalImport (Phase 167)
+// ---------------------------------------------------------------------------
+
+describe('resolveLocalImport', () => {
+	let tmp;
+	beforeEach(async () => {
+		tmp = await mkdtemp(join(tmpdir(), 'kodr-import-'));
+	});
+	afterEach(async () => {
+		await rm(tmp, { recursive: true, force: true });
+	});
+
+	it('resolves an exact path that exists', async () => {
+		await writeFile(join(tmp, 'utils.mjs'), 'export const x = 1;\n');
+		assert.ok(await resolveLocalImport('./utils.mjs', tmp));
+	});
+
+	it('resolves an extensionless specifier by trying .mjs', async () => {
+		await writeFile(join(tmp, 'utils.mjs'), 'export const x = 1;\n');
+		assert.ok(await resolveLocalImport('./utils', tmp));
+	});
+
+	it('returns false when nothing matches', async () => {
+		assert.ok(!(await resolveLocalImport('./missing.mjs', tmp)));
+	});
+
+	it('resolves index file for bare directory specifier', async () => {
+		await mkdir(join(tmp, 'lib'));
+		await writeFile(join(tmp, 'lib', 'index.mjs'), 'export const x = 1;\n');
+		assert.ok(await resolveLocalImport('./lib', tmp));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// runLocalImportSensor (Phase 167)
+// ---------------------------------------------------------------------------
+
+describe('runLocalImportSensor', () => {
+	let cwd;
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), 'kodr-local-import-'));
+	});
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	it('skips when no JS files in write set', async () => {
+		const r = await runLocalImportSensor(cwd, ['README.md']);
+		assert.equal(r.status, 'skipped');
+	});
+
+	it('returns ok when all imports resolve', async () => {
+		await writeFile(join(cwd, 'utils.mjs'), 'export const x = 1;\n');
+		await writeFile(join(cwd, 'app.mjs'), "import { x } from './utils.mjs';\n");
+		const r = await runLocalImportSensor(cwd, ['app.mjs', 'utils.mjs']);
+		assert.equal(r.status, 'ok');
+		assert.equal(r.issues.length, 0);
+	});
+
+	it('warns when an import target is missing', async () => {
+		await writeFile(
+			join(cwd, 'app.mjs'),
+			"import { helper } from './missing-module.mjs';\n",
+		);
+		const r = await runLocalImportSensor(cwd, ['app.mjs']);
+		assert.equal(r.status, 'warn');
+		assert.equal(r.issues.length, 1);
+		assert.equal(r.issues[0].specifier, './missing-module.mjs');
+	});
+
+	it('resolves extensionless imports correctly', async () => {
+		await writeFile(join(cwd, 'utils.mjs'), 'export const x = 1;\n');
+		await writeFile(join(cwd, 'app.mjs'), "import { x } from './utils';\n");
+		const r = await runLocalImportSensor(cwd, ['app.mjs', 'utils.mjs']);
+		assert.equal(r.status, 'ok');
 	});
 });
 

@@ -14,6 +14,11 @@
 //   Catches the "styled but absent" class of defect that is invisible to the
 //   reviewer but causes silently inert styling.
 //
+// Phase 167: Local import-path existence sensor.
+//   Flags relative `import`/`export from` specifiers in JS files that point to
+//   a path which does not exist on disk. Catches the common case where the model
+//   writes a file that imports from a peer it forgot to create.
+//
 // Design:
 // - Run only when a write was applied and the sensor's file type was written.
 // - Return { sensor, status, checked, issues, message }.
@@ -464,6 +469,150 @@ export async function runCssSelectorSensor(cwd, writePaths) {
 }
 
 // ---------------------------------------------------------------------------
+// Local import-path existence sensor (Phase 167)
+// ---------------------------------------------------------------------------
+
+const LOCAL_JS_EXTENSIONS = new Set(['.mjs', '.js', '.cjs']);
+
+// Extension candidates to try when an import has no file extension.
+const IMPORT_RESOLVE_EXTS = ['.mjs', '.js', '.cjs'];
+
+/**
+ * Extract relative import/export-from specifiers from JS source text.
+ * Only returns specifiers that start with '.' or '..' (relative paths).
+ *
+ * @param {string} content  Source text of a JS file.
+ * @returns {string[]}  Array of relative specifier strings (e.g. ['./utils.mjs', '../lib']).
+ */
+export function extractLocalImportPaths(content) {
+	const patterns = [
+		// import ... from './path' and export ... from './path'
+		/\bfrom\s+['"](\.[^'"]+)['"]/gu,
+		// import './path' (side-effect)
+		/\bimport\s+['"](\.[^'"]+)['"]/gu,
+	];
+	const found = new Set();
+	for (const re of patterns) {
+		let m;
+		while ((m = re.exec(content)) !== null) {
+			found.add(m[1]);
+		}
+	}
+	return [...found];
+}
+
+/**
+ * Resolve a relative import specifier against an importer directory.
+ * Tries the specifier as-is; if no extension and not found, appends common
+ * JS extensions, then tries <path>/index.<ext>.
+ * Returns true when the target file exists on disk.
+ *
+ * @param {string} specifier      Relative import path (e.g. './utils' or '../lib/foo.mjs').
+ * @param {string} importerAbsDir Absolute directory of the importing file.
+ * @returns {Promise<boolean>}
+ */
+export async function resolveLocalImport(specifier, importerAbsDir) {
+	const hasExt = Boolean(extname(specifier));
+	const candidates = [specifier];
+	if (!hasExt) {
+		for (const ext of IMPORT_RESOLVE_EXTS) {
+			candidates.push(specifier + ext);
+		}
+		for (const ext of IMPORT_RESOLVE_EXTS) {
+			candidates.push(specifier + '/index' + ext);
+		}
+	}
+	for (const candidate of candidates) {
+		try {
+			await access(join(importerAbsDir, candidate));
+			return true;
+		} catch {
+			// try next
+		}
+	}
+	return false;
+}
+
+/**
+ * Run the local import-path existence sensor on a set of written files.
+ * Flags relative import/export-from specifiers that resolve to no file on disk.
+ *
+ * @param {string}   cwd        Workspace root (absolute path).
+ * @param {string[]} writePaths Workspace-relative written file paths.
+ * @returns {Promise<{sensor: string, status: 'ok'|'warn'|'skipped', checked: number, issues: object[], message: string}>}
+ */
+export async function runLocalImportSensor(cwd, writePaths) {
+	const jsPaths = writePaths.filter((p) =>
+		LOCAL_JS_EXTENSIONS.has(extname(p).toLowerCase()),
+	);
+	if (jsPaths.length === 0) {
+		return {
+			sensor: 'local-import',
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no JS files in write set',
+		};
+	}
+
+	let checked = 0;
+	const allIssues = [];
+
+	for (const jsPath of jsPaths) {
+		const abs = join(cwd, jsPath);
+		let content;
+		try {
+			content = await readFile(abs, 'utf8');
+		} catch {
+			continue;
+		}
+		checked++;
+		const specifiers = extractLocalImportPaths(content);
+		const fileDir = dirname(abs);
+
+		for (const specifier of specifiers) {
+			const found = await resolveLocalImport(specifier, fileDir);
+			if (!found) {
+				allIssues.push({ jsPath, specifier });
+			}
+		}
+	}
+
+	if (checked === 0) {
+		return {
+			sensor: 'local-import',
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no readable JS files in write set',
+		};
+	}
+
+	if (allIssues.length === 0) {
+		return {
+			checked,
+			issues: [],
+			message: `${checked} file${checked !== 1 ? 's' : ''} ok — all local imports resolve`,
+			sensor: 'local-import',
+			status: 'ok',
+		};
+	}
+
+	const summary = allIssues
+		.slice(0, 5)
+		.map((i) => `${i.jsPath} imports '${i.specifier}'`)
+		.join('; ');
+	const extra = allIssues.length > 5 ? ` (+${allIssues.length - 5} more)` : '';
+	return {
+		checked,
+		issues: allIssues,
+		message: `${allIssues.length} unresolved local import${allIssues.length !== 1 ? 's' : ''}: ${summary}${extra}`,
+		sensor: 'local-import',
+		status: 'warn',
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Convenience gate: run all cross-ref sensors when a write was applied
 // ---------------------------------------------------------------------------
 
@@ -485,11 +634,12 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 		: [];
 	if (paths.length === 0) return [];
 
-	const [compose, css] = await Promise.all([
+	const [compose, css, localImport] = await Promise.all([
 		runComposeDockerfileSensor(cwd, paths),
 		runCssSelectorSensor(cwd, paths),
+		runLocalImportSensor(cwd, paths),
 	]);
 
 	// Omit sensors that skipped (no relevant files) to keep summary lean
-	return [compose, css].filter((r) => r.status !== 'skipped');
+	return [compose, css, localImport].filter((r) => r.status !== 'skipped');
 }
