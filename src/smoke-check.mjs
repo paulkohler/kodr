@@ -60,9 +60,54 @@ export function entryFromStartScript(startScript) {
 }
 
 /**
+ * Resolve a path from a package.json `exports` field value.
+ * Returns the first safe, relative JS file path found, or null.
+ *
+ * Handles:
+ *   exports: "./src/index.mjs"           → string
+ *   exports: { ".": "./src/index.mjs" }  → object with "." key as string
+ *   exports: { ".": { import: "./src/index.mjs" } }  → conditional
+ *   exports: { import: "./src/index.mjs" } → bare conditional (no "." subpath)
+ *
+ * @param {unknown} exportsField  The `exports` value from package.json.
+ * @returns {string|null}
+ */
+export function entryFromExports(exportsField) {
+	if (
+		!exportsField ||
+		(typeof exportsField !== 'object' && typeof exportsField !== 'string')
+	) {
+		return null;
+	}
+	// String form: exports: "./src/index.mjs"
+	if (typeof exportsField === 'string') {
+		const p = exportsField.replace(/^\.\//u, '');
+		return isSafeRelative(p) && isJsFile(p) ? p : null;
+	}
+	// Object form: resolve the "." subpath first, then bare conditional
+	const dotEntry = exportsField['.'] ?? exportsField;
+	if (typeof dotEntry === 'string') {
+		const p = dotEntry.replace(/^\.\//u, '');
+		return isSafeRelative(p) && isJsFile(p) ? p : null;
+	}
+	if (dotEntry && typeof dotEntry === 'object') {
+		// Conditional exports — prefer import > node > default
+		for (const key of ['import', 'node', 'default']) {
+			const v = dotEntry[key];
+			if (typeof v === 'string') {
+				const p = v.replace(/^\.\//u, '');
+				if (isSafeRelative(p) && isJsFile(p)) return p;
+			}
+		}
+	}
+	return null;
+}
+
+/**
  * Detect a JS entry point for the project at `cwd` from package.json.
- * Prefers a `node <file>` start script, then `main`. Returns
- * { path, source: 'start'|'main' } for an existing, in-workspace JS file, else null.
+ * Preference order: scripts.start (node <file>) → exports → main.
+ * Returns { path, source: 'start'|'exports'|'main' } for an existing,
+ * in-workspace JS file, else null.
  *
  * @param {string} cwd  Workspace root (absolute path).
  * @returns {Promise<{path: string, source: string}|null>}
@@ -78,6 +123,11 @@ export async function detectEntryPoint(cwd) {
 	const candidates = [];
 	const fromStart = entryFromStartScript(pkg?.scripts?.start);
 	if (fromStart) candidates.push({ path: fromStart, source: 'start' });
+	// Phase 164: package.json `exports` field (modern ESM packages).
+	if (pkg?.exports !== undefined) {
+		const fromExports = entryFromExports(pkg.exports);
+		if (fromExports) candidates.push({ path: fromExports, source: 'exports' });
+	}
 	if (typeof pkg?.main === 'string') {
 		const main = pkg.main.replace(/^\.\//u, '');
 		if (isSafeRelative(main) && isJsFile(main)) {

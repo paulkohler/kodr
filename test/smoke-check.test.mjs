@@ -13,6 +13,7 @@ import { after, before, describe, it } from 'node:test';
 import {
 	classifyLoadFailure,
 	detectEntryPoint,
+	entryFromExports,
 	entryFromStartScript,
 	runSmokeCheck,
 	runSmokeCheckIfNeeded,
@@ -107,6 +108,82 @@ describe('detectEntryPoint', () => {
 			'index.py': 'print(1)',
 		});
 		assert.equal(await detectEntryPoint(nonJs), null);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// entryFromExports (phase 164)
+// ---------------------------------------------------------------------------
+
+describe('entryFromExports', () => {
+	it('handles a string exports value', () => {
+		assert.equal(entryFromExports('./src/index.mjs'), 'src/index.mjs');
+	});
+
+	it('handles exports with "." as string', () => {
+		assert.equal(entryFromExports({ '.': './src/index.mjs' }), 'src/index.mjs');
+	});
+
+	it('handles conditional exports — prefers import over node', () => {
+		const exports = {
+			'.': { import: './src/esm.mjs', require: './src/cjs.cjs' },
+		};
+		assert.equal(entryFromExports(exports), 'src/esm.mjs');
+	});
+
+	it('handles bare conditional exports (no "." subpath)', () => {
+		const exports = { import: './src/index.mjs', require: './src/index.cjs' };
+		assert.equal(entryFromExports(exports), 'src/index.mjs');
+	});
+
+	it('returns null for non-JS entries', () => {
+		assert.equal(entryFromExports('./src/index.ts'), null);
+	});
+
+	it('returns null for unsafe paths', () => {
+		assert.equal(entryFromExports('../escape.mjs'), null);
+		assert.equal(entryFromExports('/abs/path.mjs'), null);
+	});
+
+	it('returns null for null/undefined', () => {
+		assert.equal(entryFromExports(null), null);
+		assert.equal(entryFromExports(undefined), null);
+	});
+});
+
+describe('detectEntryPoint — exports field (phase 164)', () => {
+	it('uses exports when no start script or main', async () => {
+		const cwd = await makeWorkspace({
+			'package.json': JSON.stringify({ exports: './src/index.mjs' }),
+			'src/index.mjs': 'export const x = 1;',
+		});
+		const r = await detectEntryPoint(cwd);
+		assert.deepEqual(r, { path: 'src/index.mjs', source: 'exports' });
+	});
+
+	it('prefers start script over exports', async () => {
+		const cwd = await makeWorkspace({
+			'package.json': JSON.stringify({
+				scripts: { start: 'node src/server.mjs' },
+				exports: './src/index.mjs',
+			}),
+			'src/server.mjs': 'export const ok = 1;',
+			'src/index.mjs': 'export const x = 1;',
+		});
+		const r = await detectEntryPoint(cwd);
+		assert.equal(r?.source, 'start');
+	});
+
+	it('falls back to main when exports file is absent', async () => {
+		const cwd = await makeWorkspace({
+			'package.json': JSON.stringify({
+				exports: './src/missing.mjs',
+				main: 'index.mjs',
+			}),
+			'index.mjs': 'export const ok = 1;',
+		});
+		const r = await detectEntryPoint(cwd);
+		assert.equal(r?.source, 'main');
 	});
 });
 
