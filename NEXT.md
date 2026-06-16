@@ -31,6 +31,5 @@ behaviour before promoting it to a phase.
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
-own. The `packages/repomap/src/` tree is a manual copy of `src/repomap/`; a sync
-check (a test that fails when the trees diverge) can land regardless of the
-publish decision.
+own. (The drift guard for the manual `packages/repomap/src/` copy shipped in
+phase 154 — `test/repomap-sync.test.mjs` — independent of the publish decision.)
