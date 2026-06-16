@@ -359,6 +359,31 @@ export function buildCausalStory(analysis) {
 		}
 	}
 
+	// Phase 159: cross-reference sensor results (advisory — warn/ok only, never fail).
+	const sensors = summary?.sensors;
+	if (Array.isArray(sensors)) {
+		for (const sensor of sensors) {
+			const sensorStatus = sensor.status;
+			const name = sensor.sensor || 'sensor';
+			if (sensorStatus === 'ok') {
+				steps.push({
+					artifactPath: join(runDir, 'summary.json'),
+					detail: `${name}: ${sensor.message || 'ok'}`,
+					phase: 'Verification',
+					status: 'ok',
+				});
+			} else if (sensorStatus === 'warn') {
+				steps.push({
+					artifactPath: join(runDir, 'summary.json'),
+					detail: `${name} warning: ${sensor.message || 'issues found'}`,
+					phase: 'Verification',
+					status: 'warn',
+				});
+			}
+			// 'skipped' sensors are omitted from summary.sensors (filtered by runCrossRefSensors)
+		}
+	}
+
 	if (tests !== null && tests !== undefined) {
 		if (typeof tests === 'object' && tests !== null && 'ok' in tests) {
 			const ok = tests.ok === true;

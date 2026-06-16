@@ -75,6 +75,7 @@ import {
 	renderEditFormatContract,
 } from './edit-formats.mjs';
 import { runSmokeCheckIfNeeded } from './smoke-check.mjs';
+import { runCrossRefSensors } from './cross-ref-sensor.mjs';
 import { captureEnvironmentFacts } from './system-env.mjs';
 import {
 	runSyntaxGateIfNeeded,
@@ -667,6 +668,15 @@ export async function runPrompt(options, io) {
 				}
 				if (smokeResult !== null) {
 					summary.smokeCheck = smokeResult;
+				}
+				// Phase 159: cross-reference sensors (advisory only — no runOk impact).
+				const sensorsResult = gatesEligible
+					? await runCrossRefSensors(subagentVerifyCwd, subagentWriteResult, {
+							enabled: options.sensors !== false,
+						})
+					: [];
+				if (sensorsResult.length > 0) {
+					summary.sensors = sensorsResult;
 				}
 				taskPlan = updateTasksFromRun(taskPlan, summary);
 				summary.taskCounts = taskCounts(taskPlan);
@@ -1595,6 +1605,16 @@ export async function runPrompt(options, io) {
 		// --no-smoke, or nothing applied).
 		if (smokeResult !== null) {
 			summary.smokeCheck = smokeResult;
+		}
+		// Phase 159: cross-reference sensors (advisory only — no runOk impact).
+		const sensorsResult =
+			shouldApply && !writeError && !runError
+				? await runCrossRefSensors(verifyCwd, writeResult, {
+						enabled: options.sensors !== false,
+					})
+				: [];
+		if (sensorsResult.length > 0) {
+			summary.sensors = sensorsResult;
 		}
 		// C4 (phase 122): record which Node/ESM guidance applied (builtin vs a
 		// project/user `lang:node` override). Omitted when no block fired.

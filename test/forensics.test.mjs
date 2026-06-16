@@ -865,3 +865,82 @@ describe('buildCausalStory — C4 language guidance forensics', () => {
 		assert.equal(step, undefined);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Phase 159 — summary.sensors renders in Verification
+// ---------------------------------------------------------------------------
+
+describe('buildCausalStory — phase 159 sensors forensics', () => {
+	let tmpSensors;
+	before(async () => {
+		tmpSensors = join(tmpdir(), `forensics-sensors-${Date.now()}`);
+		await mkdir(tmpSensors, { recursive: true });
+	});
+	after(async () => {
+		await rm(tmpSensors, { recursive: true, force: true });
+	});
+
+	const sensorStep = (story, sensorName) =>
+		story
+			.filter((s) => s.phase === 'Verification')
+			.find((s) => s.detail && s.detail.includes(sensorName));
+
+	it('warn sensor surfaces a warn step', async () => {
+		const dir = await makeRunDir(tmpSensors, 'run-sensor-warn', {
+			'summary.json': {
+				...SUMMARY_OK,
+				sensors: [
+					{
+						sensor: 'compose-dockerfile',
+						status: 'warn',
+						checked: 1,
+						issues: [{ type: 'missing-dockerfile' }],
+						message: "docker-compose.yml: build context '.' has no Dockerfile",
+					},
+				],
+			},
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		const step = sensorStep(story, 'compose-dockerfile');
+		assert.ok(step, 'should have a sensor step');
+		assert.equal(step.status, 'warn');
+		assert.match(step.detail, /warning/u);
+	});
+
+	it('ok sensor surfaces an ok step', async () => {
+		const dir = await makeRunDir(tmpSensors, 'run-sensor-ok', {
+			'summary.json': {
+				...SUMMARY_OK,
+				sensors: [
+					{
+						sensor: 'css-selector',
+						status: 'ok',
+						checked: 1,
+						issues: [],
+						message: '1 HTML file ok — all CSS selectors matched',
+					},
+				],
+			},
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		const step = sensorStep(story, 'css-selector');
+		assert.ok(step, 'should have a sensor step');
+		assert.equal(step.status, 'ok');
+	});
+
+	it('absent when summary has no sensors', async () => {
+		const dir = await makeRunDir(tmpSensors, 'run-no-sensors', {
+			'summary.json': SUMMARY_OK,
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		const hasSensorStep = story
+			.filter((s) => s.phase === 'Verification')
+			.some(
+				(s) =>
+					s.detail &&
+					(s.detail.includes('compose-dockerfile') ||
+						s.detail.includes('css-selector')),
+			);
+		assert.equal(hasSensorStep, false);
+	});
+});
