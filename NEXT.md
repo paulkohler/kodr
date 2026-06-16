@@ -13,6 +13,26 @@ failures are now in the *code the local models write* and at *transport edges*
 
 ## Candidates
 
+### Deterministic cross-reference sensors (the reviewer's recurring blind spots)
+Surfaced by the phase-156-vs-157 comparison (`process/failures.jsonl`
+`156-157-comparison`). The smoke-check is load-time only; in `--subagent-stages` mode
+the advisory reviewer is the sole correctness gate, and it false-passed two real
+defects that a cheap deterministic check would have caught without a model — both are
+*cross-references* between two generated files:
+- **CSS selector ↔ markup.** `styles.css` styled `#add-btn` and `.container`, neither
+  present in `index.html` — required styling silently inert, reviewer passed it. A
+  sensor that flags id/class selectors matching no element in any linked HTML catches
+  this whole "styled but absent" class deterministically. (Recurred across 155 and 156
+  as different variants — it keeps coming back.)
+- **`compose build:` ↔ Dockerfile.** `docker-compose.yml` had `api: build: .` with no
+  generated Dockerfile (both rounds). Flag a `build:` context with no Dockerfile.
+- **Secret column ↔ token/response.** Login signed the whole user row — bcrypt
+  `password_hash` included — into the JWT. A heuristic warning when a value selected
+  from a `password`/`hash`/`secret`-named column is signed or returned wholesale.
+These are sensors (like the syntax gate / smoke-check), not reviewer-prompt tweaks —
+deterministic and model-free. Scope a phase around one or two; the CSS-selector one is
+the highest-recurrence.
+
 ### Smoke-check follow-ups (heal integration + sandbox routing)
 The executable smoke-check shipped in phase 156 (`src/smoke-check.mjs`): it
 load-probes the entry point and fails the run on a definitive import-time crash, but

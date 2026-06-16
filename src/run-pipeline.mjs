@@ -162,6 +162,32 @@ function renderPatchRetryPrompt(failedPatches) {
 	return lines.join('\n');
 }
 
+/**
+ * Decide whether the deterministic gates fail a run. Shared by the default and
+ * subagent-stages paths so the two stay in lockstep (phase 157).
+ *
+ * - syntaxFailed: phase-121 syntax gate reported a parse failure.
+ * - smokeFailed: phase-156 load probe threw a definitive error (status 'failed').
+ *   Inconclusive smoke outcomes ('skipped'/'timeout') never fail the run.
+ * - A passing test command overrides both (e.g. heal fixed the file).
+ *
+ * @param {{syntaxResult: object|null, smokeResult: object|null, testResult: object|null}} args
+ * @returns {{syntaxFailed: boolean, smokeFailed: boolean}}
+ */
+export function deterministicGateOutcome({
+	syntaxResult,
+	smokeResult,
+	testResult,
+}) {
+	const testPassed = Boolean(testResult && testResult.ok);
+	return {
+		syntaxFailed:
+			Boolean(syntaxResult) && syntaxResult.ok === false && !testPassed,
+		smokeFailed:
+			Boolean(smokeResult) && smokeResult.status === 'failed' && !testPassed,
+	};
+}
+
 export async function runPrompt(options, io) {
 	// Validate test command before spending tokens — a bad command would leave
 	// writes on disk with no way to run the test step.
@@ -497,13 +523,34 @@ export async function runPrompt(options, io) {
 				// bounded heal loop the standard path uses so --heal is honored here
 				// too; the primary --model is the implementer, so it owns repairs.
 				let testResult = orchestrationResult.testResult;
+				// Phase 157: the deterministic gates (phase-121 syntax, phase-156 smoke)
+				// live in the default path only; orchestration verification runs the test
+				// command at most. Run them here too so subagent-stages runs get the same
+				// load-time safety. Syntax runs before heal and feeds it on failure
+				// (parity with the default path); smoke runs after heal on the final tree.
+				const subagentVerifyCwd = await verificationCwd(io.cwd, options);
+				const subagentWriteResult = orchestrationResult.writeResult;
+				const gatesEligible =
+					subagentWriteResult.applied &&
+					!orchestrationResult.writeError &&
+					!orchestrationResult.runError;
+				const syntaxResult = gatesEligible
+					? await runSyntaxGateIfNeeded(subagentVerifyCwd, subagentWriteResult)
+					: null;
+				if (
+					syntaxResult &&
+					!syntaxResult.ok &&
+					!(testResult && testResult.ok)
+				) {
+					testResult = syntaxResultToVerification(syntaxResult);
+				}
 				const postWriteDiagnostics = await runPostWriteDiagnostics(
 					io.cwd,
-					orchestrationResult.writeResult,
+					subagentWriteResult,
 					options,
 				);
 				const healingResult = await runHealingIfNeeded({
-					cwd: await verificationCwd(io.cwd, options),
+					cwd: subagentVerifyCwd,
 					commandRunner,
 					model,
 					options,
@@ -512,16 +559,34 @@ export async function runPrompt(options, io) {
 					runDir,
 					systemPrompt: context.systemPrompt,
 					testResult,
-					writeCount: orchestrationResult.writeResult.writes.length,
+					writeCount: subagentWriteResult.writes.length,
 				});
 				if (healingResult?.finalVerification) {
 					testResult = healingResult.finalVerification;
 					await writeJson(join(runDir, 'tests.json'), testResult);
 				}
+				const smokeResult =
+					gatesEligible && !(syntaxResult && !syntaxResult.ok)
+						? await runSmokeCheckIfNeeded(
+								subagentVerifyCwd,
+								subagentWriteResult,
+								{
+									enabled: options.smoke !== false,
+									sandboxActive: activeExecutor != null,
+								},
+							)
+						: null;
+				const { syntaxFailed, smokeFailed } = deterministicGateOutcome({
+					syntaxResult,
+					smokeResult,
+					testResult,
+				});
 				const runOk =
 					!orchestrationResult.writeError &&
 					!orchestrationResult.runError &&
 					(!testResult || testResult.ok) &&
+					!syntaxFailed &&
+					!smokeFailed &&
 					(orchestrationResult.review.pass ||
 						orchestrationResult.review.unavailable === true);
 				let taskPlan = createTaskPlan(
@@ -594,6 +659,14 @@ export async function runPrompt(options, io) {
 				summary.healStopReason = healingResult?.stopReason || '';
 				if (healingResult?.goalSubstitutionSuspected) {
 					summary.goalSubstitutionSuspected = true;
+				}
+				// Phase 157: surface the deterministic gates in subagent-stages summaries
+				// too (omitted when not run — no JS written, sandbox active, --no-smoke).
+				if (syntaxResult !== null) {
+					summary.syntaxCheck = syntaxResult;
+				}
+				if (smokeResult !== null) {
+					summary.smokeCheck = smokeResult;
 				}
 				taskPlan = updateTasksFromRun(taskPlan, summary);
 				summary.taskCounts = taskCounts(taskPlan);
@@ -1480,22 +1553,15 @@ export async function runPrompt(options, io) {
 			summary.goalSubstitutionSuspected = true;
 		}
 		summary.installed = installResult !== null;
-		// C1 (phase 121): a syntax failure makes the run's ok false even when there
-		// is no testCommand — a file that does not parse is not a passing run.
-		// Exception: if the heal loop fixed it (testResult.ok is now true), the
-		// syntax error was resolved and the run is ok.
-		const syntaxFailed =
-			syntaxResult !== null &&
-			!syntaxResult.ok &&
-			!(testResult && testResult.ok);
-		// Phase 156: a definitive load failure (status 'failed') is not a passing
-		// run — the app provably cannot start. Inconclusive smoke outcomes
-		// ('skipped'/'timeout') never fail the run. If the test command passed,
-		// trust it over the probe.
-		const smokeFailed =
-			smokeResult !== null &&
-			smokeResult.status === 'failed' &&
-			!(testResult && testResult.ok);
+		// C1 (phase 121) + phase 156: a syntax failure or a definitive load failure
+		// makes the run not-ok even with no testCommand — a file that does not parse,
+		// or an app that throws at import, is not a passing run. Inconclusive smoke
+		// outcomes never fail; a passing test command overrides both (see helper).
+		const { syntaxFailed, smokeFailed } = deterministicGateOutcome({
+			syntaxResult,
+			smokeResult,
+			testResult,
+		});
 		summary.ok =
 			writeError || runError || syntaxFailed || smokeFailed
 				? false

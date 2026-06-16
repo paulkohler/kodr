@@ -156,6 +156,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 154 @kodr/repomap Tree-Sync Guard
 - [x] 155 File-Author Single-File Scope
 - [x] 156 Executable Smoke-Check in Verification
+- [x] 157 Run the Deterministic Gates in Subagent-Stages Mode
 
 ## Phase Contract
 
