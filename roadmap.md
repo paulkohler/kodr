@@ -151,6 +151,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 149 Lazy-Load Tier-4 Capabilities
 - [x] 150 Defaults Favour Work
 - [x] 151 run Applies and Verifies by Default
+- [x] 152 Orchestration Tool-Channel Parity
 
 ## Phase Contract
 

@@ -21,38 +21,13 @@ summary so `kodr why` shows which model handled which step. Bigger and riskier �
 it touches several internal model-call sites; the `cheapModel` recommendation
 can extend `recommendModel`.
 
-### Control generation params at the source (supersedes the 147 "truncation" item)
-Kodr sends only `{messages, model, tools}` to LM Studio — no `temperature`,
-`max_tokens`, `repeat_penalty`, or `response_format` — so it inherits each
-model's chat-tuned GUI preset (qwen: temp 0.8, repeat_penalty 1.1). The phase-147
-"lost envelope" was NOT a token-limit truncation: `finish_reason=stop`, 2309
-completion tokens against a 262144 context, no cap; the model emitted a malformed
-JSON envelope capped by a stray `</parameter>` tool-template token. Levers, all
-per-request via the OpenAI `/v1` API (no model reload):
-- Lower `temperature` (and `repeat_penalty` → 1.0) for code/structured output.
-- Optionally `response_format` json_schema to grammar-constrain the **envelope**
-  channel — would make the R0–R6 repair rules unnecessary for that path (verify
-  the server allows `tools` + `response_format` together first).
-- Set a generous explicit `max_tokens` so a real cap is known, not inherited.
-Record the chosen params in `summary` so `kodr why` shows them. Context length
-and context-overflow policy are load-time (`lms` CLI / SDK), not per-request;
-Kodr already reads the loaded context window via the management API (146).
-
-### Bring orchestration to tool-channel parity (envelope island)
-The multi-agent path (implementer, file-author) is the last place still on the
-pre-117 text envelope. `runAgentCompletion` gives subagents `write_file`/
-`edit_file` and runs them through `completeWithToolCalls` (which captures tool
-writes into `proposalDraft`), but the callers read only the text envelope —
-`extractProposal(completion.text)` at orchestration.mjs:426 (implementer) and
-:776 (file-author); `proposalDraft` is ignored. So a model that writes via the
-tool channel has its writes silently dropped — the phase-135 bug class, unfixed
-here. Model-dependent: qwen emits the envelope and works; gpt-oss uses tools
-exclusively (stocktake) and would lose everything. The envelope steer is weakest
-where it's needed — `response_format` is `none` for local models. Fix: prefer
-`completion.proposalDraft` (135 pattern) with envelope fallback in both callers,
-then update `roles/file-author` and `roles/implementer` SKILL.md to "write via
-tools; envelope is fallback." Validate with a live gpt-oss staged run. (Also an
-AGENTS.md "route through shared channel handling" violation.)
+### Partial: steer subagent SKILL.md toward the tool channel
+Phase 152 fixed the orchestration envelope-island bug (implementer/file-author now
+merge `proposalDraft` via `resolveProposalFromCompletion`, so tool-channel writes
+are no longer dropped). Remaining, prompt-only follow-up: update
+`roles/implementer` and `roles/file-author` SKILL.md to "write via tools; the JSON
+envelope is fallback," so tool-only models are steered toward the channel that now
+works. Low-risk; validate the steer doesn't regress qwen's envelope path.
 
 ### Multi-file coordinated edits
 The eval suite only measures single-defect fixes. Plant a cross-file refactor
