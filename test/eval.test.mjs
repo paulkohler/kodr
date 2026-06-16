@@ -388,3 +388,46 @@ describe('main eval command', () => {
 		await assert.rejects(() => main(['eval'], io), CliError);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Phase 162: js-extract-module fixture validation
+// ---------------------------------------------------------------------------
+
+describe('js-extract-module fixture (phase 162)', () => {
+	it('brownfield.json includes the js-extract-module case with required assertions', async () => {
+		const { readFileSync } = await import('node:fs');
+		const suite = loadEvalSuite(
+			readFileSync(
+				new URL('../evals/brownfield.json', import.meta.url).pathname,
+				'utf8',
+			),
+		);
+		const c = suite.cases.find((x) => x.id === 'js-extract-module');
+		assert.ok(c, 'js-extract-module case not found in brownfield.json');
+		assert.equal(c.expectFailingBaseline, true);
+		assert.ok(c.assertions.some((a) => a.type === 'tests_pass'));
+		assert.ok(c.assertions.some((a) => a.type === 'files_exist'));
+		assert.ok(
+			c.assertions.some(
+				(a) => a.type === 'content_matches' && a.path === 'src/utils.mjs',
+			),
+		);
+	});
+
+	it('fixture baseline test fails (src/utils.mjs absent)', async () => {
+		const { stageFixture } = await import('../src/eval-runner.mjs');
+		const { runVerification } = await import('../src/verification-runner.mjs');
+		const { rm } = await import('node:fs/promises');
+		const fixtureDir = new URL(
+			'../evals/fixtures/js-extract-module',
+			import.meta.url,
+		).pathname;
+		const { stagedDir } = await stageFixture(fixtureDir);
+		try {
+			const result = await runVerification(stagedDir, 'node --test', {});
+			assert.equal(result.ok, false, 'baseline should fail');
+		} finally {
+			await rm(stagedDir, { recursive: true, force: true });
+		}
+	});
+});

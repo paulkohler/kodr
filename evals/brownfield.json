@@ -109,6 +109,22 @@
 				{ "type": "tests_pass", "command": "cargo test" },
 				{ "type": "file_modified", "path": "src/lib.rs" }
 			]
+		},
+		{
+			"id": "js-extract-module",
+			"fixture": "fixtures/js-extract-module",
+			"test": "node --test",
+			"requires": [],
+			"expectFailingBaseline": true,
+			"heal": false,
+			"prompt": "The test file imports `toTitleCase` from `src/utils.mjs` but that file does not exist yet. Extract the shared title-casing logic from `src/string-ops.mjs` into a new `src/utils.mjs` file that exports `toTitleCase(s)`. Update `src/string-ops.mjs` so that both `formatName` and `formatTitle` import and delegate to `toTitleCase`. The tests must pass after your changes.",
+			"assertions": [
+				{ "type": "tests_pass", "command": "node --test" },
+				{ "type": "files_exist", "paths": ["src/utils.mjs"] },
+				{ "type": "file_modified", "path": "src/string-ops.mjs" },
+				{ "type": "content_matches", "path": "src/utils.mjs", "pattern": "toTitleCase" },
+				{ "type": "content_matches", "path": "src/string-ops.mjs", "pattern": "utils" }
+			]
 		}
 	]
 }
