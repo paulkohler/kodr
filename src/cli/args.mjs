@@ -120,6 +120,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 156: executable smoke-check — load-probe the project entry point
 		// after applying writes. --no-smoke sets this false.
 		smoke: true,
+		// Phase 160: cross-reference sensors — compose/Dockerfile and CSS/HTML
+		// structural consistency checks. --no-sensors sets this false.
+		sensors: true,
 		record: false,
 		evalCases: [],
 		testCommand: '',
@@ -381,6 +384,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 156: opt out of the executable smoke-check (entry-point load probe).
 		if (arg === '--no-smoke') {
 			options.smoke = false;
+			continue;
+		}
+
+		// Phase 160: opt out of deterministic cross-reference sensors.
+		if (arg === '--no-sensors') {
+			options.sensors = false;
 			continue;
 		}
 
@@ -1060,6 +1069,9 @@ OpenRouter:
                        entry point after applying writes). On by default for
                        applied JS writes with a detectable entry; skipped under a
                        sandbox. A definitive load failure fails the run.
+  --no-sensors         Disable deterministic cross-reference sensors (compose ↔
+                       Dockerfile, CSS selector ↔ HTML). On by default; advisory
+                       only (warn, not fail).
   --lsp                Enable LSP enrichment (run all available LSP servers on PATH).
   --no-lsp             Disable LSP enrichment.
                        Default: auto (use any LSP server found on PATH; skip silently

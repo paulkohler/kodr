@@ -62,6 +62,11 @@ describe('parseArgs', () => {
 		assert.equal(parseArgs(['--no-smoke'], {}).smoke, false);
 	});
 
+	it('parses --no-sensors (phase 160); sensors on by default', () => {
+		assert.equal(parseArgs([], {}).sensors, true);
+		assert.equal(parseArgs(['--no-sensors'], {}).sensors, false);
+	});
+
 	it('parses model endpoint flags', () => {
 		const options = parseArgs([
 			'--base-url',
