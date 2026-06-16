@@ -13,6 +13,21 @@ failures are now in the *code the local models write* and at *transport edges*
 
 ## Candidates
 
+### Executable smoke-check in verification
+Surfaced by the phase-155 stress test (`process/failures.jsonl` `155-stress`). A
+qwen+orchestration Express/JWT/pg build was structurally excellent and verified
+against a real Postgres — but failed at *startup* on a CJS/ESM trap
+(`import { sign, verify } from "jsonwebtoken"`; jsonwebtoken's named exports aren't
+statically detectable). The default pipeline missed it: with no test command the
+only gate is the advisory model-reviewer, which reads source but never *loads* it.
+(The contrast: on a static site the reviewer caught both real bugs by static
+reasoning — it's load-time errors that slip through.) Candidate: when a project has
+a detectable entry point (package.json `main`/`start`, or `index.html`), add a cheap
+deterministic load probe beyond `node --check` — e.g. `import()` the entry in a
+child process — so missing-export / CJS-ESM-mismatch / import-time crashes are
+caught by verification, not left to the reviewer. Keep it advisory-safe (a failing
+smoke-check informs, doesn't necessarily block a dry-run).
+
 ### Per-step model routing
 `--route-auto` (141) picks the best-history model at run start. The open half is
 splitting *within* a run: cheap tasks (commit messages, compaction, summaries)
