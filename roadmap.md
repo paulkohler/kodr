@@ -154,6 +154,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 152 Orchestration Tool-Channel Parity
 - [x] 153 Steer Subagent Roles Toward the Tool Channel
 - [x] 154 @kodr/repomap Tree-Sync Guard
+- [x] 155 File-Author Single-File Scope
 
 ## Phase Contract
 

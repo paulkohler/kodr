@@ -1164,6 +1164,82 @@ Here is the plan:
 		}
 	});
 
+	it('runFileAuthorAgent scopes to one file and does not echo the full multi-file task (phase 155)', async () => {
+		const cwd = await makeWorkspace();
+		const runDir = await mkdtemp(
+			join(tmpdir(), 'kodr-orch-file-author-scope-'),
+		);
+		const server = await startFakeModelServer({
+			responses: [
+				chatText(
+					JSON.stringify({
+						status: 'OK',
+						files: [
+							{
+								path: 'src/greet.mjs',
+								content: 'export const greet = () => "hi";\n',
+							},
+						],
+						messages: [],
+					}),
+				),
+			],
+		});
+
+		try {
+			const context = await buildWorkspaceContext(cwd, { toolsMode: true });
+			const manifest = {
+				summary: 'Add greet and helper modules.',
+				files: [
+					{
+						path: 'src/greet.mjs',
+						responsibility: 'Export greet.',
+						exports: ['export function greet(): string'],
+						imports: [{ from: './helper.mjs', names: ['format'] }],
+					},
+					{
+						path: 'src/helper.mjs',
+						responsibility: 'Export format helper.',
+						exports: ['export function format(s: string): string'],
+						imports: [],
+					},
+				],
+				verification: null,
+			};
+			const entry = manifest.files[0];
+			// A multi-file imperative task — the kind that used to bleed into every
+			// author and make it write every file.
+			const fullTask =
+				'Create two files: src/greet.mjs exporting greet, and src/helper.mjs exporting format.';
+
+			await runFileAuthorAgent(
+				cwd,
+				join(runDir, 'author'),
+				fullTask,
+				entry,
+				manifest,
+				context,
+				options(server),
+			);
+
+			const request = JSON.parse(
+				await readFile(join(runDir, 'author', 'request.json'), 'utf8'),
+			);
+			const userMsg = request.messages[1].content;
+
+			// The single-file scope directive names this author's contracted path.
+			assert.match(userMsg, /Write exactly one file: `src\/greet\.mjs`/u);
+			// The full multi-file task is NOT echoed — that was the scope-bleed source.
+			assert.doesNotMatch(userMsg, /Create two files/u);
+			// Global intent is still available via the planner's plan summary.
+			assert.match(userMsg, /Add greet and helper modules\./u);
+			// Sibling export signature is still present for coordination.
+			assert.match(userMsg, /export function format/u);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('runSubagentStages uses isolated file-authors when planner emits a structured manifest', async () => {
 		const cwd = await makeWorkspace();
 		const runDir = await mkdtemp(join(tmpdir(), 'kodr-orch-isolated-'));

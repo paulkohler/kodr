@@ -829,8 +829,18 @@ function renderFileAuthorUserPrompt(
 					.join('\n\n')
 			: '(no sibling files in plan)';
 
+	// Phase 155: lead with a hard single-file scope directive instead of the raw
+	// multi-file task (parsed.basePrompt). An isolated file-author that received
+	// the whole task implemented every file, defeating the isolation; the planner's
+	// "## Plan summary" below already carries the global intent.
+	const scopeDirective = [
+		`Write exactly one file: \`${entry.path}\`.`,
+		"Implement only this file, working from its contract below. Do not create, modify, or re-emit any other file — the plan's other files are written by separate authors and appear here only as context (their export signatures). Your proposal must contain this path and nothing else.",
+	].join(' ');
+
 	const sections = [
-		parsed.basePrompt,
+		'## Your assignment',
+		scopeDirective,
 		directives.length > 0
 			? `## Instructions targeted at file-author\n${directives.join('\n')}`
 			: '',
