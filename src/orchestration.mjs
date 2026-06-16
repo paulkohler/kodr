@@ -8,7 +8,7 @@ import {
 	renderContextMarkdown,
 	summarizePromptSections,
 } from './context-packer.mjs';
-import { extractJson, extractProposal } from './json-extractor.mjs';
+import { extractJson } from './json-extractor.mjs';
 import { runDependencyInstall } from './dependency-installer.mjs';
 import { emitProgress, runStartHook } from './progress.mjs';
 import { prepareChanges } from './safe-writes.mjs';
@@ -21,6 +21,7 @@ import {
 import {
 	completeWithToolCalls,
 	createBuiltinRegistry,
+	resolveProposalFromCompletion,
 	ToolRegistry,
 } from './tool-calls.mjs';
 import { buildChatRequestBody } from './model-client.mjs';
@@ -423,7 +424,10 @@ export async function runImplementerAgent(
 		});
 		completions.push(completion);
 
-		const proposal = extractProposal(completion.text);
+		// Phase 152: include tool-channel writes (proposalDraft), not just the
+		// envelope — a model that writes via write_file/edit_file and emits no
+		// envelope (e.g. gpt-oss) must not have its writes dropped here.
+		const proposal = resolveProposalFromCompletion(completion);
 		if (!proposal) {
 			// No usable proposal this pass. On the first pass this becomes a
 			// missing-proposal failure downstream; later it just ends the loop.
@@ -773,7 +777,9 @@ export async function runFileAuthorAgent(
 		userPrompt,
 	});
 
-	const proposal = extractProposal(completion.text);
+	// Phase 152: include tool-channel writes (proposalDraft), not just the
+	// envelope, so file-author subagents that write via tools are not dropped.
+	const proposal = resolveProposalFromCompletion(completion);
 	await writeJson(join(subDir, 'proposal.json'), proposal);
 
 	return {

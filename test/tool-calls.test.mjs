@@ -10,6 +10,7 @@ import {
 	mergeProposalWithDraft,
 	normalizeToolCallArguments,
 	ProposalDraft,
+	resolveProposalFromCompletion,
 	ToolCallError,
 	ToolRegistry,
 } from '../src/tool-calls.mjs';
@@ -2584,5 +2585,73 @@ describe('edit_file proposal-mode per-edit validation (Phase 138)', () => {
 		const patch = registry.proposalDraft.patches[0];
 		assert.ok(patch, 'patch should be in draft');
 		assert.equal(patch.applied, true, 'live mode should mark patch as applied');
+	});
+});
+
+describe('resolveProposalFromCompletion (phase 152 — orchestration parity)', () => {
+	function envelopeText(value) {
+		return JSON.stringify(value);
+	}
+
+	it('synthesizes a proposal from tool-channel writes when there is no envelope', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'export const a = 1;\n');
+		const proposal = resolveProposalFromCompletion({
+			text: 'I wrote the file via tools.',
+			proposalDraft: draft,
+		});
+		assert.ok(proposal, 'proposal must not be null when tools wrote files');
+		assert.equal(proposal.status, 'OK');
+		assert.equal(proposal.files.length, 1);
+		assert.equal(proposal.files[0].path, 'src/a.mjs');
+	});
+
+	it('returns the envelope proposal unchanged when there is no draft (qwen path)', () => {
+		const proposal = resolveProposalFromCompletion({
+			text: envelopeText({
+				files: [{ path: 'src/b.mjs', content: 'export const b = 2;\n' }],
+				status: 'OK',
+			}),
+			proposalDraft: null,
+		});
+		assert.ok(proposal);
+		assert.equal(proposal.files.length, 1);
+		assert.equal(proposal.files[0].path, 'src/b.mjs');
+	});
+
+	it('returns the envelope unchanged when the draft is present but empty (no regression)', () => {
+		const draft = new ProposalDraft();
+		assert.equal(draft.isEmpty, true);
+		const proposal = resolveProposalFromCompletion({
+			text: envelopeText({
+				files: [{ path: 'src/b.mjs', content: 'export const b = 2;\n' }],
+				status: 'OK',
+			}),
+			proposalDraft: draft,
+		});
+		assert.equal(proposal.files.length, 1);
+		assert.equal(proposal.files[0].path, 'src/b.mjs');
+	});
+
+	it('merges tool-channel writes with the envelope when both are present', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'export const a = 1;\n');
+		const proposal = resolveProposalFromCompletion({
+			text: envelopeText({
+				files: [{ path: 'src/b.mjs', content: 'export const b = 2;\n' }],
+				status: 'OK',
+			}),
+			proposalDraft: draft,
+		});
+		const paths = proposal.files.map((f) => f.path).sort();
+		assert.deepEqual(paths, ['src/a.mjs', 'src/b.mjs']);
+	});
+
+	it('returns null when there is neither a draft nor an envelope', () => {
+		const proposal = resolveProposalFromCompletion({
+			text: 'just some thinking, no proposal',
+			proposalDraft: null,
+		});
+		assert.equal(proposal, null);
 	});
 });

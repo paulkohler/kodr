@@ -1102,6 +1102,21 @@ export function mergeProposalWithDraft(draft, envelopeProposal) {
 	return merged;
 }
 
+// Resolve the effective proposal from a completion that may have written via the
+// tool channel (proposalDraft), the text envelope, or both. Mirrors the
+// run-pipeline merge rules (phase 135) so tool-channel writes are never dropped —
+// the fix for the orchestration envelope-island bug (phase 152). Returns null
+// only when there is neither a non-empty draft nor an envelope proposal.
+export function resolveProposalFromCompletion(completion) {
+	const draft = completion?.proposalDraft ?? null;
+	const draftNonEmpty = draft !== null && !draft.isEmpty;
+	const envelopeProposal = extractProposal(completion?.text ?? '');
+	if (draftNonEmpty || (draft !== null && envelopeProposal !== null)) {
+		return mergeProposalWithDraft(draft, envelopeProposal);
+	}
+	return envelopeProposal;
+}
+
 // W2: Check that an aliased call has the expected argument shape for the
 // canonical capture tool. Returns an error string on mismatch, null on ok.
 // We validate the required fields for write_file ({path, content}) and
