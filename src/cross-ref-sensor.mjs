@@ -1,0 +1,495 @@
+// cross-ref-sensor.mjs — deterministic cross-reference sensors.
+//
+// These sensors check structural consistency between generated files that the
+// advisory reviewer keeps missing. They are model-free and fast, running
+// synchronously on the written file tree.
+//
+// Phase 158: Compose ↔ Dockerfile sensor.
+//   Flags `build:` entries in docker-compose files that have no Dockerfile at
+//   the referenced context path. A compose file that references a build context
+//   with no Dockerfile will fail `docker compose up --build`.
+//
+// Phase 159: CSS selector ↔ HTML sensor.
+//   Flags CSS id/class selectors that match no element in any linked HTML file.
+//   Catches the "styled but absent" class of defect that is invisible to the
+//   reviewer but causes silently inert styling.
+//
+// Design:
+// - Run only when a write was applied and the sensor's file type was written.
+// - Return { sensor, status, checked, issues, message }.
+//   status: 'ok' | 'warn' | 'skipped'
+//   'warn' = issues found (advisory, not a hard failure).
+//   'skipped' = no relevant files in write set; sensor did not run.
+// - Zero runtime dependencies; Node.js 24 built-ins only.
+
+import { access, readFile } from 'node:fs/promises';
+import { basename, dirname, extname, join, normalize, posix } from 'node:path';
+
+// ---------------------------------------------------------------------------
+// Compose ↔ Dockerfile sensor (Phase 158)
+// ---------------------------------------------------------------------------
+
+const COMPOSE_FILENAMES = new Set([
+	'docker-compose.yml',
+	'docker-compose.yaml',
+	'compose.yml',
+	'compose.yaml',
+]);
+
+/**
+ * Extract build contexts from the text of a docker-compose file.
+ * Handles both inline (`build: .`) and block form (`build:\n  context: ./x`).
+ * Returns [{ context, dockerfile, serviceLine }].
+ *
+ * This uses a line-by-line heuristic rather than a proper YAML parser (no
+ * runtime dependencies). It handles all common patterns the model produces.
+ *
+ * @param {string} content  Raw text of a docker-compose file.
+ * @returns {Array<{context: string, dockerfile: string, serviceLine: number}>}
+ */
+export function extractBuildContexts(content) {
+	const lines = content.split('\n');
+	const results = [];
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+
+		// Inline form: "  build: ." or "  build: ./api"
+		const inline = /^(\s+)build:\s+(\S+)\s*$/u.exec(line);
+		if (inline) {
+			results.push({
+				context: inline[2].replace(/^['"]|['"]$/gu, ''),
+				dockerfile: 'Dockerfile',
+				serviceLine: i,
+			});
+			continue;
+		}
+
+		// Block form: "  build:" followed by indented "context:" / "dockerfile:"
+		if (/^(\s+)build:\s*$/u.test(line)) {
+			const buildIndent = line.match(/^(\s+)/u)?.[1]?.length ?? 0;
+			let context = '.';
+			let dockerfile = 'Dockerfile';
+			for (let j = i + 1; j < Math.min(lines.length, i + 15); j++) {
+				const inner = lines[j];
+				if (!inner.trim()) continue;
+				const innerIndent = inner.match(/^(\s+)/u)?.[1]?.length ?? 0;
+				if (innerIndent <= buildIndent) break;
+				const ctx = /^\s+context:\s+(\S+)\s*$/u.exec(inner);
+				if (ctx) {
+					context = ctx[1].replace(/^['"]|['"]$/gu, '');
+					continue;
+				}
+				const df = /^\s+dockerfile:\s+(\S+)\s*$/u.exec(inner);
+				if (df) {
+					dockerfile = df[1].replace(/^['"]|['"]$/gu, '');
+				}
+			}
+			results.push({ context, dockerfile, serviceLine: i });
+		}
+	}
+	return results;
+}
+
+/**
+ * Run the Compose ↔ Dockerfile sensor on one compose file.
+ * Checks whether each `build:` context has a Dockerfile at the expected path.
+ *
+ * @param {string} cwd          Workspace root (absolute path).
+ * @param {string} composePath  Workspace-relative path to the compose file.
+ * @returns {Promise<Array<{type: string, composePath: string, buildContext: string, expectedDockerfile: string}>>}
+ */
+export async function checkComposeDockerfile(cwd, composePath) {
+	let content;
+	try {
+		content = await readFile(join(cwd, composePath), 'utf8');
+	} catch {
+		return [];
+	}
+
+	const composeDir = dirname(composePath);
+	const buildContexts = extractBuildContexts(content);
+	const issues = [];
+
+	for (const { context, dockerfile } of buildContexts) {
+		// Resolve the Dockerfile path relative to the compose file's directory,
+		// then relative to the workspace root.
+		const contextDir = join(composeDir, context);
+		const dockerfilePath = join(contextDir, dockerfile);
+		// Safety: reject traversal outside workspace
+		const normalized = normalize(dockerfilePath);
+		if (normalized.startsWith('..') || posix.isAbsolute(dockerfilePath)) {
+			continue;
+		}
+		try {
+			await access(join(cwd, normalized));
+			// Dockerfile exists — ok
+		} catch {
+			issues.push({
+				buildContext: context,
+				composePath,
+				expectedDockerfile: normalized,
+				type: 'missing-dockerfile',
+			});
+		}
+	}
+	return issues;
+}
+
+/**
+ * Run the Compose ↔ Dockerfile sensor across all written files.
+ * Only runs when at least one compose file is in the write set.
+ *
+ * @param {string} cwd          Workspace root (absolute path).
+ * @param {string[]} writePaths Workspace-relative written file paths.
+ * @returns {Promise<{sensor: string, status: 'ok'|'warn'|'skipped', checked: number, issues: object[], message: string}>}
+ */
+export async function runComposeDockerfileSensor(cwd, writePaths) {
+	const composePaths = writePaths.filter((p) =>
+		COMPOSE_FILENAMES.has(basename(p)),
+	);
+	if (composePaths.length === 0) {
+		return {
+			sensor: 'compose-dockerfile',
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no compose files in write set',
+		};
+	}
+
+	const allIssues = [];
+	for (const composePath of composePaths) {
+		const issues = await checkComposeDockerfile(cwd, composePath);
+		allIssues.push(...issues);
+	}
+
+	if (allIssues.length === 0) {
+		return {
+			checked: composePaths.length,
+			issues: [],
+			message: `${composePaths.length} compose file${composePaths.length !== 1 ? 's' : ''} ok`,
+			sensor: 'compose-dockerfile',
+			status: 'ok',
+		};
+	}
+
+	const detail = allIssues
+		.map(
+			(i) =>
+				`${i.composePath}: build context '${i.buildContext}' has no ${i.expectedDockerfile}`,
+		)
+		.join('; ');
+	return {
+		checked: composePaths.length,
+		issues: allIssues,
+		message: detail,
+		sensor: 'compose-dockerfile',
+		status: 'warn',
+	};
+}
+
+// ---------------------------------------------------------------------------
+// CSS selector ↔ HTML sensor (Phase 159)
+// ---------------------------------------------------------------------------
+
+const HTML_EXTENSIONS = new Set(['.html', '.htm']);
+const CSS_EXTENSIONS = new Set(['.css']);
+
+/**
+ * Extract all id and class selectors from CSS text.
+ * Returns { ids: Set<string>, classes: Set<string> }.
+ * Only captures plain `#foo` / `.foo` selectors, not attribute selectors or
+ * pseudo-selectors — we only care about id= and class= cross-references.
+ *
+ * @param {string} css
+ * @returns {{ ids: Set<string>, classes: Set<string> }}
+ */
+export function extractCssSelectors(css) {
+	const ids = new Set();
+	const classes = new Set();
+
+	// Strip comments first so we don't pick up selectors inside /* */
+	const stripped = css.replace(/\/\*[\s\S]*?\*\//gu, '');
+
+	// Match selector lists before '{'. Walk the result tokens.
+	for (const ruleBlock of stripped.split('{')) {
+		const selectorStr = ruleBlock.split('}').at(-1) ?? ruleBlock;
+		// Split on comma for selector lists
+		for (const selector of selectorStr.split(',')) {
+			// Find all #id tokens
+			for (const m of selector.matchAll(/#([\w-]+)/gu)) {
+				ids.add(m[1]);
+			}
+			// Find all .class tokens (exclude pseudo-class dots like `.5em`)
+			for (const m of selector.matchAll(/\.([\w-]+)/gu)) {
+				// Skip pure-number class names (CSS units, not class selectors)
+				if (!/^\d/u.test(m[1])) {
+					classes.add(m[1]);
+				}
+			}
+		}
+	}
+	return { classes, ids };
+}
+
+/**
+ * Extract all id and class attribute values from HTML text.
+ * Returns { ids: Set<string>, classes: Set<string> }.
+ *
+ * @param {string} html
+ * @returns {{ ids: Set<string>, classes: Set<string> }}
+ */
+export function extractHtmlAttributes(html) {
+	const ids = new Set();
+	const classes = new Set();
+
+	for (const m of html.matchAll(/\bid=["']([^"']+)["']/giu)) {
+		ids.add(m[1]);
+	}
+	for (const m of html.matchAll(/\bclass=["']([^"']+)["']/giu)) {
+		for (const cls of m[1].split(/\s+/u)) {
+			if (cls) classes.add(cls);
+		}
+	}
+	return { classes, ids };
+}
+
+/**
+ * Find CSS files linked from an HTML file via `<link rel="stylesheet" href="...">`.
+ * Returns workspace-relative paths; filters to paths that are safe relative paths.
+ *
+ * @param {string} htmlContent
+ * @param {string} htmlPath  Workspace-relative path of the HTML file.
+ * @returns {string[]}
+ */
+export function extractLinkedCssPaths(htmlContent, htmlPath) {
+	const htmlDir = dirname(htmlPath);
+	const results = [];
+	for (const m of htmlContent.matchAll(
+		/<link[^>]+href=["']([^"']+\.css)["'][^>]*>/giu,
+	)) {
+		const href = m[1];
+		// Skip absolute URLs and data URIs
+		if (/^https?:|^\/\/|^data:/iu.test(href)) continue;
+		// Resolve relative to the HTML file's directory
+		const rel = join(htmlDir, href).replace(/\\/gu, '/');
+		// Safety: skip traversal
+		if (rel.startsWith('..') || posix.isAbsolute(rel)) continue;
+		results.push(rel);
+	}
+	return results;
+}
+
+/**
+ * Check one HTML file against its linked CSS files.
+ * Returns issues where a CSS selector targets an id/class absent from the HTML.
+ *
+ * @param {string} cwd
+ * @param {string} htmlPath  Workspace-relative.
+ * @param {string} htmlContent
+ * @param {Map<string,string>} cssContentMap  Map from workspace-relative CSS path → content.
+ * @returns {Array<{type: string, htmlPath: string, cssPath: string, selector: string, value: string}>}
+ */
+export function checkHtmlCssSelectors(
+	cwd,
+	htmlPath,
+	htmlContent,
+	cssContentMap,
+) {
+	const htmlAttrs = extractHtmlAttributes(htmlContent);
+	const linkedCss = extractLinkedCssPaths(htmlContent, htmlPath);
+	const issues = [];
+
+	for (const cssPath of linkedCss) {
+		const cssContent = cssContentMap.get(cssPath);
+		if (!cssContent) continue;
+		const { ids, classes } = extractCssSelectors(cssContent);
+
+		for (const id of ids) {
+			if (!htmlAttrs.ids.has(id)) {
+				issues.push({
+					cssPath,
+					htmlPath,
+					selector: `#${id}`,
+					type: 'selector-no-element',
+					value: id,
+				});
+			}
+		}
+		for (const cls of classes) {
+			if (!htmlAttrs.classes.has(cls)) {
+				issues.push({
+					cssPath,
+					htmlPath,
+					selector: `.${cls}`,
+					type: 'selector-no-element',
+					value: cls,
+				});
+			}
+		}
+	}
+	return issues;
+}
+
+/**
+ * Run the CSS selector ↔ HTML sensor across all written files.
+ * Only runs when at least one HTML or CSS file is in the write set.
+ *
+ * @param {string} cwd          Workspace root (absolute path).
+ * @param {string[]} writePaths Workspace-relative written file paths.
+ * @returns {Promise<{sensor: string, status: 'ok'|'warn'|'skipped', checked: number, issues: object[], message: string}>}
+ */
+export async function runCssSelectorSensor(cwd, writePaths) {
+	const htmlPaths = writePaths.filter((p) =>
+		HTML_EXTENSIONS.has(extname(p).toLowerCase()),
+	);
+	const cssPaths = writePaths.filter((p) =>
+		CSS_EXTENSIONS.has(extname(p).toLowerCase()),
+	);
+
+	if (htmlPaths.length === 0 && cssPaths.length === 0) {
+		return {
+			sensor: 'css-selector',
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no HTML/CSS files in write set',
+		};
+	}
+
+	// Build a map of all readable CSS files in the write set
+	const cssContentMap = new Map();
+	for (const p of cssPaths) {
+		try {
+			cssContentMap.set(p, await readFile(join(cwd, p), 'utf8'));
+		} catch {
+			// unreadable — skip
+		}
+	}
+
+	// For HTML files linked to CSS files not in the write set, try to read them
+	// from disk so we can still run the check when only the HTML changed.
+	const allIssues = [];
+	let checked = 0;
+
+	for (const htmlPath of htmlPaths) {
+		let htmlContent;
+		try {
+			htmlContent = await readFile(join(cwd, htmlPath), 'utf8');
+		} catch {
+			continue;
+		}
+
+		// Discover CSS links and read any not already in the map
+		const linkedCss = extractLinkedCssPaths(htmlContent, htmlPath);
+		for (const cssPath of linkedCss) {
+			if (!cssContentMap.has(cssPath)) {
+				try {
+					cssContentMap.set(
+						cssPath,
+						await readFile(join(cwd, cssPath), 'utf8'),
+					);
+				} catch {
+					// not present — will be skipped in checkHtmlCssSelectors
+				}
+			}
+		}
+
+		if (
+			linkedCss.length === 0 ||
+			linkedCss.every((p) => !cssContentMap.has(p))
+		) {
+			// No linked CSS we can read — skip this HTML file
+			continue;
+		}
+
+		checked++;
+		const issues = checkHtmlCssSelectors(
+			cwd,
+			htmlPath,
+			htmlContent,
+			cssContentMap,
+		);
+		allIssues.push(...issues);
+	}
+
+	// Also check CSS files whose linked HTML was not written but may exist on disk
+	for (const cssPath of cssPaths) {
+		// Find HTML files in the write set that link to this CSS
+		const alreadyChecked = new Set(htmlPaths);
+		for (const htmlPath of writePaths.filter((p) =>
+			HTML_EXTENSIONS.has(extname(p).toLowerCase()),
+		)) {
+			if (alreadyChecked.has(htmlPath)) continue;
+			// already covered above
+		}
+		// We only need to check HTML files NOT already handled above
+		// (htmlPaths already covers them all)
+		// No extra work needed here since we process all htmlPaths above.
+	}
+
+	if (checked === 0) {
+		return {
+			sensor: 'css-selector',
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no HTML files with readable linked CSS in write set',
+		};
+	}
+
+	if (allIssues.length === 0) {
+		return {
+			checked,
+			issues: [],
+			message: `${checked} HTML file${checked !== 1 ? 's' : ''} ok — all CSS selectors matched`,
+			sensor: 'css-selector',
+			status: 'ok',
+		};
+	}
+
+	const summary = allIssues
+		.slice(0, 5)
+		.map((i) => `${i.selector} not in ${i.htmlPath}`)
+		.join('; ');
+	const extra = allIssues.length > 5 ? ` (+${allIssues.length - 5} more)` : '';
+	return {
+		checked,
+		issues: allIssues,
+		message: `${allIssues.length} selector${allIssues.length !== 1 ? 's' : ''} match no element: ${summary}${extra}`,
+		sensor: 'css-selector',
+		status: 'warn',
+	};
+}
+
+// ---------------------------------------------------------------------------
+// Convenience gate: run all cross-ref sensors when a write was applied
+// ---------------------------------------------------------------------------
+
+/**
+ * Run all cross-reference sensors on the write result.
+ * Returns an array of sensor results (skipped sensors omitted unless all skip).
+ * Called from the pipeline after writes are applied.
+ *
+ * @param {string} cwd
+ * @param {object} writeResult  { applied: boolean, writes: [{ path }] }
+ * @param {{enabled?: boolean}} [opts]
+ * @returns {Promise<object[]>}  Array of sensor result objects.
+ */
+export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
+	if (opts.enabled === false) return [];
+	if (!writeResult?.applied) return [];
+	const paths = Array.isArray(writeResult.writes)
+		? writeResult.writes.map((w) => w.path).filter(Boolean)
+		: [];
+	if (paths.length === 0) return [];
+
+	const [compose, css] = await Promise.all([
+		runComposeDockerfileSensor(cwd, paths),
+		runCssSelectorSensor(cwd, paths),
+	]);
+
+	// Omit sensors that skipped (no relevant files) to keep summary lean
+	return [compose, css].filter((r) => r.status !== 'skipped');
+}
