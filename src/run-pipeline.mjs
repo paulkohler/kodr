@@ -74,6 +74,7 @@ import {
 	mergeBlockPatches,
 	renderEditFormatContract,
 } from './edit-formats.mjs';
+import { runSmokeCheckIfNeeded } from './smoke-check.mjs';
 import { captureEnvironmentFacts } from './system-env.mjs';
 import {
 	runSyntaxGateIfNeeded,
@@ -1441,6 +1442,25 @@ export async function runPrompt(options, io) {
 		if (healingResult?.finalVerification) {
 			testResult = healingResult.finalVerification;
 		}
+		// Phase 156: executable smoke-check. Once the syntax gate has passed,
+		// load-probe the project's entry point in a child process to catch
+		// import-time / missing-export / CJS-ESM crashes that `node --check`
+		// (parse-only) cannot see — exactly the class of bug that reported ok=true
+		// in the phase-155 stress test. Probes the final applied tree (after any
+		// heal). Host-only: skipped when a sandbox executor is active so untrusted
+		// model code is never run on the host to escape the sandbox. Inconclusive
+		// outcomes (deps not installed, timeout) stay advisory; a definitive load
+		// failure flips summary.ok below.
+		const smokeResult =
+			shouldApply &&
+			!writeError &&
+			!runError &&
+			!(syntaxResult && !syntaxResult.ok)
+				? await runSmokeCheckIfNeeded(verifyCwd, writeResult, {
+						enabled: options.smoke !== false,
+						sandboxActive: activeExecutor != null,
+					})
+				: null;
 		const gitCommitResult = await maybeCommitAppliedWrites(io.cwd, options, {
 			prompt,
 			runDir,
@@ -1468,8 +1488,16 @@ export async function runPrompt(options, io) {
 			syntaxResult !== null &&
 			!syntaxResult.ok &&
 			!(testResult && testResult.ok);
+		// Phase 156: a definitive load failure (status 'failed') is not a passing
+		// run — the app provably cannot start. Inconclusive smoke outcomes
+		// ('skipped'/'timeout') never fail the run. If the test command passed,
+		// trust it over the probe.
+		const smokeFailed =
+			smokeResult !== null &&
+			smokeResult.status === 'failed' &&
+			!(testResult && testResult.ok);
 		summary.ok =
-			writeError || runError || syntaxFailed
+			writeError || runError || syntaxFailed || smokeFailed
 				? false
 				: testResult
 					? testResult.ok
@@ -1496,6 +1524,11 @@ export async function runPrompt(options, io) {
 		// C3 (phase 121): syntaxCheck omitted when no JS files were written (null).
 		if (syntaxResult !== null) {
 			summary.syntaxCheck = syntaxResult;
+		}
+		// Phase 156: smokeCheck omitted when not run (no JS entry, sandbox active,
+		// --no-smoke, or nothing applied).
+		if (smokeResult !== null) {
+			summary.smokeCheck = smokeResult;
 		}
 		// C4 (phase 122): record which Node/ESM guidance applied (builtin vs a
 		// project/user `lang:node` override). Omitted when no block fired.

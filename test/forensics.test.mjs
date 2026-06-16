@@ -728,6 +728,89 @@ describe('buildCausalStory — C3 syntaxCheck forensics', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase 156 — smokeCheck in summary.json surfaces in kodr why
+// ---------------------------------------------------------------------------
+
+describe('buildCausalStory — phase 156 smokeCheck forensics', () => {
+	let tmpSmoke;
+	before(async () => {
+		tmpSmoke = join(tmpdir(), `forensics-smoke-${Date.now()}`);
+		await mkdir(tmpSmoke, { recursive: true });
+	});
+	after(async () => {
+		await rm(tmpSmoke, { recursive: true, force: true });
+	});
+
+	const smokeStep = (story) =>
+		story
+			.filter((s) => s.phase === 'Verification')
+			.find((s) => s.detail && s.detail.includes('smoke check'));
+
+	it('ok status surfaces "smoke check: <entry> loaded ok"', async () => {
+		const dir = await makeRunDir(tmpSmoke, 'run-smoke-ok', {
+			'summary.json': {
+				...SUMMARY_OK,
+				smokeCheck: { ok: true, status: 'ok', entry: 'src/server.mjs' },
+			},
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		const step = smokeStep(story);
+		assert.ok(step, 'should have a smoke check step');
+		assert.equal(step.status, 'ok');
+		assert.match(step.detail, /smoke check: src\/server\.mjs loaded ok/u);
+	});
+
+	it('failed status surfaces "smoke check FAILED" with entry and message', async () => {
+		const dir = await makeRunDir(tmpSmoke, 'run-smoke-fail', {
+			'summary.json': {
+				...SUMMARY_OK,
+				ok: false,
+				smokeCheck: {
+					ok: false,
+					status: 'failed',
+					entry: 'src/auth.mjs',
+					message: "SyntaxError: does not provide an export named 'sign'",
+				},
+			},
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		const step = smokeStep(story);
+		assert.ok(step, 'should have a smoke check step');
+		assert.equal(step.status, 'fail');
+		assert.match(step.detail, /smoke check FAILED/u);
+		assert.match(step.detail, /src\/auth\.mjs/u);
+		assert.match(step.detail, /export named 'sign'/u);
+	});
+
+	it('skipped status (deps not installed) is advisory (warn)', async () => {
+		const dir = await makeRunDir(tmpSmoke, 'run-smoke-skip', {
+			'summary.json': {
+				...SUMMARY_OK,
+				smokeCheck: {
+					ok: false,
+					status: 'skipped',
+					entry: 'index.mjs',
+					message: 'dependencies not installed (...) — smoke-check skipped',
+				},
+			},
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		const step = smokeStep(story);
+		assert.ok(step, 'should have a smoke check step');
+		assert.equal(step.status, 'warn');
+		assert.match(step.detail, /smoke check skipped/u);
+	});
+
+	it('absent when summary has no smokeCheck', async () => {
+		const dir = await makeRunDir(tmpSmoke, 'run-no-smoke', {
+			'summary.json': SUMMARY_OK,
+		});
+		const story = buildCausalStory(await loadRunAnalysis(dir));
+		assert.equal(smokeStep(story), undefined);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // C4 (phase 122) — languageGuidance source surfaces in Context Assembly
 // ---------------------------------------------------------------------------
 

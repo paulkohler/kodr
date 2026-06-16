@@ -57,6 +57,11 @@ describe('parseArgs', () => {
 		assert.equal(parseArgs([], {}).routeAuto, false);
 	});
 
+	it('parses --no-smoke (phase 156); smoke on by default', () => {
+		assert.equal(parseArgs([], {}).smoke, true);
+		assert.equal(parseArgs(['--no-smoke'], {}).smoke, false);
+	});
+
 	it('parses model endpoint flags', () => {
 		const options = parseArgs([
 			'--base-url',

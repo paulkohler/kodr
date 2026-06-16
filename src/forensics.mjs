@@ -327,6 +327,38 @@ export function buildCausalStory(analysis) {
 		}
 	}
 
+	// Phase 156: surface the executable smoke-check between the syntax gate and
+	// the test command. A definitive load failure is a fail; deps-not-installed
+	// and timeout are advisory (warn).
+	const smokeCheck = summary?.smokeCheck;
+	if (smokeCheck !== undefined && smokeCheck !== null) {
+		const status = smokeCheck.status;
+		const entry = smokeCheck.entry || '(entry)';
+		if (status === 'ok') {
+			steps.push({
+				artifactPath: join(runDir, 'summary.json'),
+				detail: `smoke check: ${entry} loaded ok`,
+				phase: 'Verification',
+				status: 'ok',
+			});
+		} else if (status === 'failed') {
+			steps.push({
+				artifactPath: join(runDir, 'summary.json'),
+				detail: `smoke check FAILED: ${entry} — ${smokeCheck.message || 'load failed'}`,
+				phase: 'Verification',
+				status: 'fail',
+			});
+		} else {
+			// 'skipped' (deps not installed) or 'timeout' — advisory only.
+			steps.push({
+				artifactPath: join(runDir, 'summary.json'),
+				detail: `smoke check ${status}: ${entry} — ${smokeCheck.message || ''}`,
+				phase: 'Verification',
+				status: 'warn',
+			});
+		}
+	}
+
 	if (tests !== null && tests !== undefined) {
 		if (typeof tests === 'object' && tests !== null && 'ok' in tests) {
 			const ok = tests.ok === true;

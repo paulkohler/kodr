@@ -117,6 +117,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 150: auto-detect a test command for run/tui when none is set.
 		// --no-test sets this false.
 		autoTest: true,
+		// Phase 156: executable smoke-check — load-probe the project entry point
+		// after applying writes. --no-smoke sets this false.
+		smoke: true,
 		record: false,
 		evalCases: [],
 		testCommand: '',
@@ -372,6 +375,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			options.testCommand = '';
 			options._testCommandSet = true;
 			options.autoTest = false;
+			continue;
+		}
+
+		// Phase 156: opt out of the executable smoke-check (entry-point load probe).
+		if (arg === '--no-smoke') {
+			options.smoke = false;
 			continue;
 		}
 
@@ -1047,6 +1056,10 @@ OpenRouter:
   --heal               After failed verification, run a bounded repair loop.
                        Default: auto (on when --yes and --test are both set).
   --no-heal            Disable automatic healing even when --yes and --test are set.
+  --no-smoke           Disable the executable smoke-check (load-probe the project
+                       entry point after applying writes). On by default for
+                       applied JS writes with a detectable entry; skipped under a
+                       sandbox. A definitive load failure fails the run.
   --lsp                Enable LSP enrichment (run all available LSP servers on PATH).
   --no-lsp             Disable LSP enrichment.
                        Default: auto (use any LSP server found on PATH; skip silently

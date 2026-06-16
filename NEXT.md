@@ -13,20 +13,21 @@ failures are now in the *code the local models write* and at *transport edges*
 
 ## Candidates
 
-### Executable smoke-check in verification
-Surfaced by the phase-155 stress test (`process/failures.jsonl` `155-stress`). A
-qwen+orchestration Express/JWT/pg build was structurally excellent and verified
-against a real Postgres — but failed at *startup* on a CJS/ESM trap
-(`import { sign, verify } from "jsonwebtoken"`; jsonwebtoken's named exports aren't
-statically detectable). The default pipeline missed it: with no test command the
-only gate is the advisory model-reviewer, which reads source but never *loads* it.
-(The contrast: on a static site the reviewer caught both real bugs by static
-reasoning — it's load-time errors that slip through.) Candidate: when a project has
-a detectable entry point (package.json `main`/`start`, or `index.html`), add a cheap
-deterministic load probe beyond `node --check` — e.g. `import()` the entry in a
-child process — so missing-export / CJS-ESM-mismatch / import-time crashes are
-caught by verification, not left to the reviewer. Keep it advisory-safe (a failing
-smoke-check informs, doesn't necessarily block a dry-run).
+### Smoke-check follow-ups (heal integration + sandbox routing)
+The executable smoke-check shipped in phase 156 (`src/smoke-check.mjs`): it
+load-probes the entry point and fails the run on a definitive import-time crash, but
+two deliberate cuts remain. (1) **Feed a failed smoke into the heal loop** — the
+syntax gate already synthesises a verification-shaped result so healing can attempt a
+repair (`syntaxResultToVerification`); the smoke-check currently only flips `ok` and
+surfaces the error, it doesn't drive an automatic fix. A `smokeResultToVerification`
++ wiring would let the model retry against the real load error. (2) **Route the probe
+through the sandbox executor** — it is host-only today and *skipped* when a
+Docker/OpenShell executor is active (so it never runs model code on the host to
+escape the sandbox), which means sandboxed runs get no load probe at all. Running it
+inside the active executor (like the test command already does) would restore
+coverage under `--docker-sandbox`. The HTML/static-site case (a load probe can't
+`import()` HTML) is a third, separate shape — a headless DOM/script check — not
+covered here.
 
 ### Per-step model routing
 `--route-auto` (141) picks the best-history model at run start. The open half is
