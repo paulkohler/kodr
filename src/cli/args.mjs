@@ -157,6 +157,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		patchRetries: 2,
 		version: false,
 		yes: false,
+		// Phase 151: run applies + verifies by default; --confirm re-enables the
+		// interactive apply prompt for a TTY run.
+		confirm: false,
 		_apiKeySet: false,
 		_applyModeSet: false,
 		_baseUrlSet: false,
@@ -217,6 +220,13 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		if (arg === '--yes') {
 			options.dryRun = false;
 			options.yes = true;
+			continue;
+		}
+
+		// Phase 151: restore the interactive y/N apply prompt for a TTY `run`.
+		// `run` applies by default now; --confirm opts back into confirming first.
+		if (arg === '--confirm') {
+			options.confirm = true;
 			continue;
 		}
 
@@ -999,6 +1009,12 @@ OpenRouter:
                                     (--no-tools) this flag is accepted but inert.
                        Configurable via applyMode in .kodr/config.json.
                        Precedence: flag > config > default (proposal).
+  (apply default)      kodr run applies its writes and runs detected tests by
+                       default. --dry-run proposes only (no apply, no tests);
+                       --confirm asks y/N before applying on a TTY; --json stays
+                       explicit (dry unless --yes) for scripting.
+  --dry-run            Propose changes only — never write to disk, never verify.
+  --confirm            Prompt y/N before applying (the pre-151 interactive gate).
   --route-auto         At run start, load .kodr/runs history and use
                        recommendModel to select the model — only when the model
                        was not set explicitly by flag, env var, or project config.

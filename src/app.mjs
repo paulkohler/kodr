@@ -254,16 +254,16 @@ export async function main(argv, io) {
 				'info: --agent-model overrides are only used with --subagent-stages\n',
 			);
 		}
-		// Inject an interactive apply approver for TTY CLI runs unless the user
-		// passed --yes, --dry-run, or --json.
-		if (
-			io.stdin?.isTTY &&
-			io.stdout?.isTTY &&
-			!options.json &&
-			!options.yes &&
-			!options._dryRunSet
-		) {
-			runOptions.applyApprover = makeCliApplyApprover(io);
+		// Phase 151: `run` applies its writes and runs detected tests by default
+		// ("defaults favour work"). Opt-outs: --dry-run proposes only; --json stays
+		// explicit (dry unless --yes) for scripting; --confirm restores the phase-98
+		// interactive y/N apply prompt for a TTY run.
+		if (!options.json && !options.yes && !options._dryRunSet) {
+			if (options.confirm && io.stdin?.isTTY && io.stdout?.isTTY) {
+				runOptions.applyApprover = makeCliApplyApprover(io);
+			} else {
+				runOptions.yes = true;
+			}
 		}
 		let result;
 		try {
