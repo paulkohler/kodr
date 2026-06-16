@@ -123,6 +123,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 160: cross-reference sensors — compose/Dockerfile and CSS/HTML
 		// structural consistency checks. --no-sensors sets this false.
 		sensors: true,
+		// Phase 166: kodr check --strict makes advisory warnings (smoke-check
+		// failures, sensor warns) exit non-zero. Off by default.
+		strict: false,
 		record: false,
 		evalCases: [],
 		testCommand: '',
@@ -390,6 +393,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 160: opt out of deterministic cross-reference sensors.
 		if (arg === '--no-sensors') {
 			options.sensors = false;
+			continue;
+		}
+
+		// Phase 166: strict mode — advisory warnings become check failures.
+		if (arg === '--strict') {
+			options.strict = true;
 			continue;
 		}
 
@@ -949,7 +958,7 @@ Usage:
   kodr run -p "task" --route-auto
   kodr evals [--json] [--runs-dir evals/results]
   kodr watch --test "npm test"
-  kodr check [--no-smoke] [--no-sensors]
+  kodr check [--no-smoke] [--no-sensors] [--strict] [--json]
 
 Project config:
   kodr init             Write a starter .kodr/config.json with the currently
@@ -1073,6 +1082,9 @@ OpenRouter:
   --no-sensors         Disable deterministic cross-reference sensors (compose ↔
                        Dockerfile, CSS selector ↔ HTML). On by default; advisory
                        only (warn, not fail).
+  --strict             (kodr check) Promote advisory warnings — smoke-check
+                       failures and sensor warns — to check failures. Exit 1
+                       when any warning fires. Useful as a pre-commit gate.
   --lsp                Enable LSP enrichment (run all available LSP servers on PATH).
   --no-lsp             Disable LSP enrichment.
                        Default: auto (use any LSP server found on PATH; skip silently

@@ -106,4 +106,31 @@ describe('runCheck', () => {
 		assert.equal(parsed.ok, false);
 		assert.ok(Array.isArray(parsed.syntax?.failures));
 	});
+
+	it('--strict makes sensor warn exit non-zero', async () => {
+		await writeFile(
+			join(cwd, 'docker-compose.yml'),
+			'services:\n  api:\n    build: .\n',
+		);
+		const io = makeIo(cwd);
+		const result = await runCheck(
+			{ smoke: false, sensors: true, strict: true },
+			io,
+		);
+		assert.equal(result.ok, false);
+		assert.match(io._output(), /check failed/u);
+	});
+
+	it('without --strict sensor warn does not fail', async () => {
+		await writeFile(
+			join(cwd, 'docker-compose.yml'),
+			'services:\n  api:\n    build: .\n',
+		);
+		const io = makeIo(cwd);
+		const result = await runCheck(
+			{ smoke: false, sensors: true, strict: false },
+			io,
+		);
+		assert.equal(result.ok, true);
+	});
 });

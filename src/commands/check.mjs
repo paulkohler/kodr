@@ -134,7 +134,7 @@ function renderAnsi(checkResult, fileCount, stdout) {
 /**
  * Run all deterministic gates against the current workspace.
  *
- * @param {object} options  Parsed CLI options (smoke, sensors, json).
+ * @param {object} options  Parsed CLI options (smoke, sensors, json, strict).
  * @param {object} io       { cwd, stdout }
  * @returns {Promise<{ok: boolean, command: string, syntax?, smokeCheck?, sensors?}>}
  */
@@ -185,6 +185,18 @@ export async function runCheck(options, io) {
 			enabled: true,
 		});
 		checkResult.sensors = sensorResults;
+	}
+
+	// -----------------------------------------------------------------------
+	// Strict mode: promote advisory warnings to failures.
+	// -----------------------------------------------------------------------
+	if (options.strict) {
+		const smoke = checkResult.smokeCheck;
+		if (smoke && smoke.status === 'failed') checkResult.ok = false;
+		const sens = checkResult.sensors;
+		if (Array.isArray(sens) && sens.some((s) => s.status === 'warn')) {
+			checkResult.ok = false;
+		}
 	}
 
 	// -----------------------------------------------------------------------
