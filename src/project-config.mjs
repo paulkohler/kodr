@@ -43,6 +43,7 @@ const KNOWN_KEYS = new Set([
 	'agentsDirs',
 	'applyMode',
 	'routeAuto',
+	'hooks',
 ]);
 
 // Known LSP server names from the default registry. Config may reference only
@@ -225,6 +226,20 @@ function validateValue(key, value, configPath) {
 			if (!APPLY_MODES.includes(value))
 				fail(`must be one of: ${APPLY_MODES.join(', ')}`);
 			return value;
+
+		case 'hooks': {
+			if (typeof value !== 'object' || value === null || Array.isArray(value))
+				fail('must be an object');
+			const out = {};
+			for (const [k, v] of Object.entries(value)) {
+				if (k !== 'preCommit' && k !== 'prePush')
+					fail(`unknown hook key "${k}"; expected "preCommit" or "prePush"`);
+				if (typeof v !== 'string') fail(`"${k}" must be a string`);
+				if (!v.trim()) fail(`"${k}" must not be empty`);
+				out[k] = v;
+			}
+			return out;
+		}
 
 		default:
 			return value;

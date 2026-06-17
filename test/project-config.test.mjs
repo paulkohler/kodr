@@ -597,3 +597,77 @@ describe('skillsDirs and agentsDirs config keys', () => {
 		assert.deepEqual(opts.skillsDirs, ['/config-only']);
 	});
 });
+
+describe('hooks config key (Phase 191)', () => {
+	it('accepts a valid hooks block with preCommit and prePush', async () => {
+		const cwd = await setup({
+			hooks: {
+				preCommit: 'kodr check --changed --strict',
+				prePush: 'kodr check --strict --deep',
+			},
+		});
+		const loaded = loadProjectConfig(cwd, {});
+		assert.deepEqual(loaded.config.hooks, {
+			preCommit: 'kodr check --changed --strict',
+			prePush: 'kodr check --strict --deep',
+		});
+	});
+
+	it('accepts hooks with only preCommit set', async () => {
+		const cwd = await setup({
+			hooks: { preCommit: 'kodr check --changed --strict --deep' },
+		});
+		const loaded = loadProjectConfig(cwd, {});
+		assert.equal(
+			loaded.config.hooks.preCommit,
+			'kodr check --changed --strict --deep',
+		);
+		assert.equal(loaded.config.hooks.prePush, undefined);
+	});
+
+	it('rejects hooks that is not an object', async () => {
+		const cwd = await setup({ hooks: 'kodr check' });
+		assert.throws(
+			() => loadProjectConfig(cwd, {}),
+			(err) => {
+				assert.ok(err instanceof ProjectConfigError);
+				assert.match(err.message, /hooks/u);
+				return true;
+			},
+		);
+	});
+
+	it('rejects hooks with unknown key', async () => {
+		const cwd = await setup({ hooks: { preTest: 'kodr check' } });
+		assert.throws(
+			() => loadProjectConfig(cwd, {}),
+			(err) => {
+				assert.ok(err instanceof ProjectConfigError);
+				assert.match(err.message, /unknown hook key/u);
+				return true;
+			},
+		);
+	});
+
+	it('rejects hooks with non-string command value', async () => {
+		const cwd = await setup({ hooks: { preCommit: 42 } });
+		assert.throws(
+			() => loadProjectConfig(cwd, {}),
+			(err) => {
+				assert.ok(err instanceof ProjectConfigError);
+				return true;
+			},
+		);
+	});
+
+	it('rejects hooks with empty command string', async () => {
+		const cwd = await setup({ hooks: { preCommit: '  ' } });
+		assert.throws(
+			() => loadProjectConfig(cwd, {}),
+			(err) => {
+				assert.ok(err instanceof ProjectConfigError);
+				return true;
+			},
+		);
+	});
+});

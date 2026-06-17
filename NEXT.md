@@ -6,12 +6,14 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 185): `kodr check` is a comprehensive standalone
+Current frontier (phase 191): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
-and a path argument. Five cross-reference sensors (with canonical name registry
-+ `SENSOR_NAMES` export). `kodr hook install/status/uninstall` manage a pre-commit
-gate. Smoke-check heal integration: `smokeResultToVerification` adapter + second
-heal pass when smoke fails.
+and a path argument. Six cross-reference sensors (canonical name registry +
+`SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
+`kodr hook install/status/uninstall` manage pre-commit and pre-push gates;
+`.kodr/config.json` `hooks` block customises the baked-in command.
+Gate-skip reasons are observable via `gateSkips` in JSON output. Smoke-check
+heal integration: `smokeResultToVerification` adapter + second heal pass on failure.
 
 ## Candidates
 
@@ -33,13 +35,33 @@ Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
 
-### `kodr check --watch --ci`
-Combining `--watch` with `--ci` should work naturally (re-run on change using
-the CI gate). Verify the combination is exercised in a test and that the summary
-line still renders correctly.
+### Run cross-ref sensors on the proposal, not just applied writes
+`runCrossRefSensors` and the smoke-check only fire when `writeResult.applied` is
+true, so a `--dry-run` (the propose-only path scripts and `--json` callers use)
+never shows sensor warnings — the diagnostics that would catch an unresolved
+import or a missing Dockerfile are invisible until you commit to applying. Rough
+shape: run the sensors against the dry-run write set (reading proposed content
+from the draft rather than disk where files do not yet exist) so a proposal can
+be judged before it lands. Open question: smoke-check needs files on disk to
+load-probe, so it may stay apply-only while the structural sensors move earlier.
 
-### Sensor severity levels
-Currently sensors are either `ok`, `warn`, or `skipped`. Some sensors (e.g.
-import-cycles) might warrant `error` (harder failure) in strict mode while others
-stay advisory. A `severity` field on each sensor result would let `--strict` be
-more nuanced than a blanket "all warns become errors".
+### Bridge `kodr check` findings back into a fix run
+`kodr check` is purely diagnostic — it reports unresolved imports, missing
+Dockerfiles, dead CSS selectors, and cycles, but leaves the human to translate
+them into a prompt. A natural next step is a `--fix` path (or a documented
+`kodr check --json | kodr run` pipe) that turns the structured findings into a
+scoped repair task for the local model, anchored to the offending files. Open
+questions: does `--fix` apply by default like `run` does, and how do we keep the
+generated repair prompt narrow enough that the model fixes the cross-reference
+rather than rewriting the file.
+
+### Project-defined and per-sensor toggles
+The cross-reference sensors are a fixed registry of five, gated only by the
+blanket `--no-sensors`. There is no way to silence one noisy sensor (e.g.
+secret-in-response on a codebase that legitimately returns tokens) while keeping
+the rest, and no way for a project to register a sensor of its own. Rough shape:
+a `sensors` block in `.kodr/config.json` listing enabled/disabled sensor names
+(validated against `SENSOR_NAMES`), and possibly a discovery hook for a
+project-local sensor module. Open question: how much of the sensor contract to
+expose without inviting model-authored sensors to run untrusted code.
+

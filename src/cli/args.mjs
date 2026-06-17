@@ -134,6 +134,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		deep: false,
 		// Phase 174: kodr hook <sub-command>
 		hookSubcommand: '',
+		// Phase 191: kodr hook install/uninstall --pre-push targets the pre-push hook.
+		prePush: false,
 		record: false,
 		evalCases: [],
 		testCommand: '',
@@ -265,6 +267,11 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--force') {
 			options.force = true;
+			continue;
+		}
+
+		if (arg === '--pre-push') {
+			options.prePush = true;
 			continue;
 		}
 
