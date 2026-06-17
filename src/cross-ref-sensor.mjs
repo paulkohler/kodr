@@ -24,6 +24,11 @@
 //   import chains (A → B → A). Cycles don't crash Node.js but can produce
 //   `undefined` exports at runtime and are hard to diagnose.
 //
+// Phase 173: Secret-in-response sensor.
+//   Heuristic: flags JS code where a variable or property named
+//   password/hash/secret/token/credential appears to be serialised or returned
+//   to callers (res.json, JSON.stringify, jwt.sign, return {…}). Advisory only.
+//
 // Design:
 // - Run only when a write was applied and the sensor's file type was written.
 // - Return { sensor, status, checked, issues, message }.
@@ -823,6 +828,138 @@ export async function runImportCycleSensor(cwd, writePaths) {
 }
 
 // ---------------------------------------------------------------------------
+// Secret-in-response sensor (Phase 173)
+// ---------------------------------------------------------------------------
+
+// Sensitive field names — matches property access, destructuring, and variable
+// names that commonly hold secrets.
+const SECRET_NAMES =
+	/\b(?:password|passwd|pwd|secret|token|credential|api_?key|auth_?key|hash|salt|private_?key)\b/iu;
+
+// Serialisation / response sinks that write data to an untrusted channel.
+const SINK_PATTERNS = [
+	// res.json(...) / res.send(...) / res.end(...)
+	/\bres\s*\.\s*(?:json|send|end)\s*\(/u,
+	// JSON.stringify(...)
+	/\bJSON\s*\.\s*stringify\s*\(/u,
+	// jwt.sign(...) / sign(...)
+	/\bjwt\s*\.\s*sign\s*\(|(?<![.\w])sign\s*\(/u,
+	// return { ... }  — object literal in return position
+	/\breturn\s*\{/u,
+];
+
+/**
+ * Scan one JS file for lines where a secret-named value reaches a
+ * serialisation or response sink on the same line or within a small window.
+ * Returns an array of hit objects { line, lineNo, pattern }.
+ *
+ * This is a line-window heuristic, not a full data-flow analysis. It flags
+ * the common case where a variable named `password` appears in the same
+ * expression as `res.json`, `JSON.stringify`, `jwt.sign`, or `return {`.
+ * False positives are possible; the sensor is advisory only.
+ *
+ * @param {string} content
+ * @returns {Array<{lineNo: number, line: string, pattern: string}>}
+ */
+export function scanSecretLeaks(content) {
+	const lines = content.split('\n');
+	const hits = [];
+	const WINDOW = 4; // lines to look back/forward from a sink
+
+	for (let i = 0; i < lines.length; i++) {
+		// Check whether this line contains a sink
+		const sinkMatch = SINK_PATTERNS.find((p) => p.test(lines[i]));
+		if (!sinkMatch) continue;
+
+		// Look for a secret-named token in the surrounding window
+		const start = Math.max(0, i - WINDOW);
+		const end = Math.min(lines.length - 1, i + WINDOW);
+		const window = lines.slice(start, end + 1).join('\n');
+
+		if (SECRET_NAMES.test(window)) {
+			hits.push({
+				line: lines[i].trim(),
+				lineNo: i + 1,
+				pattern: sinkMatch.source,
+			});
+		}
+	}
+	return hits;
+}
+
+/**
+ * Run the secret-in-response sensor on a set of written JS files.
+ * Flags heuristic patterns where secret-named values reach serialisation sinks.
+ *
+ * @param {string}   cwd
+ * @param {string[]} writePaths  Workspace-relative written file paths.
+ * @returns {Promise<{sensor: string, status: 'ok'|'warn'|'skipped', checked: number, issues: object[], message: string}>}
+ */
+export async function runSecretInResponseSensor(cwd, writePaths) {
+	const jsPaths = writePaths.filter((p) =>
+		LOCAL_JS_EXTENSIONS.has(extname(p).toLowerCase()),
+	);
+	if (jsPaths.length === 0) {
+		return {
+			sensor: 'secret-in-response',
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no JS files in write set',
+		};
+	}
+
+	let checked = 0;
+	const allIssues = [];
+
+	for (const jsPath of jsPaths) {
+		let content;
+		try {
+			content = await readFile(join(cwd, jsPath), 'utf8');
+		} catch {
+			continue;
+		}
+		checked++;
+		for (const hit of scanSecretLeaks(content)) {
+			allIssues.push({ jsPath, ...hit });
+		}
+	}
+
+	if (checked === 0) {
+		return {
+			sensor: 'secret-in-response',
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no readable JS files in write set',
+		};
+	}
+
+	if (allIssues.length === 0) {
+		return {
+			checked,
+			issues: [],
+			message: `${checked} file${checked !== 1 ? 's' : ''} ok — no secret-in-response patterns`,
+			sensor: 'secret-in-response',
+			status: 'ok',
+		};
+	}
+
+	const summary = allIssues
+		.slice(0, 3)
+		.map((i) => `${i.jsPath}:${i.lineNo}`)
+		.join('; ');
+	const extra = allIssues.length > 3 ? ` (+${allIssues.length - 3} more)` : '';
+	return {
+		checked,
+		issues: allIssues,
+		message: `${allIssues.length} potential secret leak${allIssues.length !== 1 ? 's' : ''}: ${summary}${extra}`,
+		sensor: 'secret-in-response',
+		status: 'warn',
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Convenience gate: run all cross-ref sensors when a write was applied
 // ---------------------------------------------------------------------------
 
@@ -844,15 +981,16 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 		: [];
 	if (paths.length === 0) return [];
 
-	const [compose, css, localImport, cycles] = await Promise.all([
+	const [compose, css, localImport, cycles, secrets] = await Promise.all([
 		runComposeDockerfileSensor(cwd, paths),
 		runCssSelectorSensor(cwd, paths),
 		runLocalImportSensor(cwd, paths),
 		runImportCycleSensor(cwd, paths),
+		runSecretInResponseSensor(cwd, paths),
 	]);
 
 	// Omit sensors that skipped (no relevant files) to keep summary lean
-	return [compose, css, localImport, cycles].filter(
+	return [compose, css, localImport, cycles, secrets].filter(
 		(r) => r.status !== 'skipped',
 	);
 }

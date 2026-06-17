@@ -18,6 +18,8 @@ import {
 	runLocalImportSensor,
 	findCycles,
 	runImportCycleSensor,
+	scanSecretLeaks,
+	runSecretInResponseSensor,
 	runCrossRefSensors,
 } from '../src/cross-ref-sensor.mjs';
 
@@ -568,6 +570,87 @@ describe('runImportCycleSensor', () => {
 		assert.equal(r.status, 'warn');
 		assert.equal(r.issues.length, 1);
 		assert.ok(r.message.includes('import cycle'));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// scanSecretLeaks (Phase 173)
+// ---------------------------------------------------------------------------
+
+describe('scanSecretLeaks', () => {
+	it('flags password near res.json on the same line', () => {
+		const code = 'res.json({ id: user.id, password: user.password });\n';
+		const hits = scanSecretLeaks(code);
+		assert.ok(hits.length > 0);
+		assert.equal(hits[0].lineNo, 1);
+	});
+
+	it('flags secret near JSON.stringify', () => {
+		const code = 'const body = JSON.stringify({ token, secret });\n';
+		const hits = scanSecretLeaks(code);
+		assert.ok(hits.length > 0);
+	});
+
+	it('flags password in window near jwt.sign', () => {
+		const code = [
+			'const payload = {',
+			'  id: user.id,',
+			'  passwordHash: user.passwordHash,',
+			'};',
+			'const tok = jwt.sign(payload, SECRET);',
+		].join('\n');
+		const hits = scanSecretLeaks(code);
+		assert.ok(hits.length > 0);
+	});
+
+	it('does not flag when no secret near sink', () => {
+		const code = 'res.json({ id: user.id, name: user.name });\n';
+		const hits = scanSecretLeaks(code);
+		assert.equal(hits.length, 0);
+	});
+
+	it('does not flag when secret variable exists but no sink', () => {
+		const code = 'const password = await bcrypt.hash(raw, 10);\n';
+		const hits = scanSecretLeaks(code);
+		assert.equal(hits.length, 0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// runSecretInResponseSensor (Phase 173)
+// ---------------------------------------------------------------------------
+
+describe('runSecretInResponseSensor', () => {
+	let cwd;
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), 'kodr-secret-'));
+	});
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	it('skips when no JS files in write set', async () => {
+		const r = await runSecretInResponseSensor(cwd, ['styles.css']);
+		assert.equal(r.status, 'skipped');
+	});
+
+	it('returns ok when no leaks detected', async () => {
+		await writeFile(
+			join(cwd, 'api.mjs'),
+			'res.json({ id: user.id, name: user.name });\n',
+		);
+		const r = await runSecretInResponseSensor(cwd, ['api.mjs']);
+		assert.equal(r.status, 'ok');
+	});
+
+	it('returns warn when password reaches res.json', async () => {
+		await writeFile(
+			join(cwd, 'api.mjs'),
+			'res.json({ id: user.id, password: user.password });\n',
+		);
+		const r = await runSecretInResponseSensor(cwd, ['api.mjs']);
+		assert.equal(r.status, 'warn');
+		assert.ok(r.message.includes('secret leak'));
 	});
 });
 

@@ -172,6 +172,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 170 kodr check Optional Path Argument
 - [x] 171 kodr check --changed Git-Aware Fast Check
 - [x] 172 Import Cycle Detection Sensor
+- [x] 173 Secret-in-Response Sensor
 
 ## Phase Contract
 
