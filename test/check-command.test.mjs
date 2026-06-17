@@ -117,7 +117,24 @@ describe('runCheck', () => {
 		assert.ok(Array.isArray(parsed.syntax?.failures));
 	});
 
-	it('--strict makes sensor warn exit non-zero', async () => {
+	it('--strict promotes error-severity sensor warn to failure', async () => {
+		// local-import is error-severity: unresolved imports are runtime-breaking.
+		await mkdir(join(cwd, 'src'));
+		await writeFile(
+			join(cwd, 'src', 'app.mjs'),
+			"import { helper } from './missing-helper.mjs';\nexport const x = 1;\n",
+		);
+		const io = makeIo(cwd);
+		const result = await runCheck(
+			{ smoke: false, sensors: true, strict: true },
+			io,
+		);
+		assert.equal(result.ok, false);
+		assert.match(io._output(), /check failed/u);
+	});
+
+	it('--strict leaves warning-severity sensor advisory', async () => {
+		// compose-dockerfile is warning-severity: missing Dockerfile may be WIP.
 		await writeFile(
 			join(cwd, 'docker-compose.yml'),
 			'services:\n  api:\n    build: .\n',
@@ -127,8 +144,9 @@ describe('runCheck', () => {
 			{ smoke: false, sensors: true, strict: true },
 			io,
 		);
-		assert.equal(result.ok, false);
-		assert.match(io._output(), /check failed/u);
+		// Warning-severity sensor fires but strict mode does not fail the check.
+		assert.equal(result.ok, true);
+		assert.match(io._output(), /check passed/u);
 	});
 
 	it('without --strict sensor warn does not fail', async () => {

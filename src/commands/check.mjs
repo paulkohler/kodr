@@ -13,7 +13,11 @@
 
 import { readdir, watch } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { runCrossRefSensors, SENSOR_NAMES } from '../cross-ref-sensor.mjs';
+import {
+	runCrossRefSensors,
+	SENSOR_NAMES,
+	SENSOR_SEVERITY,
+} from '../cross-ref-sensor.mjs';
 import { runGit } from '../git-workspace.mjs';
 import { runSmokeCheckIfNeeded } from '../smoke-check.mjs';
 import { runSyntaxGateIfNeeded } from '../syntax-gate.mjs';
@@ -252,13 +256,21 @@ export async function runCheck(options, io) {
 	}
 
 	// -----------------------------------------------------------------------
-	// Strict mode: promote advisory warnings to failures.
+	// Strict mode: promote error-severity warnings to failures.
+	// warning-severity sensors remain advisory even in strict mode.
 	// -----------------------------------------------------------------------
 	if (options.strict) {
 		const smoke = checkResult.smokeCheck;
 		if (smoke && smoke.status === 'failed') checkResult.ok = false;
 		const sens = checkResult.sensors;
-		if (Array.isArray(sens) && sens.some((s) => s.status === 'warn')) {
+		if (
+			Array.isArray(sens) &&
+			sens.some(
+				(s) =>
+					s.status === 'warn' &&
+					(s.severity ?? SENSOR_SEVERITY[s.sensor] ?? 'error') === 'error',
+			)
+		) {
 			checkResult.ok = false;
 		}
 	}

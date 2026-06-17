@@ -60,6 +60,17 @@ export const SENSOR_NAMES = {
 	SECRET_IN_RESPONSE: 'secret-in-response',
 };
 
+// Phase 188: per-sensor default severity.
+// 'error'   — runtime-breaking or security-critical; promoted to failure by --strict.
+// 'warning' — advisory; informational even in --strict mode.
+export const SENSOR_SEVERITY = {
+	[SENSOR_NAMES.COMPOSE_DOCKERFILE]: 'warning',
+	[SENSOR_NAMES.CSS_SELECTOR]: 'warning',
+	[SENSOR_NAMES.LOCAL_IMPORT]: 'error',
+	[SENSOR_NAMES.IMPORT_CYCLES]: 'error',
+	[SENSOR_NAMES.SECRET_IN_RESPONSE]: 'error',
+};
+
 // ---------------------------------------------------------------------------
 // Compose ↔ Dockerfile sensor (Phase 158)
 // ---------------------------------------------------------------------------
@@ -220,6 +231,7 @@ export async function runComposeDockerfileSensor(cwd, writePaths) {
 		issues: allIssues,
 		message: detail,
 		sensor: SENSOR_NAMES.COMPOSE_DOCKERFILE,
+		severity: SENSOR_SEVERITY[SENSOR_NAMES.COMPOSE_DOCKERFILE],
 		status: 'warn',
 	};
 }
@@ -494,6 +506,7 @@ export async function runCssSelectorSensor(cwd, writePaths) {
 		issues: allIssues,
 		message: `${allIssues.length} selector${allIssues.length !== 1 ? 's' : ''} match no element: ${summary}${extra}`,
 		sensor: SENSOR_NAMES.CSS_SELECTOR,
+		severity: SENSOR_SEVERITY[SENSOR_NAMES.CSS_SELECTOR],
 		status: 'warn',
 	};
 }
@@ -668,6 +681,7 @@ export async function runLocalImportSensor(cwd, writePaths) {
 		issues: allIssues,
 		message: `${allIssues.length} unresolved local import${allIssues.length !== 1 ? 's' : ''}: ${summary}${extra}`,
 		sensor: SENSOR_NAMES.LOCAL_IMPORT,
+		severity: SENSOR_SEVERITY[SENSOR_NAMES.LOCAL_IMPORT],
 		status: 'warn',
 	};
 }
@@ -894,6 +908,7 @@ export async function runImportCycleSensor(cwd, writePaths, opts = {}) {
 		issues,
 		message: `${cycles.length} import cycle${cycles.length !== 1 ? 's' : ''}: ${summary}${extra}`,
 		sensor: SENSOR_NAMES.IMPORT_CYCLES,
+		severity: SENSOR_SEVERITY[SENSOR_NAMES.IMPORT_CYCLES],
 		status: 'warn',
 	};
 }
@@ -1043,6 +1058,7 @@ export async function runSecretInResponseSensor(cwd, writePaths) {
 		issues: allIssues,
 		message: `${allIssues.length} potential secret leak${allIssues.length !== 1 ? 's' : ''}: ${summary}${extra}`,
 		sensor: SENSOR_NAMES.SECRET_IN_RESPONSE,
+		severity: SENSOR_SEVERITY[SENSOR_NAMES.SECRET_IN_RESPONSE],
 		status: 'warn',
 	};
 }

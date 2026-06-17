@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 
 import {
 	SENSOR_NAMES,
+	SENSOR_SEVERITY,
 	extractBuildContexts,
 	checkComposeDockerfile,
 	runComposeDockerfileSensor,
@@ -779,6 +780,57 @@ describe('SENSOR_NAMES', () => {
 		assert.ok(names.includes('local-import'));
 		assert.ok(names.includes('import-cycles'));
 		assert.ok(names.includes('secret-in-response'));
+	});
+
+	it('SENSOR_SEVERITY has error/warning entry for every sensor', () => {
+		for (const name of Object.values(SENSOR_NAMES)) {
+			assert.ok(
+				SENSOR_SEVERITY[name] === 'error' ||
+					SENSOR_SEVERITY[name] === 'warning',
+				`${name} must have severity 'error' or 'warning'`,
+			);
+		}
+	});
+
+	it('local-import, import-cycles, secret-in-response are error-severity', () => {
+		assert.equal(SENSOR_SEVERITY[SENSOR_NAMES.LOCAL_IMPORT], 'error');
+		assert.equal(SENSOR_SEVERITY[SENSOR_NAMES.IMPORT_CYCLES], 'error');
+		assert.equal(SENSOR_SEVERITY[SENSOR_NAMES.SECRET_IN_RESPONSE], 'error');
+	});
+
+	it('compose-dockerfile and css-selector are warning-severity', () => {
+		assert.equal(SENSOR_SEVERITY[SENSOR_NAMES.COMPOSE_DOCKERFILE], 'warning');
+		assert.equal(SENSOR_SEVERITY[SENSOR_NAMES.CSS_SELECTOR], 'warning');
+	});
+
+	it('warn results include severity field', async () => {
+		const tmpCwd = await import('node:os').then((m) =>
+			import('node:fs/promises').then((fs) =>
+				fs.mkdtemp(m.tmpdir() + '/sev-test-'),
+			),
+		);
+		try {
+			await import('node:fs/promises').then((fs) =>
+				fs.writeFile(
+					tmpCwd + '/docker-compose.yml',
+					'services:\n  api:\n    build: .\n',
+				),
+			);
+			const r = await runCrossRefSensors(tmpCwd, {
+				applied: true,
+				writes: [{ path: 'docker-compose.yml' }],
+			});
+			const warn = r.find(
+				(s) =>
+					s.sensor === SENSOR_NAMES.COMPOSE_DOCKERFILE && s.status === 'warn',
+			);
+			assert.ok(warn, 'compose-dockerfile sensor fires a warn');
+			assert.equal(warn.severity, 'warning');
+		} finally {
+			await import('node:fs/promises').then((fs) =>
+				fs.rm(tmpCwd, { recursive: true, force: true }),
+			);
+		}
 	});
 
 	it('sensor results use the canonical names', async () => {
