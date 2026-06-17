@@ -27,18 +27,37 @@ for hook subcommands, `--fix`, `--watch`, and `sensors`/`hooks` config blocks.
 
 ## Candidates
 
+### Session 2 file-protection by default
+
+In every example run, Session 2 introduced regressions by rewriting files from
+Session 1 from scratch rather than extending them. A `--protect-session-1` mode
+(or simply applying `--protect-existing` to files that pre-date the current run)
+would force the model to patch rather than replace, catching API breakage before
+tests run. Concretely: any file written in a prior kodr run should be diff-only
+(no full replacement) in a subsequent run unless explicitly opted out.
+
+### Async Express route antipattern sensor
+
+A repeating model mistake: `app.post('/route', asyncFn(args))` where `asyncFn(args)`
+returns a Promise that Express misinterprets as a non-function callback. This is
+detectable statically: if a route handler is not a function literal or identifier
+but a call expression, flag it. Could live in the `local-import` sensor family
+or as a new `express-async-route` cross-ref sensor.
+
+### ANSI-aware string truncation utility
+
+`formatTable` in the issue-tracker example truncated cells by raw character count,
+clipping mid-ANSI-escape-sequence and producing visible garbage. A small utility
+`visibleWidth(str)` + `truncateVisible(str, width)` that strips escape sequences
+before measuring would fix this pattern. Worth adding to the Node dev builtin skill
+so models can `import { truncateVisible } from 'kodr:ansi'` or similar.
+
 ### Smoke-as-verification in the heal loop
 Phase 184 wired a smoke-driven second heal pass, but the in-loop verification
 still uses `options.testCommand`. When no testCommand is set, smoke failures can't
 drive repairs. Full smoke-as-verification requires pluggable verification backends
 in the heal loop: callers pass a `verify` function instead of a `testCommand` string.
 This is a significant architecture change; record here for later.
-
-### Per-step model routing
-`--route-auto` (141) picks the best-history model at run start. The open half is
-splitting *within* a run: cheap tasks (commit messages, compaction, summaries)
-to a `cheapModel`, edits to `editModel`, recording the per-step choice in the
-summary so `kodr why` shows which model handled which step.
 
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the

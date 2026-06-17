@@ -116,6 +116,7 @@ export function parseVerificationCommand(command) {
 export async function runVerification(cwd, command, options = {}) {
 	const parsed = parseVerificationCommand(command);
 	const timeoutMs = options.timeoutMs || 60000;
+	const testTimeoutMs = options.testTimeoutMs || 10000;
 	const runner = options.runner || spawnCommand;
 	const startedAt = new Date().toISOString();
 	const started = performance.now();
@@ -139,7 +140,15 @@ export async function runVerification(cwd, command, options = {}) {
 		await writeLastTest(cwd, summary);
 		return summary;
 	}
-	const result = await runner(cwd, parsed, timeoutMs);
+	// Bound individual test hangs: node --test runs forever on unresolved Promises.
+	const effective =
+		parsed.bin === 'node' && parsed.args.includes('--test')
+			? {
+					bin: parsed.bin,
+					args: [...parsed.args, `--test-timeout=${testTimeoutMs}`],
+				}
+			: parsed;
+	const result = await runner(cwd, effective, timeoutMs);
 	const finishedAt = new Date().toISOString();
 	const summary = {
 		command,

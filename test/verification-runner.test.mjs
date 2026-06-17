@@ -242,6 +242,52 @@ describe('verification runner', () => {
 		);
 	});
 
+	it('injects --test-timeout into node --test invocations', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-timeout-inject-'));
+		let capturedArgs;
+		await runVerification(cwd, 'node --test', {
+			runner: async (_cwd, effective) => {
+				capturedArgs = effective.args;
+				return { exitCode: 0, stderr: '', stdout: 'tests 1', timedOut: false };
+			},
+		});
+		assert.ok(
+			capturedArgs.some((a) => a.startsWith('--test-timeout=')),
+			`expected --test-timeout in args: ${capturedArgs.join(' ')}`,
+		);
+	});
+
+	it('uses testTimeoutMs option for --test-timeout value', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-timeout-custom-'));
+		let capturedArgs;
+		await runVerification(cwd, 'node --test', {
+			testTimeoutMs: 5000,
+			runner: async (_cwd, effective) => {
+				capturedArgs = effective.args;
+				return { exitCode: 0, stderr: '', stdout: 'tests 1', timedOut: false };
+			},
+		});
+		assert.ok(
+			capturedArgs.includes('--test-timeout=5000'),
+			`expected --test-timeout=5000 in args: ${capturedArgs.join(' ')}`,
+		);
+	});
+
+	it('does not inject --test-timeout for non-node-test commands', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-no-inject-'));
+		let capturedArgs;
+		await runVerification(cwd, 'node --check ok.mjs', {
+			runner: async (_cwd, effective) => {
+				capturedArgs = effective.args;
+				return { exitCode: 0, stderr: '', stdout: '', timedOut: false };
+			},
+		});
+		assert.ok(
+			!capturedArgs.some((a) => a.startsWith('--test-timeout=')),
+			`expected no --test-timeout in args: ${capturedArgs.join(' ')}`,
+		);
+	});
+
 	it('marks node test runs with zero tests as failed', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-empty-'));
 		await writeFile(
