@@ -186,6 +186,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 184 Smoke-Check Heal Integration
 - [x] 185 kodr check --ci Convenience Flag
 - [x] 186 NEXT.md Cleanup (post-185 retrospective)
+- [x] 187 kodr check --watch --ci Combination
 
 ## Phase Contract
 

@@ -206,4 +206,52 @@ describe('runCheckWatch', () => {
 		assert.match(io._output(), /syntax check|no files/u);
 		assert.match(io._output(), /watching for changes/u);
 	});
+
+	it('--watch --ci combination: runs with changed+strict and exits cleanly', async () => {
+		await writeFile(join(cwd, 'app.mjs'), 'export const x = 1;\n');
+		const io = makeIo(cwd);
+		const ac = new AbortController();
+		setTimeout(() => ac.abort(), 50);
+		const result = await runCheckWatch(
+			{ smoke: false, sensors: false, changed: true, strict: true },
+			io,
+			ac.signal,
+		);
+		assert.equal(result.ok, true);
+		assert.equal(result.command, 'check');
+		assert.match(io._output(), /watching for changes/u);
+	});
+
+	it('--watch --ci renders summary line on initial check', async () => {
+		await writeFile(join(cwd, 'app.mjs'), 'export const x = 1;\n');
+		const io = makeIo(cwd);
+		const ac = new AbortController();
+		setTimeout(() => ac.abort(), 50);
+		await runCheckWatch(
+			{ smoke: false, sensors: false, changed: true, strict: true },
+			io,
+			ac.signal,
+		);
+		// Summary line should still appear even with CI flags active
+		assert.match(io._output(), /\d+ files?/u);
+	});
+
+	it('--watch --ci with sensor warning: watcher keeps running despite strict failure', async () => {
+		await writeFile(
+			join(cwd, 'docker-compose.yml'),
+			'services:\n  api:\n    build: .\n',
+		);
+		const io = makeIo(cwd);
+		const ac = new AbortController();
+		setTimeout(() => ac.abort(), 50);
+		// Watch result is always ok:true (the watcher loop stays alive through failures)
+		const result = await runCheckWatch(
+			{ smoke: false, sensors: true, changed: true, strict: true },
+			io,
+			ac.signal,
+		);
+		assert.equal(result.ok, true);
+		assert.equal(result.command, 'check');
+		assert.match(io._output(), /watching for changes/u);
+	});
 });
