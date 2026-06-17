@@ -171,6 +171,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 169 Smoke-Check and Sensor Hit-Rates in kodr trends
 - [x] 170 kodr check Optional Path Argument
 - [x] 171 kodr check --changed Git-Aware Fast Check
+- [x] 172 Import Cycle Detection Sensor
 
 ## Phase Contract
 

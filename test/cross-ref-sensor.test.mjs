@@ -16,6 +16,8 @@ import {
 	extractLocalImportPaths,
 	resolveLocalImport,
 	runLocalImportSensor,
+	findCycles,
+	runImportCycleSensor,
 	runCrossRefSensors,
 } from '../src/cross-ref-sensor.mjs';
 
@@ -471,6 +473,101 @@ describe('runLocalImportSensor', () => {
 		await writeFile(join(cwd, 'app.mjs'), "import { x } from './utils';\n");
 		const r = await runLocalImportSensor(cwd, ['app.mjs', 'utils.mjs']);
 		assert.equal(r.status, 'ok');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// findCycles (Phase 172)
+// ---------------------------------------------------------------------------
+
+describe('findCycles', () => {
+	it('detects a simple two-node cycle', () => {
+		const graph = new Map([
+			['a.mjs', ['b.mjs']],
+			['b.mjs', ['a.mjs']],
+		]);
+		const cycles = findCycles(graph);
+		assert.equal(cycles.length, 1);
+		assert.ok(cycles[0].includes('a.mjs'));
+		assert.ok(cycles[0].includes('b.mjs'));
+	});
+
+	it('detects a three-node cycle', () => {
+		const graph = new Map([
+			['a.mjs', ['b.mjs']],
+			['b.mjs', ['c.mjs']],
+			['c.mjs', ['a.mjs']],
+		]);
+		const cycles = findCycles(graph);
+		assert.equal(cycles.length, 1);
+		assert.equal(cycles[0].length, 4); // a→b→c→a
+	});
+
+	it('returns empty array when no cycles', () => {
+		const graph = new Map([
+			['a.mjs', ['b.mjs']],
+			['b.mjs', ['c.mjs']],
+			['c.mjs', []],
+		]);
+		assert.deepEqual(findCycles(graph), []);
+	});
+
+	it('deduplicates the same cycle found from different entry points', () => {
+		// A→B→A is the same cycle whether detected from A or B
+		const graph = new Map([
+			['a.mjs', ['b.mjs']],
+			['b.mjs', ['a.mjs']],
+			['c.mjs', []],
+		]);
+		const cycles = findCycles(graph);
+		assert.equal(cycles.length, 1);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// runImportCycleSensor (Phase 172)
+// ---------------------------------------------------------------------------
+
+describe('runImportCycleSensor', () => {
+	let cwd;
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), 'kodr-cycles-'));
+	});
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	it('skips when no JS files in write set', async () => {
+		const r = await runImportCycleSensor(cwd, ['README.md']);
+		assert.equal(r.status, 'skipped');
+	});
+
+	it('skips when JS files are not on disk', async () => {
+		const r = await runImportCycleSensor(cwd, ['ghost.mjs']);
+		assert.equal(r.status, 'skipped');
+	});
+
+	it('returns ok when no cycles', async () => {
+		await writeFile(join(cwd, 'a.mjs'), "import { x } from './b.mjs';\n");
+		await writeFile(join(cwd, 'b.mjs'), 'export const x = 1;\n');
+		const r = await runImportCycleSensor(cwd, ['a.mjs', 'b.mjs']);
+		assert.equal(r.status, 'ok');
+		assert.equal(r.issues.length, 0);
+	});
+
+	it('returns warn when a cycle is detected', async () => {
+		await writeFile(
+			join(cwd, 'a.mjs'),
+			"import { b } from './b.mjs';\nexport const a = 1;\n",
+		);
+		await writeFile(
+			join(cwd, 'b.mjs'),
+			"import { a } from './a.mjs';\nexport const b = 1;\n",
+		);
+		const r = await runImportCycleSensor(cwd, ['a.mjs', 'b.mjs']);
+		assert.equal(r.status, 'warn');
+		assert.equal(r.issues.length, 1);
+		assert.ok(r.message.includes('import cycle'));
 	});
 });
 

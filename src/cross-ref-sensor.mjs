@@ -19,6 +19,11 @@
 //   a path which does not exist on disk. Catches the common case where the model
 //   writes a file that imports from a peer it forgot to create.
 //
+// Phase 172: Import cycle detection sensor.
+//   Builds a dependency graph from the write set and runs DFS to find circular
+//   import chains (A → B → A). Cycles don't crash Node.js but can produce
+//   `undefined` exports at runtime and are hard to diagnose.
+//
 // Design:
 // - Run only when a write was applied and the sensor's file type was written.
 // - Return { sensor, status, checked, issues, message }.
@@ -28,7 +33,15 @@
 // - Zero runtime dependencies; Node.js 24 built-ins only.
 
 import { access, readFile } from 'node:fs/promises';
-import { basename, dirname, extname, join, normalize, posix } from 'node:path';
+import {
+	basename,
+	dirname,
+	extname,
+	join,
+	normalize,
+	posix,
+	relative,
+} from 'node:path';
 
 // ---------------------------------------------------------------------------
 // Compose ↔ Dockerfile sensor (Phase 158)
@@ -521,15 +534,14 @@ export function extractLocalImportPaths(content) {
 
 /**
  * Resolve a relative import specifier against an importer directory.
- * Tries the specifier as-is; if no extension and not found, appends common
- * JS extensions, then tries <path>/index.<ext>.
- * Returns true when the target file exists on disk.
+ * Returns the absolute path of the resolved file, or null if not found.
+ * Internal helper shared by resolveLocalImport and buildImportGraph.
  *
  * @param {string} specifier      Relative import path (e.g. './utils' or '../lib/foo.mjs').
  * @param {string} importerAbsDir Absolute directory of the importing file.
- * @returns {Promise<boolean>}
+ * @returns {Promise<string|null>}
  */
-export async function resolveLocalImport(specifier, importerAbsDir) {
+async function resolveLocalImportAbs(specifier, importerAbsDir) {
 	const hasExt = Boolean(extname(specifier));
 	const candidates = [specifier];
 	if (!hasExt) {
@@ -541,14 +553,27 @@ export async function resolveLocalImport(specifier, importerAbsDir) {
 		}
 	}
 	for (const candidate of candidates) {
+		const abs = join(importerAbsDir, candidate);
 		try {
-			await access(join(importerAbsDir, candidate));
-			return true;
+			await access(abs);
+			return abs;
 		} catch {
 			// try next
 		}
 	}
-	return false;
+	return null;
+}
+
+/**
+ * Resolve a relative import specifier against an importer directory.
+ * Returns true when the target file exists on disk.
+ *
+ * @param {string} specifier      Relative import path (e.g. './utils' or '../lib/foo.mjs').
+ * @param {string} importerAbsDir Absolute directory of the importing file.
+ * @returns {Promise<boolean>}
+ */
+export async function resolveLocalImport(specifier, importerAbsDir) {
+	return (await resolveLocalImportAbs(specifier, importerAbsDir)) !== null;
 }
 
 /**
@@ -589,8 +614,8 @@ export async function runLocalImportSensor(cwd, writePaths) {
 		const fileDir = dirname(abs);
 
 		for (const specifier of specifiers) {
-			const found = await resolveLocalImport(specifier, fileDir);
-			if (!found) {
+			const resolved = await resolveLocalImportAbs(specifier, fileDir);
+			if (!resolved) {
 				allIssues.push({ jsPath, specifier });
 			}
 		}
@@ -631,6 +656,173 @@ export async function runLocalImportSensor(cwd, writePaths) {
 }
 
 // ---------------------------------------------------------------------------
+// Import cycle detection sensor (Phase 172)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a dependency graph from a set of JS files within the write set.
+ * Only edges where both the importer and the imported file are in jsPaths
+ * are recorded (intra-set edges), so cycles that span outside the write set
+ * are not detected. Returns { graph: Map<path, path[]>, readCount: number }.
+ *
+ * @param {string}   cwd
+ * @param {string[]} jsPaths  Workspace-relative JS paths.
+ * @returns {Promise<{ graph: Map<string, string[]>, readCount: number }>}
+ */
+async function buildImportGraph(cwd, jsPaths) {
+	const pathSet = new Set(jsPaths);
+	const graph = new Map();
+	let readCount = 0;
+
+	for (const jsPath of jsPaths) {
+		graph.set(jsPath, []);
+		const abs = join(cwd, jsPath);
+		let content;
+		try {
+			content = await readFile(abs, 'utf8');
+		} catch {
+			continue;
+		}
+		readCount++;
+		const fileDir = dirname(abs);
+
+		for (const specifier of extractLocalImportPaths(content)) {
+			const resolved = await resolveLocalImportAbs(specifier, fileDir);
+			if (!resolved) continue;
+			const rel = relative(cwd, resolved).replace(/\\/gu, '/');
+			if (pathSet.has(rel) && rel !== jsPath) {
+				graph.get(jsPath).push(rel);
+			}
+		}
+	}
+
+	return { graph, readCount };
+}
+
+/**
+ * Canonicalize a cycle array for deduplication.
+ * Rotates so the lexicographically smallest node is first.
+ *
+ * @param {string[]} cycle  e.g. ['b.mjs', 'c.mjs', 'b.mjs']
+ * @returns {string}
+ */
+function canonicalizeCycle(cycle) {
+	const nodes = cycle.slice(0, -1);
+	const minIdx = nodes.reduce(
+		(best, node, i) => (node < nodes[best] ? i : best),
+		0,
+	);
+	const rotated = [...nodes.slice(minIdx), ...nodes.slice(0, minIdx)];
+	return rotated.join('\0');
+}
+
+/**
+ * Run DFS on an import graph to find circular dependency chains.
+ * Returns an array of cycles, each represented as a path array where the
+ * first and last elements are the same node (e.g. ['a.mjs', 'b.mjs', 'a.mjs']).
+ * Equivalent cycles starting from different nodes are deduplicated.
+ *
+ * @param {Map<string, string[]>} graph
+ * @returns {string[][]}
+ */
+export function findCycles(graph) {
+	const cycles = [];
+	const canonical = new Set();
+	const visited = new Set();
+	const visiting = new Set();
+	const stack = [];
+
+	function dfs(node) {
+		if (visited.has(node)) return;
+		visiting.add(node);
+		stack.push(node);
+
+		for (const neighbor of graph.get(node) ?? []) {
+			if (visiting.has(neighbor)) {
+				const start = stack.indexOf(neighbor);
+				const cycle = [...stack.slice(start), neighbor];
+				const key = canonicalizeCycle(cycle);
+				if (!canonical.has(key)) {
+					canonical.add(key);
+					cycles.push(cycle);
+				}
+			} else if (!visited.has(neighbor)) {
+				dfs(neighbor);
+			}
+		}
+
+		stack.pop();
+		visiting.delete(node);
+		visited.add(node);
+	}
+
+	for (const node of graph.keys()) {
+		dfs(node);
+	}
+
+	return cycles;
+}
+
+/**
+ * Run the import cycle sensor on a set of written JS files.
+ * Detects circular import chains within the write set.
+ *
+ * @param {string}   cwd
+ * @param {string[]} writePaths  Workspace-relative written file paths.
+ * @returns {Promise<{sensor: string, status: 'ok'|'warn'|'skipped', checked: number, issues: object[], message: string}>}
+ */
+export async function runImportCycleSensor(cwd, writePaths) {
+	const jsPaths = writePaths.filter((p) =>
+		LOCAL_JS_EXTENSIONS.has(extname(p).toLowerCase()),
+	);
+	if (jsPaths.length === 0) {
+		return {
+			sensor: 'import-cycles',
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no JS files in write set',
+		};
+	}
+
+	const { graph, readCount } = await buildImportGraph(cwd, jsPaths);
+	if (readCount === 0) {
+		return {
+			sensor: 'import-cycles',
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no readable JS files in write set',
+		};
+	}
+
+	const cycles = findCycles(graph);
+	if (cycles.length === 0) {
+		return {
+			checked: readCount,
+			issues: [],
+			message: `${readCount} file${readCount !== 1 ? 's' : ''} ok — no import cycles`,
+			sensor: 'import-cycles',
+			status: 'ok',
+		};
+	}
+
+	const issues = cycles.map((c) => ({ cycle: c }));
+	const summary = cycles
+		.slice(0, 3)
+		.map((c) => c.join(' → '))
+		.join('; ');
+	const extra = cycles.length > 3 ? ` (+${cycles.length - 3} more)` : '';
+	return {
+		checked: readCount,
+		issues,
+		message: `${cycles.length} import cycle${cycles.length !== 1 ? 's' : ''}: ${summary}${extra}`,
+		sensor: 'import-cycles',
+		status: 'warn',
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Convenience gate: run all cross-ref sensors when a write was applied
 // ---------------------------------------------------------------------------
 
@@ -652,12 +844,15 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 		: [];
 	if (paths.length === 0) return [];
 
-	const [compose, css, localImport] = await Promise.all([
+	const [compose, css, localImport, cycles] = await Promise.all([
 		runComposeDockerfileSensor(cwd, paths),
 		runCssSelectorSensor(cwd, paths),
 		runLocalImportSensor(cwd, paths),
+		runImportCycleSensor(cwd, paths),
 	]);
 
 	// Omit sensors that skipped (no relevant files) to keep summary lean
-	return [compose, css, localImport].filter((r) => r.status !== 'skipped');
+	return [compose, css, localImport, cycles].filter(
+		(r) => r.status !== 'skipped',
+	);
 }
