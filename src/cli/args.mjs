@@ -1015,7 +1015,10 @@ Usage:
   kodr run -p "task" --route-auto
   kodr evals [--json] [--runs-dir evals/results]
   kodr watch --test "npm test"
-  kodr check [dir] [--changed] [--deep] [--ci] [--no-smoke] [--no-sensors] [--strict] [--json]
+  kodr check [dir] [--changed] [--deep] [--ci] [--no-smoke] [--no-sensors] [--strict] [--fix] [--watch] [--json]
+  kodr hook install [--pre-push] [--force]
+  kodr hook status [--json]
+  kodr hook uninstall [--pre-push] [--force]
 
 Project config:
   kodr init             Write a starter .kodr/config.json with the currently
@@ -1027,6 +1030,10 @@ Project config:
                         Allowed keys: model, baseUrl, editFormat, testCommand, testCwd, tools,
                           stream, heal, inspectContext, lsp, timeoutMs, maxTurns, maxRetries,
                           maxTokens, maxCostUsd, protectExisting
+                        Sensor block: { "sensors": { "secret-in-response": false } }
+                          Disable individual sensors by name; all others remain enabled.
+                        Hook block: { "hooks": { "preCommit": "cmd", "prePush": "cmd" } }
+                          Override the baked-in hook command for install.
                         Gate keys rejected: yes, gitCommit, installDependencies,
                           enableHooks, apiKey
                         Keys named "//" are comment keys and are silently skipped.
@@ -1149,6 +1156,24 @@ OpenRouter:
   --strict             (kodr check) Promote advisory warnings — smoke-check
                        failures and sensor warns — to check failures. Exit 1
                        when any warning fires. Useful as a pre-commit gate.
+  --fix                (kodr check) When issues are found, synthesise a targeted
+                       repair prompt and pass it to the local model. Applies
+                       writes by default (like kodr run). Re-runs the check
+                       after the fix to show whether the repair worked.
+  --watch              (kodr check) Re-run the check on every file change.
+                       Debounced 300ms. Ctrl-C to exit.
+  kodr hook install [--pre-push] [--force]
+                       Install a git pre-commit hook that runs
+                       kodr check --changed --strict. --pre-push installs
+                       a pre-push hook (kodr check --strict) instead.
+                       Refuses to overwrite a foreign hook without --force.
+  kodr hook status [--json]
+                       Report whether kodr-managed hooks are installed
+                       (kodr / foreign / none) for both pre-commit and
+                       pre-push. --json emits a structured object.
+  kodr hook uninstall [--pre-push] [--force]
+                       Remove the kodr-installed hook. --pre-push targets
+                       the pre-push hook. Requires --force for foreign hooks.
   --lsp                Enable LSP enrichment (run all available LSP servers on PATH).
   --no-lsp             Disable LSP enrichment.
                        Default: auto (use any LSP server found on PATH; skip silently

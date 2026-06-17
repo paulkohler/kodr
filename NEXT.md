@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 197): `kodr check` is a comprehensive standalone
+Current frontier (phase 198): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
 `--fix`, and a path argument. Six cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
@@ -20,7 +20,8 @@ Smoke-check heal integration: second heal pass on failure.
 `kodr check --fix` synthesises a targeted repair prompt via `buildFixPrompt`
 (using `formatSensorIssue` for correct per-sensor issue formatting), routes it
 into `runPrompt`, and auto-rechecks after the fix with `fix:false`.
-`kodr hook status --json` emits structured JSON output.
+`kodr hook status --json` emits structured JSON output. Help text updated
+for hook subcommands, `--fix`, `--watch`, and `sensors`/`hooks` config blocks.
 
 ## Candidates
 
