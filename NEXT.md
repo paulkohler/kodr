@@ -6,16 +6,17 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 192): `kodr check` is a comprehensive standalone
+Current frontier (phase 193): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
 and a path argument. Six cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
 `kodr hook install/status/uninstall` manage pre-commit and pre-push gates;
 `.kodr/config.json` `hooks` block customises the baked-in command.
 Gate-skip reasons are observable via `gateSkips` in JSON output.
-`runCrossRefSensorsOnProposal` runs content-safe sensors (import-cycles,
-secret-in-response, secrets-at-rest) on dry-run proposals, surfaced as
-`summary.proposalSensors`. Smoke-check heal integration: second heal pass on failure.
+`runCrossRefSensorsOnProposal` runs content-safe sensors on dry-run proposals
+(`summary.proposalSensors`). Per-sensor toggles via `.kodr/config.json` `sensors`
+block (`{ "secret-in-response": false }`) map to `options.sensorToggles`.
+Smoke-check heal integration: second heal pass on failure.
 
 ## Candidates
 
@@ -47,13 +48,4 @@ questions: does `--fix` apply by default like `run` does, and how do we keep the
 generated repair prompt narrow enough that the model fixes the cross-reference
 rather than rewriting the file.
 
-### Project-defined and per-sensor toggles
-The cross-reference sensors are a fixed registry of five, gated only by the
-blanket `--no-sensors`. There is no way to silence one noisy sensor (e.g.
-secret-in-response on a codebase that legitimately returns tokens) while keeping
-the rest, and no way for a project to register a sensor of its own. Rough shape:
-a `sensors` block in `.kodr/config.json` listing enabled/disabled sensor names
-(validated against `SENSOR_NAMES`), and possibly a discovery hook for a
-project-local sensor module. Open question: how much of the sensor contract to
-expose without inviting model-authored sensors to run untrusted code.
 

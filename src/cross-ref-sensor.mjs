@@ -1210,13 +1210,29 @@ export async function runSecretsAtRestSensor(cwd, writePaths) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Build a Set of sensor names that are explicitly disabled in sensorToggles.
+ * Any sensor name mapped to `false` is disabled; `true` or absent means enabled.
+ *
+ * @param {object|undefined} sensorToggles
+ * @returns {Set<string>}
+ */
+function buildDisabledSet(sensorToggles) {
+	if (!sensorToggles || typeof sensorToggles !== 'object') return new Set();
+	return new Set(
+		Object.entries(sensorToggles)
+			.filter(([, v]) => v === false)
+			.map(([k]) => k),
+	);
+}
+
+/**
  * Run all cross-reference sensors on the write result.
  * Returns an array of sensor results (skipped sensors omitted unless all skip).
  * Called from the pipeline after writes are applied.
  *
  * @param {string} cwd
  * @param {object} writeResult  { applied: boolean, writes: [{ path }] }
- * @param {{enabled?: boolean}} [opts]
+ * @param {{enabled?: boolean, deep?: boolean, sensorToggles?: object}} [opts]
  * @returns {Promise<object[]>}  Array of sensor result objects.
  */
 export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
@@ -1227,17 +1243,32 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 		: [];
 	if (paths.length === 0) return [];
 
+	const disabled = buildDisabledSet(opts.sensorToggles);
+	const skip = (name) =>
+		disabled.has(name)
+			? {
+					sensor: name,
+					status: 'skipped',
+					checked: 0,
+					issues: [],
+					message: 'disabled by project config',
+				}
+			: null;
+
 	const [compose, css, localImport, cycles, secrets, secretsAtRest] =
 		await Promise.all([
-			runComposeDockerfileSensor(cwd, paths),
-			runCssSelectorSensor(cwd, paths),
-			runLocalImportSensor(cwd, paths),
-			runImportCycleSensor(cwd, paths, { deep: opts.deep }),
-			runSecretInResponseSensor(cwd, paths),
-			runSecretsAtRestSensor(cwd, paths),
+			skip(SENSOR_NAMES.COMPOSE_DOCKERFILE) ??
+				runComposeDockerfileSensor(cwd, paths),
+			skip(SENSOR_NAMES.CSS_SELECTOR) ?? runCssSelectorSensor(cwd, paths),
+			skip(SENSOR_NAMES.LOCAL_IMPORT) ?? runLocalImportSensor(cwd, paths),
+			skip(SENSOR_NAMES.IMPORT_CYCLES) ??
+				runImportCycleSensor(cwd, paths, { deep: opts.deep }),
+			skip(SENSOR_NAMES.SECRET_IN_RESPONSE) ??
+				runSecretInResponseSensor(cwd, paths),
+			skip(SENSOR_NAMES.SECRETS_AT_REST) ?? runSecretsAtRestSensor(cwd, paths),
 		]);
 
-	// Omit sensors that skipped (no relevant files) to keep summary lean
+	// Omit sensors that skipped (no relevant files or disabled) to keep summary lean
 	return [compose, css, localImport, cycles, secrets, secretsAtRest].filter(
 		(r) => r.status !== 'skipped',
 	);
@@ -1259,7 +1290,7 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
  * separately from post-apply sensor results.
  *
  * @param {Array<{path: string, content: string}>} proposalFiles
- * @param {{enabled?: boolean}} [opts]
+ * @param {{enabled?: boolean, sensorToggles?: object}} [opts]
  * @returns {Promise<object[]>}
  */
 export async function runCrossRefSensorsOnProposal(proposalFiles, opts = {}) {
@@ -1268,6 +1299,18 @@ export async function runCrossRefSensorsOnProposal(proposalFiles, opts = {}) {
 		(f) => f?.path && typeof f.content === 'string',
 	);
 	if (writes.length === 0) return [];
+
+	const disabled = buildDisabledSet(opts.sensorToggles);
+	const skip = (name) =>
+		disabled.has(name)
+			? {
+					sensor: name,
+					status: 'skipped',
+					checked: 0,
+					issues: [],
+					message: 'disabled by project config',
+				}
+			: null;
 
 	const tmpDir = await mkdtemp(join(tmpdir(), 'kodr-proposal-'));
 	try {
@@ -1280,9 +1323,12 @@ export async function runCrossRefSensorsOnProposal(proposalFiles, opts = {}) {
 		}
 
 		const [cycles, secrets, secretsAtRest] = await Promise.all([
-			runImportCycleSensor(tmpDir, paths, { deep: false }),
-			runSecretInResponseSensor(tmpDir, paths),
-			runSecretsAtRestSensor(tmpDir, paths),
+			skip(SENSOR_NAMES.IMPORT_CYCLES) ??
+				runImportCycleSensor(tmpDir, paths, { deep: false }),
+			skip(SENSOR_NAMES.SECRET_IN_RESPONSE) ??
+				runSecretInResponseSensor(tmpDir, paths),
+			skip(SENSOR_NAMES.SECRETS_AT_REST) ??
+				runSecretsAtRestSensor(tmpDir, paths),
 		]);
 
 		return [cycles, secrets, secretsAtRest]

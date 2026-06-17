@@ -671,3 +671,60 @@ describe('hooks config key (Phase 191)', () => {
 		);
 	});
 });
+
+describe('sensors config key (Phase 193)', () => {
+	it('accepts a valid sensors block disabling a known sensor', async () => {
+		const cwd = await setup({ sensors: { 'secret-in-response': false } });
+		const loaded = loadProjectConfig(cwd, {});
+		assert.deepEqual(loaded.config.sensors, { 'secret-in-response': false });
+	});
+
+	it('accepts mixed enabled/disabled sensors', async () => {
+		const cwd = await setup({
+			sensors: { 'secrets-at-rest': false, 'import-cycles': true },
+		});
+		const loaded = loadProjectConfig(cwd, {});
+		assert.equal(loaded.config.sensors['secrets-at-rest'], false);
+		assert.equal(loaded.config.sensors['import-cycles'], true);
+	});
+
+	it('rejects sensors that is not an object', async () => {
+		const cwd = await setup({ sensors: ['secret-in-response'] });
+		assert.throws(
+			() => loadProjectConfig(cwd, {}),
+			(err) => {
+				assert.ok(err instanceof ProjectConfigError);
+				return true;
+			},
+		);
+	});
+
+	it('rejects unknown sensor name', async () => {
+		const cwd = await setup({ sensors: { 'made-up-sensor': false } });
+		assert.throws(
+			() => loadProjectConfig(cwd, {}),
+			(err) => {
+				assert.ok(err instanceof ProjectConfigError);
+				assert.match(err.message, /unknown sensor/u);
+				return true;
+			},
+		);
+	});
+
+	it('rejects non-boolean sensor value', async () => {
+		const cwd = await setup({ sensors: { 'import-cycles': 'off' } });
+		assert.throws(
+			() => loadProjectConfig(cwd, {}),
+			(err) => {
+				assert.ok(err instanceof ProjectConfigError);
+				return true;
+			},
+		);
+	});
+
+	it('sensors config maps to options.sensorToggles via parseArgs', async () => {
+		const cwd = await setup({ sensors: { 'secret-in-response': false } });
+		const opts = parseArgs([], {}, cwd);
+		assert.deepEqual(opts.sensorToggles, { 'secret-in-response': false });
+	});
+});

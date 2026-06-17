@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { EDIT_FORMATS, normalizeEditFormat } from './edit-formats.mjs';
+import { SENSOR_NAMES } from './cross-ref-sensor.mjs';
 
 export class ProjectConfigError extends Error {
 	constructor(message) {
@@ -44,6 +45,7 @@ const KNOWN_KEYS = new Set([
 	'applyMode',
 	'routeAuto',
 	'hooks',
+	'sensors',
 ]);
 
 // Known LSP server names from the default registry. Config may reference only
@@ -241,6 +243,23 @@ function validateValue(key, value, configPath) {
 			return out;
 		}
 
+		case 'sensors': {
+			if (typeof value !== 'object' || value === null || Array.isArray(value))
+				fail('must be an object mapping sensor names to booleans');
+			const validNames = new Set(Object.values(SENSOR_NAMES));
+			const out = {};
+			for (const [k, v] of Object.entries(value)) {
+				if (!validNames.has(k))
+					fail(
+						`unknown sensor "${k}"; valid names: ${[...validNames].join(', ')}`,
+					);
+				if (typeof v !== 'boolean')
+					fail(`sensor "${k}" value must be a boolean`);
+				out[k] = v;
+			}
+			return out;
+		}
+
 		default:
 			return value;
 	}
@@ -277,6 +296,10 @@ export function applyProjectConfig(options, loadedConfig) {
 			) {
 				// CLI already has values; append config values after them (CLI wins).
 				options[key] = [...options[key], ...value];
+			} else if (key === 'sensors') {
+				// Phase 193: config "sensors" block maps to options.sensorToggles
+				// (not options.sensors, which is the global all-or-nothing flag).
+				options.sensorToggles = value;
 			} else {
 				options[key] = value;
 			}
@@ -335,6 +358,12 @@ function shouldApply(key, options) {
 			return !options._applyModeSet;
 		case 'routeAuto':
 			return !options.routeAuto;
+		// Phase 193: sensors config is always applied (merges with empty default).
+		case 'sensors':
+			return true;
+		// hooks config is always applied (install-time read, no CLI override).
+		case 'hooks':
+			return true;
 		default:
 			return false;
 	}

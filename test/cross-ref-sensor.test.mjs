@@ -1039,4 +1039,78 @@ describe('runCrossRefSensorsOnProposal', () => {
 		// Should not throw; real.mjs is processed normally
 		assert.ok(Array.isArray(results));
 	});
+
+	it('respects sensorToggles: disabled sensor is excluded from results (Phase 193)', async () => {
+		const results = await runCrossRefSensorsOnProposal(
+			[{ path: '.env', content: 'API_KEY=sk-prod-abc123\n' }],
+			{ sensorToggles: { 'secrets-at-rest': false } },
+		);
+		const sensor = results.find(
+			(r) => r.sensor === SENSOR_NAMES.SECRETS_AT_REST,
+		);
+		assert.equal(
+			sensor,
+			undefined,
+			'secrets-at-rest should be excluded when disabled',
+		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// runCrossRefSensors sensorToggles (Phase 193)
+// ---------------------------------------------------------------------------
+
+describe('runCrossRefSensors sensorToggles (Phase 193)', () => {
+	let cwd;
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), 'xref-toggles-'));
+	});
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	it('disabled sensor is excluded from results', async () => {
+		// Write a cycle so import-cycles would fire if enabled
+		await writeFile(join(cwd, 'a.mjs'), "import { b } from './b.mjs';\n");
+		await writeFile(join(cwd, 'b.mjs'), "import { a } from './a.mjs';\n");
+		const writeResult = {
+			applied: true,
+			writes: [{ path: 'a.mjs' }, { path: 'b.mjs' }],
+		};
+
+		const withCycles = await runCrossRefSensors(cwd, writeResult, {
+			enabled: true,
+		});
+		const withoutCycles = await runCrossRefSensors(cwd, writeResult, {
+			enabled: true,
+			sensorToggles: { 'import-cycles': false },
+		});
+
+		assert.ok(
+			withCycles.some((r) => r.sensor === SENSOR_NAMES.IMPORT_CYCLES),
+			'import-cycles should fire without toggle',
+		);
+		assert.ok(
+			!withoutCycles.some((r) => r.sensor === SENSOR_NAMES.IMPORT_CYCLES),
+			'import-cycles should be excluded when disabled',
+		);
+	});
+
+	it('enabled: true in sensorToggles does not suppress the sensor', async () => {
+		await writeFile(join(cwd, 'a.mjs'), "import { b } from './b.mjs';\n");
+		await writeFile(join(cwd, 'b.mjs'), "import { a } from './a.mjs';\n");
+		const writeResult = {
+			applied: true,
+			writes: [{ path: 'a.mjs' }, { path: 'b.mjs' }],
+		};
+
+		const results = await runCrossRefSensors(cwd, writeResult, {
+			enabled: true,
+			sensorToggles: { 'import-cycles': true },
+		});
+		assert.ok(
+			results.some((r) => r.sensor === SENSOR_NAMES.IMPORT_CYCLES),
+			'import-cycles should still fire when toggle is true',
+		);
+	});
 });

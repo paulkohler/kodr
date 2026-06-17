@@ -702,6 +702,7 @@ export async function runPrompt(options, io) {
 				const sensorsResult = gatesEligible
 					? await runCrossRefSensors(subagentVerifyCwd, subagentWriteResult, {
 							enabled: options.sensors !== false,
+							sensorToggles: options.sensorToggles,
 						})
 					: [];
 				if (sensorsResult.length > 0) {
@@ -714,7 +715,10 @@ export async function runPrompt(options, io) {
 				) {
 					const proposalSensorsResult = await runCrossRefSensorsOnProposal(
 						orchestrationResult.proposal.files,
-						{ enabled: options.sensors !== false },
+						{
+							enabled: options.sensors !== false,
+							sensorToggles: options.sensorToggles,
+						},
 					);
 					if (proposalSensorsResult.length > 0) {
 						summary.proposalSensors = proposalSensorsResult;
@@ -1717,6 +1721,7 @@ export async function runPrompt(options, io) {
 			shouldApply && !writeError && !runError
 				? await runCrossRefSensors(verifyCwd, writeResult, {
 						enabled: options.sensors !== false,
+						sensorToggles: options.sensorToggles,
 					})
 				: [];
 		if (sensorsResult.length > 0) {
@@ -1729,7 +1734,10 @@ export async function runPrompt(options, io) {
 		if (!writeResult?.applied && proposal?.files?.length > 0) {
 			const proposalSensorsResult = await runCrossRefSensorsOnProposal(
 				proposal.files,
-				{ enabled: options.sensors !== false },
+				{
+					enabled: options.sensors !== false,
+					sensorToggles: options.sensorToggles,
+				},
 			);
 			if (proposalSensorsResult.length > 0) {
 				summary.proposalSensors = proposalSensorsResult;

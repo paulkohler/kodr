@@ -136,6 +136,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		hookSubcommand: '',
 		// Phase 191: kodr hook install/uninstall --pre-push targets the pre-push hook.
 		prePush: false,
+		// Phase 193: per-sensor toggles from .kodr/config.json sensors block.
+		// Maps sensor names (from SENSOR_NAMES values) to boolean enabled/disabled.
+		sensorToggles: {},
 		record: false,
 		evalCases: [],
 		testCommand: '',
