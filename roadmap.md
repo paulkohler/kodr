@@ -168,6 +168,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 166 kodr check --strict Mode
 - [x] 167 Local Import-Path Existence Sensor
 - [x] 168 NEXT.md Cleanup (post-167 retrospective)
+- [x] 169 Smoke-Check and Sensor Hit-Rates in kodr trends
 
 ## Phase Contract
 

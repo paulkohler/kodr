@@ -187,6 +187,54 @@ describe('computeTrends', () => {
 		assert.equal(r.extractorRepairs['gpt-oss-missing-brace'], 2);
 		assert.equal(r.extractorRepairs['blanket-quote-token'], 2);
 	});
+
+	it('phase 169: tallies smoke-check outcomes across runs', () => {
+		const r = computeTrends([
+			{ runId: 'r1', summary: { ok: true, smokeCheck: { status: 'ok' } } },
+			{
+				runId: 'r2',
+				summary: { ok: false, smokeCheck: { status: 'failed' } },
+			},
+			{
+				runId: 'r3',
+				summary: { ok: true, smokeCheck: { status: 'skipped' } },
+			},
+			{ runId: 'r4', summary: { ok: true } },
+		]);
+		assert.equal(r.smokeOkCount, 1);
+		assert.equal(r.smokeFailCount, 1);
+		assert.equal(r.smokeSkipCount, 1);
+	});
+
+	it('phase 169: counts sensor warn hits per sensor name', () => {
+		const r = computeTrends([
+			{
+				runId: 'r1',
+				summary: {
+					ok: true,
+					sensors: [
+						{ sensor: 'css-selector', status: 'warn' },
+						{ sensor: 'local-import', status: 'ok' },
+					],
+				},
+			},
+			{
+				runId: 'r2',
+				summary: {
+					ok: true,
+					sensors: [
+						{ sensor: 'css-selector', status: 'warn' },
+						{ sensor: 'compose-dockerfile', status: 'warn' },
+					],
+				},
+			},
+			{ runId: 'r3', summary: { ok: true } },
+		]);
+		assert.equal(r.sensorWarnRuns, 2);
+		assert.equal(r.sensorWarns['css-selector'], 2);
+		assert.equal(r.sensorWarns['compose-dockerfile'], 1);
+		assert.equal(r.sensorWarns['local-import'], undefined);
+	});
 });
 
 describe('renderTrendsCli', () => {
@@ -204,6 +252,28 @@ describe('renderTrendsCli', () => {
 		assert.match(out, /ok\s+1\/2 \(50%\)/u);
 		assert.match(out, /verification-failed/u);
 		assert.match(out, /a\s+1\/2 ok \(50%\)/u);
+	});
+
+	it('phase 169: renders smoke-check summary and sensor warn table', () => {
+		const out = renderTrendsCli(
+			computeTrends([
+				{
+					runId: 'r1',
+					summary: {
+						ok: true,
+						smokeCheck: { status: 'ok' },
+						sensors: [{ sensor: 'css-selector', status: 'warn' }],
+					},
+				},
+				{
+					runId: 'r2',
+					summary: { ok: true, smokeCheck: { status: 'failed' } },
+				},
+			]),
+		);
+		assert.match(out, /smoke check/u);
+		assert.match(out, /sensor warns/u);
+		assert.match(out, /css-selector/u);
 	});
 });
 

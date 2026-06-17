@@ -109,6 +109,12 @@ export function computeTrends(summaries) {
 		avgCompletionTokens: null,
 		firstRunId: total > 0 ? summaries[0].runId : null,
 		lastRunId: total > 0 ? summaries[total - 1].runId : null,
+		// Phase 169: smoke-check outcomes and sensor warn hit-rates.
+		smokeOkCount: 0,
+		smokeFailCount: 0,
+		smokeSkipCount: 0,
+		sensorWarnRuns: 0,
+		sensorWarns: {},
 	};
 
 	let promptTokenSum = 0;
@@ -162,6 +168,28 @@ export function computeTrends(summaries) {
 		if (typeof completionTokens === 'number') {
 			completionTokenSum += completionTokens;
 			completionTokenRuns += 1;
+		}
+
+		// Phase 169: smoke-check outcome tallies.
+		const smoke = summary.smokeCheck;
+		if (smoke && typeof smoke.status === 'string') {
+			if (smoke.status === 'ok') report.smokeOkCount += 1;
+			else if (smoke.status === 'failed') report.smokeFailCount += 1;
+			else report.smokeSkipCount += 1;
+		}
+
+		// Phase 169: per-sensor warn counts across runs.
+		const sensors = summary.sensors;
+		if (Array.isArray(sensors) && sensors.length > 0) {
+			let anyWarn = false;
+			for (const sensor of sensors) {
+				if (sensor.status === 'warn') {
+					anyWarn = true;
+					const name = sensor.sensor || 'unknown';
+					report.sensorWarns[name] = (report.sensorWarns[name] || 0) + 1;
+				}
+			}
+			if (anyWarn) report.sensorWarnRuns += 1;
 		}
 	}
 
@@ -249,6 +277,31 @@ export function renderTrendsCli(report) {
 		}
 		for (const [ruleId, count] of repairs) {
 			lines.push(`    ${ruleId.padEnd(26)} ${count}`);
+		}
+	}
+
+	const smokeTotal =
+		report.smokeOkCount + report.smokeFailCount + report.smokeSkipCount;
+	if (smokeTotal > 0) {
+		lines.push('');
+		lines.push(`  smoke check (${smokeTotal} runs with entry):`);
+		lines.push(`    ok       ${report.smokeOkCount}`);
+		if (report.smokeFailCount > 0) {
+			lines.push(`    failed   ${report.smokeFailCount}`);
+		}
+		if (report.smokeSkipCount > 0) {
+			lines.push(`    skipped  ${report.smokeSkipCount}`);
+		}
+	}
+
+	const sensorWarnEntries = Object.entries(report.sensorWarns).sort(
+		(a, b) => b[1] - a[1],
+	);
+	if (sensorWarnEntries.length > 0) {
+		lines.push('');
+		lines.push(`  sensor warns (${report.sensorWarnRuns} runs):`);
+		for (const [name, count] of sensorWarnEntries) {
+			lines.push(`    ${name.padEnd(24)} ${count}`);
 		}
 	}
 
