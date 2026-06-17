@@ -836,6 +836,12 @@ export async function runImportCycleSensor(cwd, writePaths) {
 const SECRET_NAMES =
 	/\b(?:password|passwd|pwd|secret|token|credential|api_?key|auth_?key|hash|salt|private_?key)\b/iu;
 
+// Safe variable names that commonly appear near sinks but are NOT secrets.
+// These are legitimately returned to clients (OAuth tokens, CSRF tokens, etc.)
+// and would otherwise produce false positives.
+const SAFE_SECRET_NAMES =
+	/\b(?:access_?token|refresh_?token|id_?token|csrf_?token|bearer_?token|auth_?token|x_?csrf)\b/iu;
+
 // Serialisation / response sinks that write data to an untrusted channel.
 const SINK_PATTERNS = [
 	// res.json(...) / res.send(...) / res.end(...)
@@ -848,15 +854,18 @@ const SINK_PATTERNS = [
 	/\breturn\s*\{/u,
 ];
 
+// Comment pattern that suppresses a sensor warning for the block it appears in.
+const IGNORE_COMMENT = /\/\/\s*kodr-ignore:\s*secret-in-response/iu;
+
 /**
  * Scan one JS file for lines where a secret-named value reaches a
  * serialisation or response sink on the same line or within a small window.
  * Returns an array of hit objects { line, lineNo, pattern }.
  *
- * This is a line-window heuristic, not a full data-flow analysis. It flags
- * the common case where a variable named `password` appears in the same
- * expression as `res.json`, `JSON.stringify`, `jwt.sign`, or `return {`.
- * False positives are possible; the sensor is advisory only.
+ * Suppression: a `// kodr-ignore: secret-in-response` comment anywhere in the
+ * ±WINDOW surrounding the sink line suppresses that hit.
+ * Safe-names allowlist: if the only secret-named tokens in the window are in
+ * SAFE_SECRET_NAMES (e.g. `accessToken`), the hit is not reported.
  *
  * @param {string} content
  * @returns {Array<{lineNo: number, line: string, pattern: string}>}
@@ -864,25 +873,33 @@ const SINK_PATTERNS = [
 export function scanSecretLeaks(content) {
 	const lines = content.split('\n');
 	const hits = [];
-	const WINDOW = 4; // lines to look back/forward from a sink
+	const WINDOW = 4;
 
 	for (let i = 0; i < lines.length; i++) {
-		// Check whether this line contains a sink
 		const sinkMatch = SINK_PATTERNS.find((p) => p.test(lines[i]));
 		if (!sinkMatch) continue;
 
-		// Look for a secret-named token in the surrounding window
 		const start = Math.max(0, i - WINDOW);
 		const end = Math.min(lines.length - 1, i + WINDOW);
-		const window = lines.slice(start, end + 1).join('\n');
+		const windowLines = lines.slice(start, end + 1);
+		const windowText = windowLines.join('\n');
 
-		if (SECRET_NAMES.test(window)) {
-			hits.push({
-				line: lines[i].trim(),
-				lineNo: i + 1,
-				pattern: sinkMatch.source,
-			});
-		}
+		// Suppress when `// kodr-ignore: secret-in-response` appears in the window
+		if (IGNORE_COMMENT.test(windowText)) continue;
+
+		// Only flag when the window has a secret-named token …
+		if (!SECRET_NAMES.test(windowText)) continue;
+
+		// … and that token is NOT exclusively a safe name (access token, etc.)
+		// Strategy: strip all safe-name occurrences; if nothing remains, skip.
+		const stripped = windowText.replace(SAFE_SECRET_NAMES, '');
+		if (!SECRET_NAMES.test(stripped)) continue;
+
+		hits.push({
+			line: lines[i].trim(),
+			lineNo: i + 1,
+			pattern: sinkMatch.source,
+		});
 	}
 	return hits;
 }

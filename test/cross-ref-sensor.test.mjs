@@ -614,6 +614,41 @@ describe('scanSecretLeaks', () => {
 		const hits = scanSecretLeaks(code);
 		assert.equal(hits.length, 0);
 	});
+
+	it('does not flag accessToken near res.json (safe-names allowlist)', () => {
+		// accessToken is a legitimate client-facing token — should not trigger
+		const code = 'res.json({ accessToken, userId });\n';
+		const hits = scanSecretLeaks(code);
+		assert.equal(hits.length, 0);
+	});
+
+	it('does not flag refreshToken near res.json (safe-names allowlist)', () => {
+		const code = 'res.json({ accessToken, refreshToken, expiresIn: 3600 });\n';
+		const hits = scanSecretLeaks(code);
+		assert.equal(hits.length, 0);
+	});
+
+	it('flags password even when accessToken also present', () => {
+		// accessToken is safe but password is not — should still flag
+		const code = 'res.json({ accessToken, password: user.password });\n';
+		const hits = scanSecretLeaks(code);
+		assert.ok(hits.length > 0);
+	});
+
+	it('suppresses hit when kodr-ignore comment appears in window', () => {
+		const code = [
+			'// kodr-ignore: secret-in-response',
+			'res.json({ id: user.id, password: user.password });',
+		].join('\n');
+		const hits = scanSecretLeaks(code);
+		assert.equal(hits.length, 0);
+	});
+
+	it('suppresses hit with kodr-ignore on the sink line itself', () => {
+		const code = 'res.json({ password }); // kodr-ignore: secret-in-response\n';
+		const hits = scanSecretLeaks(code);
+		assert.equal(hits.length, 0);
+	});
 });
 
 // ---------------------------------------------------------------------------
