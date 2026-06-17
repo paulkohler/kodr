@@ -396,7 +396,15 @@ export async function main(argv, io) {
 				prompt: checkResult.fixPrompt,
 				yes: true,
 			};
-			return runPrompt(fixOptions, checkIo);
+			await runPrompt(fixOptions, checkIo);
+			// Phase 196: re-run check after the fix so the user sees whether it worked.
+			// fix:false prevents another fix loop on a still-broken workspace.
+			if (!options.json) {
+				checkIo.stdout.write(
+					'\n\x1b[1mkodr check --fix:\x1b[0m re-checking after fix…\n\n',
+				);
+			}
+			return runCheck({ ...options, fix: false }, checkIo);
 		}
 		return checkResult;
 	}

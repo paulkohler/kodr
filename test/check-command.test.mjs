@@ -405,4 +405,23 @@ describe('runCheck --fix', () => {
 			assert.match(result.fixPrompt, /secrets-at-rest.*\.env file committed/u);
 		}
 	});
+
+	// Phase 196: fix:false must never return fixPrompt (ensures re-check doesn't loop)
+	it('fix:false never returns fixPrompt even when issues exist', async () => {
+		await writeFile(
+			join(cwd, 'index.mjs'),
+			"import { x } from './still-missing.mjs';\n",
+		);
+		const io = makeIo(cwd);
+		const result = await runCheck(
+			{ smoke: false, sensors: true, fix: false },
+			io,
+		);
+		assert.equal(
+			result.fixPrompt,
+			undefined,
+			'fix:false must not return fixPrompt',
+		);
+		assert.equal(result.command, 'check');
+	});
 });
