@@ -170,6 +170,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 168 NEXT.md Cleanup (post-167 retrospective)
 - [x] 169 Smoke-Check and Sensor Hit-Rates in kodr trends
 - [x] 170 kodr check Optional Path Argument
+- [x] 171 kodr check --changed Git-Aware Fast Check
 
 ## Phase Contract
 

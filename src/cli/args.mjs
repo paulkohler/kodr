@@ -126,6 +126,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 166: kodr check --strict makes advisory warnings (smoke-check
 		// failures, sensor warns) exit non-zero. Off by default.
 		strict: false,
+		// Phase 171: kodr check --changed scans only git-modified files.
+		changed: false,
 		record: false,
 		evalCases: [],
 		testCommand: '',
@@ -399,6 +401,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 166: strict mode — advisory warnings become check failures.
 		if (arg === '--strict') {
 			options.strict = true;
+			continue;
+		}
+
+		// Phase 171: only scan git-modified files.
+		if (arg === '--changed') {
+			options.changed = true;
 			continue;
 		}
 
@@ -961,7 +969,7 @@ Usage:
   kodr run -p "task" --route-auto
   kodr evals [--json] [--runs-dir evals/results]
   kodr watch --test "npm test"
-  kodr check [dir] [--no-smoke] [--no-sensors] [--strict] [--json]
+  kodr check [dir] [--changed] [--no-smoke] [--no-sensors] [--strict] [--json]
 
 Project config:
   kodr init             Write a starter .kodr/config.json with the currently

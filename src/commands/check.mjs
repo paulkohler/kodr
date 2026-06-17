@@ -12,6 +12,7 @@
 import { readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { runCrossRefSensors } from '../cross-ref-sensor.mjs';
+import { runGit } from '../git-workspace.mjs';
 import { runSmokeCheckIfNeeded } from '../smoke-check.mjs';
 import { runSyntaxGateIfNeeded } from '../syntax-gate.mjs';
 
@@ -25,6 +26,33 @@ const EXCLUDED_DIRS = new Set([
 	'.next',
 	'.nuxt',
 ]);
+
+/**
+ * Collect files modified relative to the git index (staged + unstaged +
+ * untracked). Returns workspace-relative paths with forward slashes.
+ * Returns null when the workspace is not a git repository.
+ *
+ * @param {string} cwd  Workspace root (absolute path).
+ * @returns {Promise<string[]|null>}
+ */
+async function collectChangedFiles(cwd) {
+	let result;
+	try {
+		result = await runGit(cwd, ['status', '--porcelain']);
+	} catch {
+		return null;
+	}
+	if (result.exitCode !== 0) return null;
+	const paths = [];
+	for (const line of result.stdout.split('\n')) {
+		if (!line.trim()) continue;
+		// porcelain format: "XY path" or "XY old -> new" for renames
+		const rest = line.slice(3).replace(/[\r]/gu, '');
+		const path = rest.includes(' -> ') ? rest.split(' -> ').pop() : rest;
+		if (path) paths.push(path.replace(/\\/gu, '/'));
+	}
+	return paths;
+}
 
 /**
  * Recursively collect workspace-relative file paths, excluding common
@@ -143,12 +171,31 @@ export async function runCheck(options, io) {
 
 	if (!options.json) {
 		io.stdout.write('\x1b[1mkodr check\x1b[0m\n');
-		io.stdout.write(`  workspace: ${cwd}\n\n`);
+		const modeLabel = options.changed
+			? ' (--changed: git-modified files only)'
+			: '';
+		io.stdout.write(`  workspace: ${cwd}${modeLabel}\n\n`);
 	}
 
-	// Collect all workspace files
-	const allFiles = [];
-	await collectFiles(cwd, cwd, allFiles);
+	// Collect files: --changed uses git status, otherwise the full workspace.
+	let allFiles;
+	if (options.changed) {
+		const changedFiles = await collectChangedFiles(cwd);
+		if (changedFiles === null) {
+			if (!options.json) {
+				io.stdout.write(
+					`${icon('skip')} --changed: not a git repository — scanning all files\n`,
+				);
+			}
+			allFiles = [];
+			await collectFiles(cwd, cwd, allFiles);
+		} else {
+			allFiles = changedFiles;
+		}
+	} else {
+		allFiles = [];
+		await collectFiles(cwd, cwd, allFiles);
+	}
 
 	// Build a fake writeResult covering the entire workspace so the gate
 	// functions (which normally operate on the write set) scan everything.

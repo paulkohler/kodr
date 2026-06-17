@@ -133,4 +133,17 @@ describe('runCheck', () => {
 		);
 		assert.equal(result.ok, true);
 	});
+
+	it('--changed falls back to full scan when not a git repo', async () => {
+		await mkdir(join(cwd, 'src'));
+		await writeFile(join(cwd, 'src', 'app.mjs'), 'export const x = 1;\n');
+		const io = makeIo(cwd);
+		// cwd is a tmp dir without .git — should fall back to full scan
+		const result = await runCheck(
+			{ smoke: false, sensors: false, changed: true },
+			io,
+		);
+		assert.equal(result.ok, true);
+		assert.match(io._output(), /syntax check/u);
+	});
 });
