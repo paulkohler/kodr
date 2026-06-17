@@ -139,6 +139,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 193: per-sensor toggles from .kodr/config.json sensors block.
 		// Maps sensor names (from SENSOR_NAMES values) to boolean enabled/disabled.
 		sensorToggles: {},
+		// Phase 194: kodr check --fix — when issues are found, synthesize a repair
+		// prompt and pass it to the model for a targeted fix run.
+		fix: false,
 		record: false,
 		evalCases: [],
 		testCommand: '',
@@ -442,6 +445,11 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		if (arg === '--ci') {
 			options.changed = true;
 			options.strict = true;
+			continue;
+		}
+
+		if (arg === '--fix') {
+			options.fix = true;
 			continue;
 		}
 

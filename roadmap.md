@@ -193,6 +193,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 191 Pre-push Hook and Configurable Hook Lifecycle
 - [x] 192 Cross-Ref Sensors on Proposals
 - [x] 193 Per-Sensor Toggles via Project Config
+- [x] 194 Bridge `kodr check` Findings Into a Fix Run
 
 ## Phase Contract
 

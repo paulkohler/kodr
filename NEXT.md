@@ -6,9 +6,9 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 193): `kodr check` is a comprehensive standalone
+Current frontier (phase 194): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
-and a path argument. Six cross-reference sensors (canonical name registry +
+`--fix`, and a path argument. Six cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
 `kodr hook install/status/uninstall` manage pre-commit and pre-push gates;
 `.kodr/config.json` `hooks` block customises the baked-in command.
@@ -17,6 +17,8 @@ Gate-skip reasons are observable via `gateSkips` in JSON output.
 (`summary.proposalSensors`). Per-sensor toggles via `.kodr/config.json` `sensors`
 block (`{ "secret-in-response": false }`) map to `options.sensorToggles`.
 Smoke-check heal integration: second heal pass on failure.
+`kodr check --fix` synthesises a targeted repair prompt from sensor/syntax findings
+and routes it into `runPrompt` (`buildFixPrompt`).
 
 ## Candidates
 
@@ -37,15 +39,5 @@ summary so `kodr why` shows which model handled which step.
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
-
-### Bridge `kodr check` findings back into a fix run
-`kodr check` is purely diagnostic — it reports unresolved imports, missing
-Dockerfiles, dead CSS selectors, and cycles, but leaves the human to translate
-them into a prompt. A natural next step is a `--fix` path (or a documented
-`kodr check --json | kodr run` pipe) that turns the structured findings into a
-scoped repair task for the local model, anchored to the offending files. Open
-questions: does `--fix` apply by default like `run` does, and how do we keep the
-generated repair prompt narrow enough that the model fixes the cross-reference
-rather than rewriting the file.
 
 

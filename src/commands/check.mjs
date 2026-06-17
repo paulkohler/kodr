@@ -302,7 +302,70 @@ export async function runCheck(options, io) {
 		renderAnsi(checkResult, allFiles.length, io.stdout);
 	}
 
+	// Phase 194: --fix mode — synthesize a repair prompt from findings and return
+	// it so the dispatcher can forward it to the run pipeline.
+	if (options.fix) {
+		const fixPrompt = buildFixPrompt(checkResult);
+		if (fixPrompt) {
+			if (!options.json) {
+				io.stdout.write(
+					'\n\x1b[1mkodr check --fix:\x1b[0m passing findings to model…\n\n',
+				);
+			}
+			return { ok: checkResult.ok, command: 'check', fixPrompt };
+		}
+	}
+
 	return { ok: checkResult.ok, command: 'check' };
+}
+
+/**
+ * Build a targeted repair prompt from check findings.
+ * Returns null when there are no actionable issues (nothing for the model to fix).
+ *
+ * @param {object} checkResult
+ * @returns {string|null}
+ */
+function buildFixPrompt(checkResult) {
+	const lines = [];
+
+	// Syntax failures
+	if (checkResult.syntax && !checkResult.syntax.ok) {
+		for (const f of checkResult.syntax.failures ?? []) {
+			lines.push(`syntax error in ${f.file}: ${f.message}`);
+		}
+	}
+
+	// Sensor warnings (exclude warning-severity sensors that are purely advisory)
+	if (Array.isArray(checkResult.sensors)) {
+		for (const s of checkResult.sensors) {
+			if (s.status !== 'warn') continue;
+			for (const issue of s.issues ?? []) {
+				const loc = issue.path || issue.file || '';
+				const detail = issue.importPath
+					? `unresolved import '${issue.importPath}'`
+					: issue.type === 'missing-dockerfile'
+						? `missing Dockerfile for build context '${issue.buildContext}'`
+						: issue.cycle
+							? `import cycle: ${issue.cycle.join(' → ')}`
+							: issue.match
+								? `potential secret leak: ${issue.match}`
+								: JSON.stringify(issue);
+				lines.push(
+					loc ? `${s.sensor} in ${loc}: ${detail}` : `${s.sensor}: ${detail}`,
+				);
+			}
+		}
+	}
+
+	if (lines.length === 0) return null;
+
+	return [
+		'Fix the following issues found by `kodr check` in this workspace.',
+		'Address only the listed issues. Do not refactor or change unrelated code.',
+		'',
+		...lines.map((l, i) => `${i + 1}. ${l}`),
+	].join('\n');
 }
 
 const WATCH_DEBOUNCE_MS = 300;

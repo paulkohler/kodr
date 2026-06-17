@@ -379,14 +379,26 @@ export async function main(argv, io) {
 	// Phase 163: run deterministic sensors on the workspace without a model.
 	// Phase 170: optional path argument resolves relative to io.cwd.
 	// Phase 175: --watch re-runs on file changes.
+	// Phase 194: --fix dispatches a targeted repair run when issues are found.
 	if (options.command === 'check') {
 		const { runCheck, runCheckWatch } = await import('./commands/check.mjs');
 		const checkIo = options.checkDir
 			? { ...io, cwd: resolve(io.cwd, options.checkDir) }
 			: io;
-		return options.watch
-			? runCheckWatch(options, checkIo)
-			: runCheck(options, checkIo);
+		if (options.watch) {
+			return runCheckWatch(options, checkIo);
+		}
+		const checkResult = await runCheck(options, checkIo);
+		if (checkResult.fixPrompt) {
+			const fixOptions = {
+				...options,
+				command: 'run',
+				prompt: checkResult.fixPrompt,
+				yes: true,
+			};
+			return runPrompt(fixOptions, checkIo);
+		}
+		return checkResult;
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);
