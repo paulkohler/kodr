@@ -246,6 +246,7 @@ export async function runCheck(options, io) {
 	if (options.sensors !== false) {
 		const sensorResults = await runCrossRefSensors(cwd, fakeWriteResult, {
 			enabled: true,
+			deep: options.deep,
 		});
 		checkResult.sensors = sensorResults;
 	}

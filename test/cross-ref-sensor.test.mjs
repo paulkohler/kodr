@@ -572,6 +572,33 @@ describe('runImportCycleSensor', () => {
 		assert.equal(r.issues.length, 1);
 		assert.ok(r.message.includes('import cycle'));
 	});
+
+	it('--deep detects cross-workspace cycle (write set only has seed)', async () => {
+		// a.mjs (write set seed) → b.mjs (existing) → a.mjs = cycle
+		await writeFile(
+			join(cwd, 'a.mjs'),
+			"import { b } from './b.mjs';\nexport const a = 1;\n",
+		);
+		await writeFile(
+			join(cwd, 'b.mjs'),
+			"import { a } from './a.mjs';\nexport const b = 1;\n",
+		);
+		// Seed is only a.mjs; without --deep, b.mjs is outside the write set
+		// and the cycle is not detected.
+		const shallow = await runImportCycleSensor(cwd, ['a.mjs']);
+		assert.equal(shallow.status, 'ok');
+		// With --deep, b.mjs is discovered and the cycle is flagged.
+		const deep = await runImportCycleSensor(cwd, ['a.mjs'], { deep: true });
+		assert.equal(deep.status, 'warn');
+		assert.ok(deep.message.includes('import cycle'));
+	});
+
+	it('--deep returns ok when no transitive cycles touch write set', async () => {
+		await writeFile(join(cwd, 'a.mjs'), "import { b } from './b.mjs';\n");
+		await writeFile(join(cwd, 'b.mjs'), 'export const b = 1;\n');
+		const r = await runImportCycleSensor(cwd, ['a.mjs'], { deep: true });
+		assert.equal(r.status, 'ok');
+	});
 });
 
 // ---------------------------------------------------------------------------

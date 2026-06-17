@@ -781,14 +781,63 @@ export function findCycles(graph) {
 }
 
 /**
+ * Build a full transitive import graph from a set of seed JS files,
+ * following imports into existing workspace files beyond the seed set.
+ * Used by the --deep cycle detection mode.
+ *
+ * @param {string}   cwd
+ * @param {string[]} seedPaths  Workspace-relative JS paths to start from.
+ * @returns {Promise<{ graph: Map<string, string[]>, readCount: number }>}
+ */
+async function buildDeepImportGraph(cwd, seedPaths) {
+	const graph = new Map();
+	const queue = [...seedPaths];
+	const queued = new Set(seedPaths);
+	let readCount = 0;
+
+	while (queue.length > 0) {
+		const jsPath = queue.shift();
+		if (!graph.has(jsPath)) graph.set(jsPath, []);
+		const abs = join(cwd, jsPath);
+		let content;
+		try {
+			content = await readFile(abs, 'utf8');
+		} catch {
+			continue;
+		}
+		readCount++;
+		const fileDir = dirname(abs);
+
+		for (const specifier of extractLocalImportPaths(content)) {
+			const resolved = await resolveLocalImportAbs(specifier, fileDir);
+			if (!resolved) continue;
+			const rel = relative(cwd, resolved).replace(/\\/gu, '/');
+			if (rel === jsPath) continue;
+			if (!graph.has(rel)) graph.set(rel, []);
+			graph.get(jsPath).push(rel);
+			if (!queued.has(rel)) {
+				queued.add(rel);
+				queue.push(rel);
+			}
+		}
+	}
+
+	return { graph, readCount };
+}
+
+/**
  * Run the import cycle sensor on a set of written JS files.
  * Detects circular import chains within the write set.
+ * With opts.deep, follows imports transitively into existing workspace files
+ * (full transitive closure from the write set), only reporting cycles that
+ * include at least one file from the write set.
  *
  * @param {string}   cwd
  * @param {string[]} writePaths  Workspace-relative written file paths.
+ * @param {object}   [opts]      { deep?: boolean }
  * @returns {Promise<{sensor: string, status: 'ok'|'warn'|'skipped', checked: number, issues: object[], message: string}>}
  */
-export async function runImportCycleSensor(cwd, writePaths) {
+export async function runImportCycleSensor(cwd, writePaths, opts = {}) {
 	const jsPaths = writePaths.filter((p) =>
 		LOCAL_JS_EXTENSIONS.has(extname(p).toLowerCase()),
 	);
@@ -802,7 +851,10 @@ export async function runImportCycleSensor(cwd, writePaths) {
 		};
 	}
 
-	const { graph, readCount } = await buildImportGraph(cwd, jsPaths);
+	const { graph, readCount } = opts.deep
+		? await buildDeepImportGraph(cwd, jsPaths)
+		: await buildImportGraph(cwd, jsPaths);
+
 	if (readCount === 0) {
 		return {
 			sensor: SENSOR_NAMES.IMPORT_CYCLES,
@@ -813,12 +865,19 @@ export async function runImportCycleSensor(cwd, writePaths) {
 		};
 	}
 
-	const cycles = findCycles(graph);
+	let cycles = findCycles(graph);
+
+	if (opts.deep && cycles.length > 0) {
+		const writeSet = new Set(jsPaths);
+		cycles = cycles.filter((c) => c.some((node) => writeSet.has(node)));
+	}
+
 	if (cycles.length === 0) {
+		const modeNote = opts.deep ? ' (transitive)' : '';
 		return {
 			checked: readCount,
 			issues: [],
-			message: `${readCount} file${readCount !== 1 ? 's' : ''} ok — no import cycles`,
+			message: `${readCount} file${readCount !== 1 ? 's' : ''} ok — no import cycles${modeNote}`,
 			sensor: SENSOR_NAMES.IMPORT_CYCLES,
 			status: 'ok',
 		};
@@ -1014,7 +1073,7 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 		runComposeDockerfileSensor(cwd, paths),
 		runCssSelectorSensor(cwd, paths),
 		runLocalImportSensor(cwd, paths),
-		runImportCycleSensor(cwd, paths),
+		runImportCycleSensor(cwd, paths, { deep: opts.deep }),
 		runSecretInResponseSensor(cwd, paths),
 	]);
 

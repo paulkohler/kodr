@@ -182,6 +182,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 180 Sensor Name Registry
 - [x] 181 kodr hook status
 - [x] 182 kodr check TTY Summary Line
+- [x] 183 kodr check --deep Cross-Workspace Cycle Detection
 
 ## Phase Contract
 

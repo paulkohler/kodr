@@ -130,6 +130,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		changed: false,
 		// Phase 175: kodr check --watch re-runs on file changes.
 		watch: false,
+		// Phase 183: kodr check --deep follows imports transitively for cycle detection.
+		deep: false,
 		// Phase 174: kodr hook <sub-command>
 		hookSubcommand: '',
 		record: false,
@@ -417,6 +419,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 175: re-run on file changes.
 		if (arg === '--watch') {
 			options.watch = true;
+			continue;
+		}
+
+		// Phase 183: follow imports transitively for cycle detection.
+		if (arg === '--deep') {
+			options.deep = true;
 			continue;
 		}
 
@@ -982,7 +990,7 @@ Usage:
   kodr run -p "task" --route-auto
   kodr evals [--json] [--runs-dir evals/results]
   kodr watch --test "npm test"
-  kodr check [dir] [--changed] [--no-smoke] [--no-sensors] [--strict] [--json]
+  kodr check [dir] [--changed] [--deep] [--no-smoke] [--no-sensors] [--strict] [--json]
 
 Project config:
   kodr init             Write a starter .kodr/config.json with the currently
@@ -1106,6 +1114,10 @@ OpenRouter:
   --no-sensors         Disable deterministic cross-reference sensors (compose ↔
                        Dockerfile, CSS selector ↔ HTML). On by default; advisory
                        only (warn, not fail).
+  --deep               (kodr check) Extend import-cycle detection to follow
+                       imports transitively into existing workspace files
+                       (not just the changed/written set). Only cycles
+                       touching the write set are reported.
   --strict             (kodr check) Promote advisory warnings — smoke-check
                        failures and sensor warns — to check failures. Exit 1
                        when any warning fires. Useful as a pre-commit gate.
