@@ -6373,6 +6373,20 @@ describe('extractPromptFilePaths (Phase 139)', () => {
 });
 
 // Phase 141 — route-auto: model resolved from run-history in main()
+describe('kodr check path argument (Phase 170)', () => {
+	it('parseArgs stores checkDir from the second positional', () => {
+		const options = parseArgs(['check', '/some/dir']);
+		assert.equal(options.command, 'check');
+		assert.equal(options.checkDir, '/some/dir');
+	});
+
+	it('parseArgs leaves checkDir undefined when no path is given', () => {
+		const options = parseArgs(['check']);
+		assert.equal(options.command, 'check');
+		assert.equal(options.checkDir, undefined);
+	});
+});
+
 describe('route-auto in main() (Phase 141)', () => {
 	async function writeRunSummary(runsDir, slot, model, ok = true) {
 		const d = join(runsDir, `2025-01-0${slot}T00-00-00.000Z`);

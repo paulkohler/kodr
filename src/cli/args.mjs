@@ -627,6 +627,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			options.sessionId = positionals[2];
 		} else if (options.command === 'why' && positionals.length === 2) {
 			options.whyRunId = positionals[1];
+		} else if (options.command === 'check' && positionals.length === 2) {
+			// Phase 170: kodr check [dir] — run against a specific directory.
+			options.checkDir = positionals[1];
 		} else if (positionals.length > 1) {
 			throw new CliError(
 				`Unexpected positional arguments: ${positionals.slice(1).join(' ')}`,
@@ -958,7 +961,7 @@ Usage:
   kodr run -p "task" --route-auto
   kodr evals [--json] [--runs-dir evals/results]
   kodr watch --test "npm test"
-  kodr check [--no-smoke] [--no-sensors] [--strict] [--json]
+  kodr check [dir] [--no-smoke] [--no-sensors] [--strict] [--json]
 
 Project config:
   kodr init             Write a starter .kodr/config.json with the currently

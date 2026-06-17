@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { writeJson } from './artifacts.mjs';
 import {
@@ -371,9 +371,13 @@ export async function main(argv, io) {
 	}
 
 	// Phase 163: run deterministic sensors on the workspace without a model.
+	// Phase 170: optional path argument resolves relative to io.cwd.
 	if (options.command === 'check') {
 		const { runCheck } = await import('./commands/check.mjs');
-		return runCheck(options, io);
+		const checkIo = options.checkDir
+			? { ...io, cwd: resolve(io.cwd, options.checkDir) }
+			: io;
+		return runCheck(options, checkIo);
 	}
 
 	throw new CliError(`Command not implemented yet: ${options.command}`);
