@@ -153,6 +153,20 @@ function renderAnsi(checkResult, fileCount, stdout) {
 		}
 	}
 
+	// Summary line: N files · N sensors · N warnings
+	const sensorsRun = Array.isArray(sensors)
+		? sensors.filter((s) => s.status !== 'skipped').length
+		: 0;
+	const warnCount = Array.isArray(sensors)
+		? sensors.filter((s) => s.status === 'warn').length
+		: 0;
+	const parts = [`${fileCount} file${fileCount !== 1 ? 's' : ''}`];
+	if (sensorsRun > 0)
+		parts.push(`${sensorsRun} sensor${sensorsRun !== 1 ? 's' : ''}`);
+	if (warnCount > 0)
+		parts.push(`${warnCount} warning${warnCount !== 1 ? 's' : ''}`);
+	write(`\x1b[2m${parts.join(' · ')}\x1b[0m\n`);
+
 	write('\n');
 	if (!checkResult.ok) {
 		write('\x1b[31mcheck failed\x1b[0m\n');

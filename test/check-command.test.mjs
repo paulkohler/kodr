@@ -144,6 +144,25 @@ describe('runCheck', () => {
 		assert.equal(result.ok, true);
 	});
 
+	it('TTY output includes a summary line with file count', async () => {
+		await mkdir(join(cwd, 'src'));
+		await writeFile(join(cwd, 'src', 'app.mjs'), 'export const x = 1;\n');
+		const io = makeIo(cwd);
+		await runCheck({ smoke: false, sensors: false }, io);
+		// Summary line is dimmed text like "1 file" or "2 files"
+		assert.match(io._output(), /\d+ files?/u);
+	});
+
+	it('TTY summary line shows warning count when sensors warn', async () => {
+		await writeFile(
+			join(cwd, 'docker-compose.yml'),
+			'services:\n  api:\n    build: .\n',
+		);
+		const io = makeIo(cwd);
+		await runCheck({ smoke: false, sensors: true }, io);
+		assert.match(io._output(), /1 warning/u);
+	});
+
 	it('--changed falls back to full scan when not a git repo', async () => {
 		await mkdir(join(cwd, 'src'));
 		await writeFile(join(cwd, 'src', 'app.mjs'), 'export const x = 1;\n');

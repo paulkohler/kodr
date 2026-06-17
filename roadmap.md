@@ -181,6 +181,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 179 NEXT.md Cleanup (post-178 retrospective)
 - [x] 180 Sensor Name Registry
 - [x] 181 kodr hook status
+- [x] 182 kodr check TTY Summary Line
 
 ## Phase Contract
 
