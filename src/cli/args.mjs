@@ -428,6 +428,13 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 			continue;
 		}
 
+		// Phase 185: --ci is a shorthand for --changed --strict.
+		if (arg === '--ci') {
+			options.changed = true;
+			options.strict = true;
+			continue;
+		}
+
 		if (arg === '--no-language-guidance') {
 			options.suppressLanguageGuidance = true;
 			continue;
@@ -990,7 +997,7 @@ Usage:
   kodr run -p "task" --route-auto
   kodr evals [--json] [--runs-dir evals/results]
   kodr watch --test "npm test"
-  kodr check [dir] [--changed] [--deep] [--no-smoke] [--no-sensors] [--strict] [--json]
+  kodr check [dir] [--changed] [--deep] [--ci] [--no-smoke] [--no-sensors] [--strict] [--json]
 
 Project config:
   kodr init             Write a starter .kodr/config.json with the currently
@@ -1114,6 +1121,9 @@ OpenRouter:
   --no-sensors         Disable deterministic cross-reference sensors (compose ↔
                        Dockerfile, CSS selector ↔ HTML). On by default; advisory
                        only (warn, not fail).
+  --ci                 (kodr check) Shorthand for --changed --strict. Scans
+                       only git-modified files and promotes warnings to
+                       failures. Designed for CI pipeline and pre-commit use.
   --deep               (kodr check) Extend import-cycle detection to follow
                        imports transitively into existing workspace files
                        (not just the changed/written set). Only cycles

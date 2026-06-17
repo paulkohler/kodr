@@ -6387,6 +6387,28 @@ describe('kodr check path argument (Phase 170)', () => {
 	});
 });
 
+describe('kodr check --ci shorthand (Phase 185)', () => {
+	it('--ci sets changed and strict', () => {
+		const options = parseArgs(['check', '--ci']);
+		assert.equal(options.command, 'check');
+		assert.equal(options.changed, true);
+		assert.equal(options.strict, true);
+	});
+
+	it('--ci can be combined with --deep', () => {
+		const options = parseArgs(['check', '--ci', '--deep']);
+		assert.equal(options.changed, true);
+		assert.equal(options.strict, true);
+		assert.equal(options.deep, true);
+	});
+
+	it('--ci is independent from --strict and --changed when set separately', () => {
+		const options = parseArgs(['check', '--changed', '--strict']);
+		assert.equal(options.changed, true);
+		assert.equal(options.strict, true);
+	});
+});
+
 describe('route-auto in main() (Phase 141)', () => {
 	async function writeRunSummary(runsDir, slot, model, ok = true) {
 		const d = join(runsDir, `2025-01-0${slot}T00-00-00.000Z`);
