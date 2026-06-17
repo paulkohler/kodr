@@ -49,6 +49,18 @@ import {
 } from 'node:path';
 
 // ---------------------------------------------------------------------------
+// Canonical sensor name registry (Phase 180)
+// ---------------------------------------------------------------------------
+
+export const SENSOR_NAMES = {
+	COMPOSE_DOCKERFILE: 'compose-dockerfile',
+	CSS_SELECTOR: 'css-selector',
+	LOCAL_IMPORT: 'local-import',
+	IMPORT_CYCLES: 'import-cycles',
+	SECRET_IN_RESPONSE: 'secret-in-response',
+};
+
+// ---------------------------------------------------------------------------
 // Compose ↔ Dockerfile sensor (Phase 158)
 // ---------------------------------------------------------------------------
 
@@ -173,7 +185,7 @@ export async function runComposeDockerfileSensor(cwd, writePaths) {
 	);
 	if (composePaths.length === 0) {
 		return {
-			sensor: 'compose-dockerfile',
+			sensor: SENSOR_NAMES.COMPOSE_DOCKERFILE,
 			status: 'skipped',
 			checked: 0,
 			issues: [],
@@ -192,7 +204,7 @@ export async function runComposeDockerfileSensor(cwd, writePaths) {
 			checked: composePaths.length,
 			issues: [],
 			message: `${composePaths.length} compose file${composePaths.length !== 1 ? 's' : ''} ok`,
-			sensor: 'compose-dockerfile',
+			sensor: SENSOR_NAMES.COMPOSE_DOCKERFILE,
 			status: 'ok',
 		};
 	}
@@ -207,7 +219,7 @@ export async function runComposeDockerfileSensor(cwd, writePaths) {
 		checked: composePaths.length,
 		issues: allIssues,
 		message: detail,
-		sensor: 'compose-dockerfile',
+		sensor: SENSOR_NAMES.COMPOSE_DOCKERFILE,
 		status: 'warn',
 	};
 }
@@ -373,7 +385,7 @@ export async function runCssSelectorSensor(cwd, writePaths) {
 
 	if (htmlPaths.length === 0 && cssPaths.length === 0) {
 		return {
-			sensor: 'css-selector',
+			sensor: SENSOR_NAMES.CSS_SELECTOR,
 			status: 'skipped',
 			checked: 0,
 			issues: [],
@@ -454,7 +466,7 @@ export async function runCssSelectorSensor(cwd, writePaths) {
 
 	if (checked === 0) {
 		return {
-			sensor: 'css-selector',
+			sensor: SENSOR_NAMES.CSS_SELECTOR,
 			status: 'skipped',
 			checked: 0,
 			issues: [],
@@ -467,7 +479,7 @@ export async function runCssSelectorSensor(cwd, writePaths) {
 			checked,
 			issues: [],
 			message: `${checked} HTML file${checked !== 1 ? 's' : ''} ok — all CSS selectors matched`,
-			sensor: 'css-selector',
+			sensor: SENSOR_NAMES.CSS_SELECTOR,
 			status: 'ok',
 		};
 	}
@@ -481,7 +493,7 @@ export async function runCssSelectorSensor(cwd, writePaths) {
 		checked,
 		issues: allIssues,
 		message: `${allIssues.length} selector${allIssues.length !== 1 ? 's' : ''} match no element: ${summary}${extra}`,
-		sensor: 'css-selector',
+		sensor: SENSOR_NAMES.CSS_SELECTOR,
 		status: 'warn',
 	};
 }
@@ -595,7 +607,7 @@ export async function runLocalImportSensor(cwd, writePaths) {
 	);
 	if (jsPaths.length === 0) {
 		return {
-			sensor: 'local-import',
+			sensor: SENSOR_NAMES.LOCAL_IMPORT,
 			status: 'skipped',
 			checked: 0,
 			issues: [],
@@ -628,7 +640,7 @@ export async function runLocalImportSensor(cwd, writePaths) {
 
 	if (checked === 0) {
 		return {
-			sensor: 'local-import',
+			sensor: SENSOR_NAMES.LOCAL_IMPORT,
 			status: 'skipped',
 			checked: 0,
 			issues: [],
@@ -641,7 +653,7 @@ export async function runLocalImportSensor(cwd, writePaths) {
 			checked,
 			issues: [],
 			message: `${checked} file${checked !== 1 ? 's' : ''} ok — all local imports resolve`,
-			sensor: 'local-import',
+			sensor: SENSOR_NAMES.LOCAL_IMPORT,
 			status: 'ok',
 		};
 	}
@@ -655,7 +667,7 @@ export async function runLocalImportSensor(cwd, writePaths) {
 		checked,
 		issues: allIssues,
 		message: `${allIssues.length} unresolved local import${allIssues.length !== 1 ? 's' : ''}: ${summary}${extra}`,
-		sensor: 'local-import',
+		sensor: SENSOR_NAMES.LOCAL_IMPORT,
 		status: 'warn',
 	};
 }
@@ -782,7 +794,7 @@ export async function runImportCycleSensor(cwd, writePaths) {
 	);
 	if (jsPaths.length === 0) {
 		return {
-			sensor: 'import-cycles',
+			sensor: SENSOR_NAMES.IMPORT_CYCLES,
 			status: 'skipped',
 			checked: 0,
 			issues: [],
@@ -793,7 +805,7 @@ export async function runImportCycleSensor(cwd, writePaths) {
 	const { graph, readCount } = await buildImportGraph(cwd, jsPaths);
 	if (readCount === 0) {
 		return {
-			sensor: 'import-cycles',
+			sensor: SENSOR_NAMES.IMPORT_CYCLES,
 			status: 'skipped',
 			checked: 0,
 			issues: [],
@@ -807,7 +819,7 @@ export async function runImportCycleSensor(cwd, writePaths) {
 			checked: readCount,
 			issues: [],
 			message: `${readCount} file${readCount !== 1 ? 's' : ''} ok — no import cycles`,
-			sensor: 'import-cycles',
+			sensor: SENSOR_NAMES.IMPORT_CYCLES,
 			status: 'ok',
 		};
 	}
@@ -822,7 +834,7 @@ export async function runImportCycleSensor(cwd, writePaths) {
 		checked: readCount,
 		issues,
 		message: `${cycles.length} import cycle${cycles.length !== 1 ? 's' : ''}: ${summary}${extra}`,
-		sensor: 'import-cycles',
+		sensor: SENSOR_NAMES.IMPORT_CYCLES,
 		status: 'warn',
 	};
 }
@@ -918,7 +930,7 @@ export async function runSecretInResponseSensor(cwd, writePaths) {
 	);
 	if (jsPaths.length === 0) {
 		return {
-			sensor: 'secret-in-response',
+			sensor: SENSOR_NAMES.SECRET_IN_RESPONSE,
 			status: 'skipped',
 			checked: 0,
 			issues: [],
@@ -944,7 +956,7 @@ export async function runSecretInResponseSensor(cwd, writePaths) {
 
 	if (checked === 0) {
 		return {
-			sensor: 'secret-in-response',
+			sensor: SENSOR_NAMES.SECRET_IN_RESPONSE,
 			status: 'skipped',
 			checked: 0,
 			issues: [],
@@ -957,7 +969,7 @@ export async function runSecretInResponseSensor(cwd, writePaths) {
 			checked,
 			issues: [],
 			message: `${checked} file${checked !== 1 ? 's' : ''} ok — no secret-in-response patterns`,
-			sensor: 'secret-in-response',
+			sensor: SENSOR_NAMES.SECRET_IN_RESPONSE,
 			status: 'ok',
 		};
 	}
@@ -971,7 +983,7 @@ export async function runSecretInResponseSensor(cwd, writePaths) {
 		checked,
 		issues: allIssues,
 		message: `${allIssues.length} potential secret leak${allIssues.length !== 1 ? 's' : ''}: ${summary}${extra}`,
-		sensor: 'secret-in-response',
+		sensor: SENSOR_NAMES.SECRET_IN_RESPONSE,
 		status: 'warn',
 	};
 }

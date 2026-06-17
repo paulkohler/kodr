@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import {
+	SENSOR_NAMES,
 	extractBuildContexts,
 	checkComposeDockerfile,
 	runComposeDockerfileSensor,
@@ -735,6 +736,49 @@ describe('runCrossRefSensors', () => {
 		});
 		// compose-dockerfile sensor should appear (Dockerfile missing → warn)
 		assert.ok(r.length >= 1);
-		assert.ok(r.some((s) => s.sensor === 'compose-dockerfile'));
+		assert.ok(r.some((s) => s.sensor === SENSOR_NAMES.COMPOSE_DOCKERFILE));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// SENSOR_NAMES registry
+// ---------------------------------------------------------------------------
+describe('SENSOR_NAMES', () => {
+	it('exports all five canonical names', () => {
+		const names = Object.values(SENSOR_NAMES);
+		assert.equal(names.length, 5);
+		assert.ok(names.includes('compose-dockerfile'));
+		assert.ok(names.includes('css-selector'));
+		assert.ok(names.includes('local-import'));
+		assert.ok(names.includes('import-cycles'));
+		assert.ok(names.includes('secret-in-response'));
+	});
+
+	it('sensor results use the canonical names', async () => {
+		const cwd = await import('node:os').then((m) =>
+			import('node:fs/promises').then((fs) =>
+				fs.mkdtemp(m.tmpdir() + '/sn-test-'),
+			),
+		);
+		try {
+			await import('node:fs/promises').then((fs) =>
+				fs.writeFile(
+					cwd + '/docker-compose.yml',
+					'services:\n  api:\n    build: .\n',
+				),
+			);
+			const r = await runCrossRefSensors(cwd, {
+				applied: true,
+				writes: [{ path: 'docker-compose.yml' }],
+			});
+			const sensorInResult = r.find(
+				(s) => s.sensor === SENSOR_NAMES.COMPOSE_DOCKERFILE,
+			);
+			assert.ok(sensorInResult, 'compose-dockerfile sensor appears in results');
+		} finally {
+			await import('node:fs/promises').then((fs) =>
+				fs.rm(cwd, { recursive: true, force: true }),
+			);
+		}
 	});
 });

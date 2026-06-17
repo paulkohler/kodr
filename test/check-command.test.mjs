@@ -98,6 +98,16 @@ describe('runCheck', () => {
 		assert.ok(parsed.syntax !== undefined);
 	});
 
+	it('--json includes sensorRegistry with all canonical sensor names', async () => {
+		const io = makeIo(cwd);
+		await runCheck({ smoke: false, sensors: false, json: true }, io);
+		const parsed = JSON.parse(io._output());
+		assert.ok(Array.isArray(parsed.sensorRegistry));
+		assert.equal(parsed.sensorRegistry.length, 5);
+		assert.ok(parsed.sensorRegistry.includes('compose-dockerfile'));
+		assert.ok(parsed.sensorRegistry.includes('secret-in-response'));
+	});
+
 	it('--json emits ok:false on syntax error', async () => {
 		await writeFile(join(cwd, 'bad.mjs'), 'const = 1;\n');
 		const io = makeIo(cwd);

@@ -179,6 +179,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 177 kodr hook uninstall
 - [x] 178 Secret Sensor Safe-Names Allowlist
 - [x] 179 NEXT.md Cleanup (post-178 retrospective)
+- [x] 180 Sensor Name Registry
 
 ## Phase Contract
 

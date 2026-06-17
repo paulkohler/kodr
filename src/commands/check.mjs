@@ -13,7 +13,7 @@
 
 import { readdir, watch } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { runCrossRefSensors } from '../cross-ref-sensor.mjs';
+import { runCrossRefSensors, SENSOR_NAMES } from '../cross-ref-sensor.mjs';
 import { runGit } from '../git-workspace.mjs';
 import { runSmokeCheckIfNeeded } from '../smoke-check.mjs';
 import { runSyntaxGateIfNeeded } from '../syntax-gate.mjs';
@@ -252,7 +252,11 @@ export async function runCheck(options, io) {
 	// Output
 	// -----------------------------------------------------------------------
 	if (options.json) {
-		io.stdout.write(JSON.stringify(checkResult, null, 2));
+		const jsonOut = {
+			...checkResult,
+			sensorRegistry: Object.values(SENSOR_NAMES),
+		};
+		io.stdout.write(JSON.stringify(jsonOut, null, 2));
 		io.stdout.write('\n');
 	} else {
 		renderAnsi(checkResult, allFiles.length, io.stdout);
