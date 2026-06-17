@@ -128,6 +128,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		strict: false,
 		// Phase 171: kodr check --changed scans only git-modified files.
 		changed: false,
+		// Phase 175: kodr check --watch re-runs on file changes.
+		watch: false,
 		// Phase 174: kodr hook <sub-command>
 		hookSubcommand: '',
 		record: false,
@@ -409,6 +411,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		// Phase 171: only scan git-modified files.
 		if (arg === '--changed') {
 			options.changed = true;
+			continue;
+		}
+
+		// Phase 175: re-run on file changes.
+		if (arg === '--watch') {
+			options.watch = true;
 			continue;
 		}
 

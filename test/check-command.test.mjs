@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { runCheck } from '../src/commands/check.mjs';
+import { runCheck, runCheckWatch } from '../src/commands/check.mjs';
 
 function makeIo(cwd) {
 	const chunks = [];
@@ -145,5 +145,36 @@ describe('runCheck', () => {
 		);
 		assert.equal(result.ok, true);
 		assert.match(io._output(), /syntax check/u);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// runCheckWatch (Phase 175)
+// ---------------------------------------------------------------------------
+
+describe('runCheckWatch', () => {
+	let cwd;
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), 'kodr-check-watch-'));
+	});
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	it('runs the initial check and exits cleanly on abort signal', async () => {
+		await writeFile(join(cwd, 'app.mjs'), 'export const x = 1;\n');
+		const io = makeIo(cwd);
+		const ac = new AbortController();
+		// Abort immediately after the watcher loop starts
+		setTimeout(() => ac.abort(), 50);
+		const result = await runCheckWatch(
+			{ smoke: false, sensors: false },
+			io,
+			ac.signal,
+		);
+		assert.equal(result.ok, true);
+		assert.equal(result.command, 'check');
+		assert.match(io._output(), /syntax check|no files/u);
+		assert.match(io._output(), /watching for changes/u);
 	});
 });

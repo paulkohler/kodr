@@ -8,8 +8,10 @@
 //
 // Phase 165: --json flag emits a structured JSON result object instead of ANSI
 // text, for CI integration and scripting.
+//
+// Phase 175: --watch re-runs on file changes (300ms debounce, Ctrl-C to exit).
 
-import { readdir } from 'node:fs/promises';
+import { readdir, watch } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { runCrossRefSensors } from '../cross-ref-sensor.mjs';
 import { runGit } from '../git-workspace.mjs';
@@ -257,4 +259,79 @@ export async function runCheck(options, io) {
 	}
 
 	return { ok: checkResult.ok, command: 'check' };
+}
+
+const WATCH_DEBOUNCE_MS = 300;
+
+// Directories to ignore when watching (mirrors EXCLUDED_DIRS)
+const WATCH_EXCLUDED = new Set([
+	'.git',
+	'node_modules',
+	'.kodr',
+	'.cache',
+	'dist',
+	'build',
+	'.next',
+	'.nuxt',
+]);
+
+/**
+ * Run `kodr check` continuously, re-running whenever a file in the workspace
+ * changes. Uses `fs/promises.watch` with `{ recursive: true }`.
+ * Debounces rapid bursts of change events to a single re-run after 300ms.
+ * Exits cleanly on SIGINT (Ctrl-C) or when signal is aborted (for testing).
+ *
+ * @param {object}       options  Same as runCheck, minus --watch.
+ * @param {object}       io       { cwd, stdout }
+ * @param {AbortSignal}  [signal] Optional AbortSignal to cancel the watch loop.
+ * @returns {Promise<{ok: boolean, command: string}>}
+ */
+export async function runCheckWatch(options, io, signal) {
+	const cwd = io.cwd;
+	const write = (s) => io.stdout.write(s);
+
+	const watchOptions = { ...options, watch: false };
+
+	// Initial run
+	await runCheck(watchOptions, io);
+	write('\n\x1b[2mwatching for changes… (Ctrl-C to exit)\x1b[0m\n');
+
+	let timer = null;
+	let watcher = null;
+
+	const rerun = async () => {
+		write('\n\x1b[2m—— file changed ——\x1b[0m\n\n');
+		await runCheck(watchOptions, io);
+		write('\n\x1b[2mwatching for changes… (Ctrl-C to exit)\x1b[0m\n');
+	};
+
+	// Merge caller's signal and a SIGINT-triggered abort into one controller.
+	const ac = new AbortController();
+	const onSigint = () => ac.abort();
+	process.once('SIGINT', onSigint);
+	if (signal) {
+		signal.addEventListener('abort', () => ac.abort(), { once: true });
+	}
+
+	try {
+		watcher = watch(cwd, { recursive: true, signal: ac.signal });
+		for await (const event of watcher) {
+			if (ac.signal.aborted) break;
+			// Skip changes inside excluded dirs
+			const topDir = event.filename?.split(/[/\\]/u)[0] ?? '';
+			if (WATCH_EXCLUDED.has(topDir)) continue;
+
+			clearTimeout(timer);
+			timer = setTimeout(rerun, WATCH_DEBOUNCE_MS);
+		}
+	} catch (err) {
+		// AbortError is the normal exit path when signal fires
+		if (err?.name !== 'AbortError') throw err;
+	} finally {
+		clearTimeout(timer);
+		process.off('SIGINT', onSigint);
+		write('\n');
+	}
+
+	return { ok: true, command: 'check' };
 }
