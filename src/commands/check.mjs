@@ -296,6 +296,10 @@ export async function runCheck(options, io) {
 			...checkResult,
 			sensorRegistry: Object.values(SENSOR_NAMES),
 		};
+		// Phase 200: include fixPrompt in JSON when there are fixable issues,
+		// even without --fix, so consumers can pipe it without re-running the check.
+		const fp = buildFixPrompt(checkResult);
+		if (fp) jsonOut.fixPrompt = fp;
 		io.stdout.write(JSON.stringify(jsonOut, null, 2));
 		io.stdout.write('\n');
 	} else {

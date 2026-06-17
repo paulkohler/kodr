@@ -109,6 +109,34 @@ describe('runCheck', () => {
 		assert.ok(parsed.sensorRegistry.includes('secrets-at-rest'));
 	});
 
+	// Phase 200: fixPrompt included in --json when there are sensor issues
+	it('--json includes fixPrompt when sensor issues exist', async () => {
+		await writeFile(
+			join(cwd, 'index.mjs'),
+			"import { x } from './gone.mjs';\n",
+		);
+		const io = makeIo(cwd);
+		await runCheck({ smoke: false, sensors: true, json: true }, io);
+		const parsed = JSON.parse(io._output());
+		assert.ok(
+			typeof parsed.fixPrompt === 'string',
+			'fixPrompt should be a string when issues exist',
+		);
+		assert.match(parsed.fixPrompt, /local-import in index\.mjs/u);
+	});
+
+	it('--json omits fixPrompt when check is clean', async () => {
+		await writeFile(join(cwd, 'app.mjs'), 'export const x = 1;\n');
+		const io = makeIo(cwd);
+		await runCheck({ smoke: false, sensors: true, json: true }, io);
+		const parsed = JSON.parse(io._output());
+		assert.equal(
+			parsed.fixPrompt,
+			undefined,
+			'fixPrompt must be absent when check is clean',
+		);
+	});
+
 	it('--no-smoke gate skip appears in --json gateSkips', async () => {
 		const io = makeIo(cwd);
 		await runCheck({ smoke: false, sensors: true, json: true }, io);
