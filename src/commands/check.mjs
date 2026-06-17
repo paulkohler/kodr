@@ -320,6 +320,55 @@ export async function runCheck(options, io) {
 }
 
 /**
+ * Format a single sensor issue object into a human-readable line for the fix
+ * prompt. Each sensor uses a distinct issue shape; this maps them correctly.
+ * Returns null for unrecognised shapes so the caller can skip silently.
+ *
+ * @param {string} sensorName
+ * @param {object} issue
+ * @returns {string|null}
+ */
+function formatSensorIssue(sensorName, issue) {
+	switch (sensorName) {
+		case 'local-import':
+			// { jsPath, specifier }
+			return `${sensorName} in ${issue.jsPath}: unresolved import '${issue.specifier}'`;
+
+		case 'compose-dockerfile':
+			// { buildContext, composePath, expectedDockerfile, type: 'missing-dockerfile' }
+			return `${sensorName}: missing Dockerfile for build context '${issue.buildContext}' (expected ${issue.expectedDockerfile})`;
+
+		case 'import-cycles':
+			// { cycle: ['a.mjs', 'b.mjs', 'a.mjs'] }
+			return issue.cycle
+				? `${sensorName}: import cycle: ${issue.cycle.join(' → ')}`
+				: null;
+
+		case 'secret-in-response':
+			// { jsPath, lineNo, line, pattern }
+			return `${sensorName} in ${issue.jsPath}:${issue.lineNo}: potential secret response (pattern: ${issue.pattern})`;
+
+		case 'secrets-at-rest':
+			// { type: 'env-file', path } or { type: 'hardcoded', jsPath, lineNo, name, value }
+			if (issue.type === 'env-file') {
+				return `${sensorName}: .env file committed: ${issue.path}`;
+			}
+			if (issue.type === 'hardcoded') {
+				return `${sensorName} in ${issue.jsPath}:${issue.lineNo}: hardcoded credential '${issue.name}'`;
+			}
+			return null;
+
+		case 'css-selector':
+			// { cssPath, htmlPath, selector, type: 'selector-no-element', value }
+			return `${sensorName} in ${issue.cssPath}: selector '${issue.selector}' not found in ${issue.htmlPath}`;
+
+		default:
+			// Unknown sensor — emit JSON so no information is lost
+			return `${sensorName}: ${JSON.stringify(issue)}`;
+	}
+}
+
+/**
  * Build a targeted repair prompt from check findings.
  * Returns null when there are no actionable issues (nothing for the model to fix).
  *
@@ -336,24 +385,13 @@ function buildFixPrompt(checkResult) {
 		}
 	}
 
-	// Sensor warnings (exclude warning-severity sensors that are purely advisory)
+	// Sensor warnings — each sensor type uses its own issue shape
 	if (Array.isArray(checkResult.sensors)) {
 		for (const s of checkResult.sensors) {
 			if (s.status !== 'warn') continue;
 			for (const issue of s.issues ?? []) {
-				const loc = issue.path || issue.file || '';
-				const detail = issue.importPath
-					? `unresolved import '${issue.importPath}'`
-					: issue.type === 'missing-dockerfile'
-						? `missing Dockerfile for build context '${issue.buildContext}'`
-						: issue.cycle
-							? `import cycle: ${issue.cycle.join(' → ')}`
-							: issue.match
-								? `potential secret leak: ${issue.match}`
-								: JSON.stringify(issue);
-				lines.push(
-					loc ? `${s.sensor} in ${loc}: ${detail}` : `${s.sensor}: ${detail}`,
-				);
+				const line = formatSensorIssue(s.sensor, issue);
+				if (line) lines.push(line);
 			}
 		}
 	}

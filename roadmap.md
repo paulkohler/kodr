@@ -194,6 +194,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 192 Cross-Ref Sensors on Proposals
 - [x] 193 Per-Sensor Toggles via Project Config
 - [x] 194 Bridge `kodr check` Findings Into a Fix Run
+- [x] 195 Fix Sensor Issue Formatting in buildFixPrompt
 
 ## Phase Contract
 

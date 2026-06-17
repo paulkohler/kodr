@@ -1,6 +1,6 @@
 {
   "name": "kodr-cli",
-  "version": "0.0.194",
+  "version": "0.0.195",
   "license": "MIT",
   "type": "module",
   "bin": {

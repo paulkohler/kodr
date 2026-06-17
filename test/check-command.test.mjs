@@ -370,4 +370,39 @@ describe('runCheck --fix', () => {
 			assert.match(io._output(), /passing findings to model/u);
 		}
 	});
+
+	// Phase 195: verify formatSensorIssue uses correct field names per sensor
+	it('fixPrompt uses jsPath+specifier format for local-import (not JSON fallback)', async () => {
+		await writeFile(
+			join(cwd, 'index.mjs'),
+			"import { x } from './really-missing.mjs';\n",
+		);
+		const io = makeIo(cwd);
+		const result = await runCheck(
+			{ smoke: false, sensors: true, fix: true },
+			io,
+		);
+		if (result.fixPrompt) {
+			assert.match(
+				result.fixPrompt,
+				/local-import in index\.mjs: unresolved import '\.\/really-missing\.mjs'/u,
+			);
+			assert.ok(
+				!result.fixPrompt.includes('"jsPath"'),
+				'fixPrompt must not fall back to JSON serialisation',
+			);
+		}
+	});
+
+	it('fixPrompt uses correct format for secrets-at-rest env-file issue', async () => {
+		await writeFile(join(cwd, '.env'), 'SECRET_KEY=abc123\n');
+		const io = makeIo(cwd);
+		const result = await runCheck(
+			{ smoke: false, sensors: true, fix: true },
+			io,
+		);
+		if (result.fixPrompt) {
+			assert.match(result.fixPrompt, /secrets-at-rest.*\.env file committed/u);
+		}
+	});
 });
