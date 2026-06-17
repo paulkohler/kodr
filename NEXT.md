@@ -6,10 +6,11 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 167): verification gates are comprehensive — syntax,
-smoke-check, and three cross-reference sensors (compose↔Dockerfile, css↔html,
-local-import existence). `kodr check` exposes all three as a standalone
-diagnostic with `--json`, `--strict`, and `--no-smoke`/`--no-sensors` control.
+Current frontier (phase 175): `kodr check` is now a comprehensive standalone
+diagnostic with `--json`, `--strict`, `--changed`, `--watch`, and a path
+argument. Five cross-reference sensors: compose↔Dockerfile, css↔html, local-import
+existence, import cycle detection, and secret-in-response. `kodr hook install`
+scaffolds a pre-commit gate from the command line.
 
 ## Candidates
 
@@ -22,12 +23,6 @@ additional heal turn can attempt a repair when smoke fails. The challenge is
 architectural: the heal loop precedes the smoke-check in the default pipeline,
 so a second heal pass would be needed, or the pipeline order would need to
 change (smoke → heal → smoke again).
-
-### `kodr check --changed` (git-aware fast check)
-`kodr check` scans the entire workspace. For large repos, a pre-commit hook
-only needs to check git-modified files (`git diff --name-only HEAD`). A
-`--changed` flag would restrict the write set to unstaged + staged changes,
-making the check fast enough to use on every commit.
 
 ### Per-step model routing
 `--route-auto` (141) picks the best-history model at run start. The open half is
@@ -43,15 +38,26 @@ precondition is now met, so this needs a human call and won't resurface on its
 own. (The drift guard for the manual `packages/repomap/src/` copy shipped in
 phase 154 — `test/repomap-sync.test.mjs` — independent of the publish decision.)
 
-### Import cycle detection
-Extend the local-import sensor (phase 167) to detect circular import graphs
-(A → B → A). Requires building a dependency graph from all JS files in the
-write set and running DFS with a visiting set. Cycles don't crash Node.js but
-can produce `undefined` exports at runtime and are hard to diagnose.
+### `kodr check --json` sensor names in CI output
+The `--json` output lists sensor results but doesn't normalise sensor names for
+downstream tooling (e.g. `"sensor": "import-cycles"` vs `"sensor": "local-import"`).
+Defining a canonical sensor registry and surfacing it in `kodr check --json`
+would let CI scripts reliably key on sensor names without brittle string matching.
 
-### Secret-in-response sensor
-Login signed the whole user row — bcrypt `password_hash` included — into the
-JWT (surfaced in phase 156/157 logs). A heuristic warning when a value
-selected from a `password`/`hash`/`secret`-named variable or column is signed,
-serialised, or returned wholesale. Tricky to make precise without a real data-flow
-graph — worth scoping as an advisory heuristic that flags the obvious patterns.
+### Cross-workspace cycle detection
+The import-cycle sensor (phase 172) only detects cycles within the write set.
+Extending it to follow imports into existing files (full transitive closure) would
+catch cycles that span newly-written and pre-existing files. Trade-off: scanning
+the full workspace on every check could be slow for large repos.
+
+### `kodr hook uninstall` subcommand
+Counterpart to `kodr hook install`. Removes the hook if it was installed by kodr
+(same `HOOK_HEADER` guard); warns when the hook exists but was not installed by
+kodr (use `rm` directly). Low priority — `rm .git/hooks/pre-commit` is trivial.
+
+### Secret sensor false-positive tuning
+The secret-in-response sensor (phase 173) uses a ±4-line window heuristic.
+Common false positive: `token` in a CSRF token or OAuth access token context
+that is legitimately returned to the client. Could tune with a blocklist of
+safe variable names (`csrfToken`, `accessToken`, `refreshToken`) or add a
+comment-based suppression mechanism (`// kodr-ignore: secret-in-response`).
