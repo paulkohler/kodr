@@ -173,6 +173,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 171 kodr check --changed Git-Aware Fast Check
 - [x] 172 Import Cycle Detection Sensor
 - [x] 173 Secret-in-Response Sensor
+- [x] 174 kodr hook install Pre-commit Hook Installer
 
 ## Phase Contract
 

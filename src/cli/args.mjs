@@ -128,6 +128,8 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		strict: false,
 		// Phase 171: kodr check --changed scans only git-modified files.
 		changed: false,
+		// Phase 174: kodr hook <sub-command>
+		hookSubcommand: '',
 		record: false,
 		evalCases: [],
 		testCommand: '',
@@ -638,6 +640,9 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		} else if (options.command === 'check' && positionals.length === 2) {
 			// Phase 170: kodr check [dir] — run against a specific directory.
 			options.checkDir = positionals[1];
+		} else if (options.command === 'hook' && positionals.length === 2) {
+			// Phase 174: kodr hook <sub-command> (e.g. install)
+			options.hookSubcommand = positionals[1];
 		} else if (positionals.length > 1) {
 			throw new CliError(
 				`Unexpected positional arguments: ${positionals.slice(1).join(' ')}`,

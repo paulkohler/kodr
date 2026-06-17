@@ -370,6 +370,12 @@ export async function main(argv, io) {
 		return runWatch(options, io, handleChannelRequest);
 	}
 
+	// Phase 174: manage kodr-generated git hooks.
+	if (options.command === 'hook') {
+		const { runHook } = await import('./commands/hook.mjs');
+		return runHook(options, io);
+	}
+
 	// Phase 163: run deterministic sensors on the workspace without a model.
 	// Phase 170: optional path argument resolves relative to io.cwd.
 	if (options.command === 'check') {
