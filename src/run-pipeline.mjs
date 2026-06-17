@@ -672,6 +672,29 @@ export async function runPrompt(options, io) {
 				if (smokeResult !== null) {
 					summary.smokeCheck = smokeResult;
 				}
+				// Phase 189: gate-skip reasons in subagent-stages summaries.
+				{
+					const skips = {};
+					if (!gatesEligible) {
+						const reason = !subagentWriteResult.applied
+							? 'write-not-applied'
+							: orchestrationResult.writeError
+								? 'write-error'
+								: 'run-error';
+						skips.syntax = { ran: false, reason };
+						skips.smoke = { ran: false, reason };
+					} else if (options.smoke === false) {
+						skips.smoke = { ran: false, reason: 'disabled' };
+					} else if (activeExecutor != null && smokeResult === null) {
+						skips.smoke = { ran: false, reason: 'sandbox-active' };
+					}
+					if (options.sensors === false) {
+						skips.sensors = { ran: false, reason: 'disabled' };
+					}
+					if (Object.keys(skips).length > 0) {
+						summary.gateSkips = skips;
+					}
+				}
 				// Phase 159: cross-reference sensors (advisory only — no runOk impact).
 				const sensorsResult = gatesEligible
 					? await runCrossRefSensors(subagentVerifyCwd, subagentWriteResult, {
@@ -1647,6 +1670,31 @@ export async function runPrompt(options, io) {
 		// --no-smoke, or nothing applied).
 		if (smokeResult !== null) {
 			summary.smokeCheck = smokeResult;
+		}
+		// Phase 189: record gate-skip reasons so "didn't run" is distinguishable
+		// from "passed" in summary.json forensics (kodr why, trends).
+		{
+			const gateSkips = {};
+			const gatesEligible = shouldApply && !writeError && !runError;
+			if (!gatesEligible) {
+				const reason = !shouldApply
+					? 'write-not-applied'
+					: writeError
+						? 'write-error'
+						: 'run-error';
+				gateSkips.syntax = { ran: false, reason };
+				gateSkips.smoke = { ran: false, reason };
+			} else if (options.smoke === false) {
+				gateSkips.smoke = { ran: false, reason: 'disabled' };
+			} else if (activeExecutor != null && smokeResult === null) {
+				gateSkips.smoke = { ran: false, reason: 'sandbox-active' };
+			}
+			if (options.sensors === false) {
+				gateSkips.sensors = { ran: false, reason: 'disabled' };
+			}
+			if (Object.keys(gateSkips).length > 0) {
+				summary.gateSkips = gateSkips;
+			}
 		}
 		// Phase 159: cross-reference sensors (advisory only — no runOk impact).
 		const sensorsResult =

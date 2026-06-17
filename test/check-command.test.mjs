@@ -108,6 +108,30 @@ describe('runCheck', () => {
 		assert.ok(parsed.sensorRegistry.includes('secret-in-response'));
 	});
 
+	it('--no-smoke gate skip appears in --json gateSkips', async () => {
+		const io = makeIo(cwd);
+		await runCheck({ smoke: false, sensors: true, json: true }, io);
+		const parsed = JSON.parse(io._output());
+		assert.ok(parsed.gateSkips?.smoke?.ran === false);
+		assert.equal(parsed.gateSkips.smoke.reason, 'disabled');
+	});
+
+	it('--no-sensors gate skip appears in --json gateSkips', async () => {
+		const io = makeIo(cwd);
+		await runCheck({ smoke: true, sensors: false, json: true }, io);
+		const parsed = JSON.parse(io._output());
+		assert.ok(parsed.gateSkips?.sensors?.ran === false);
+		assert.equal(parsed.gateSkips.sensors.reason, 'disabled');
+	});
+
+	it('no gateSkips when all gates enabled', async () => {
+		const io = makeIo(cwd);
+		await runCheck({ smoke: true, sensors: true, json: true }, io);
+		const parsed = JSON.parse(io._output());
+		// With an empty workspace, gates run but gateSkips should be absent
+		assert.equal(parsed.gateSkips, undefined);
+	});
+
 	it('--json emits ok:false on syntax error', async () => {
 		await writeFile(join(cwd, 'bad.mjs'), 'const = 1;\n');
 		const io = makeIo(cwd);

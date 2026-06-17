@@ -226,6 +226,10 @@ export async function runCheck(options, io) {
 
 	const checkResult = { ok: true, command: 'check' };
 
+	// Phase 189: track gate-skip reasons so "didn't run" and "passed" are
+	// distinguishable in --json output and forensics.
+	const gateSkips = {};
+
 	// -----------------------------------------------------------------------
 	// 1. Syntax gate
 	// -----------------------------------------------------------------------
@@ -242,6 +246,8 @@ export async function runCheck(options, io) {
 			sandboxActive: false,
 		});
 		checkResult.smokeCheck = smokeResult;
+	} else {
+		gateSkips.smoke = { ran: false, reason: 'disabled' };
 	}
 
 	// -----------------------------------------------------------------------
@@ -253,6 +259,12 @@ export async function runCheck(options, io) {
 			deep: options.deep,
 		});
 		checkResult.sensors = sensorResults;
+	} else {
+		gateSkips.sensors = { ran: false, reason: 'disabled' };
+	}
+
+	if (Object.keys(gateSkips).length > 0) {
+		checkResult.gateSkips = gateSkips;
 	}
 
 	// -----------------------------------------------------------------------
