@@ -103,9 +103,10 @@ describe('runCheck', () => {
 		await runCheck({ smoke: false, sensors: false, json: true }, io);
 		const parsed = JSON.parse(io._output());
 		assert.ok(Array.isArray(parsed.sensorRegistry));
-		assert.equal(parsed.sensorRegistry.length, 5);
+		assert.equal(parsed.sensorRegistry.length, 6);
 		assert.ok(parsed.sensorRegistry.includes('compose-dockerfile'));
 		assert.ok(parsed.sensorRegistry.includes('secret-in-response'));
+		assert.ok(parsed.sensorRegistry.includes('secrets-at-rest'));
 	});
 
 	it('--no-smoke gate skip appears in --json gateSkips', async () => {

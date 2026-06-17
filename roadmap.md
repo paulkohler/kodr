@@ -189,6 +189,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 187 kodr check --watch --ci Combination
 - [x] 188 Sensor Severity Levels
 - [x] 189 Gate-Skip Observability
+- [x] 190 Secrets-at-Rest Sensor
 
 ## Phase Contract
 

@@ -22,6 +22,8 @@ import {
 	runImportCycleSensor,
 	scanSecretLeaks,
 	runSecretInResponseSensor,
+	scanSecretsAtRest,
+	runSecretsAtRestSensor,
 	runCrossRefSensors,
 } from '../src/cross-ref-sensor.mjs';
 
@@ -772,14 +774,15 @@ describe('runCrossRefSensors', () => {
 // SENSOR_NAMES registry
 // ---------------------------------------------------------------------------
 describe('SENSOR_NAMES', () => {
-	it('exports all five canonical names', () => {
+	it('exports all six canonical names', () => {
 		const names = Object.values(SENSOR_NAMES);
-		assert.equal(names.length, 5);
+		assert.equal(names.length, 6);
 		assert.ok(names.includes('compose-dockerfile'));
 		assert.ok(names.includes('css-selector'));
 		assert.ok(names.includes('local-import'));
 		assert.ok(names.includes('import-cycles'));
 		assert.ok(names.includes('secret-in-response'));
+		assert.ok(names.includes('secrets-at-rest'));
 	});
 
 	it('SENSOR_SEVERITY has error/warning entry for every sensor', () => {
@@ -792,10 +795,11 @@ describe('SENSOR_NAMES', () => {
 		}
 	});
 
-	it('local-import, import-cycles, secret-in-response are error-severity', () => {
+	it('local-import, import-cycles, secret-in-response, secrets-at-rest are error-severity', () => {
 		assert.equal(SENSOR_SEVERITY[SENSOR_NAMES.LOCAL_IMPORT], 'error');
 		assert.equal(SENSOR_SEVERITY[SENSOR_NAMES.IMPORT_CYCLES], 'error');
 		assert.equal(SENSOR_SEVERITY[SENSOR_NAMES.SECRET_IN_RESPONSE], 'error');
+		assert.equal(SENSOR_SEVERITY[SENSOR_NAMES.SECRETS_AT_REST], 'error');
 	});
 
 	it('compose-dockerfile and css-selector are warning-severity', () => {
@@ -859,5 +863,98 @@ describe('SENSOR_NAMES', () => {
 				fs.rm(cwd, { recursive: true, force: true }),
 			);
 		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// scanSecretsAtRest
+// ---------------------------------------------------------------------------
+describe('scanSecretsAtRest', () => {
+	it('detects hardcoded api key assignment', () => {
+		const content = `const API_KEY = 'sk-abc123xyz456789012345678';\n`;
+		const hits = scanSecretsAtRest(content);
+		assert.equal(hits.length, 1);
+		assert.ok(hits[0].name.toLowerCase().includes('api'));
+	});
+
+	it('ignores placeholder values', () => {
+		const content = `const API_KEY = 'your_api_key_here_replace_me';\n`;
+		const hits = scanSecretsAtRest(content);
+		assert.equal(hits.length, 0);
+	});
+
+	it('ignores values with whitespace', () => {
+		const content = `const secret = 'this is a long string that has spaces in it';\n`;
+		const hits = scanSecretsAtRest(content);
+		assert.equal(hits.length, 0);
+	});
+
+	it('ignores short values (under 24 chars)', () => {
+		const content = `const password = 'short';\n`;
+		const hits = scanSecretsAtRest(content);
+		assert.equal(hits.length, 0);
+	});
+
+	it('suppressed by kodr-ignore comment', () => {
+		const content = `const API_KEY = 'sk-abc123xyz456789012345678'; // kodr-ignore: secrets-at-rest\n`;
+		const hits = scanSecretsAtRest(content);
+		assert.equal(hits.length, 0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// runSecretsAtRestSensor
+// ---------------------------------------------------------------------------
+describe('runSecretsAtRestSensor', () => {
+	let cwd;
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), 'kodr-sat-'));
+	});
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	it('skips when no relevant files', async () => {
+		const result = await runSecretsAtRestSensor(cwd, []);
+		assert.equal(result.status, 'skipped');
+	});
+
+	it('warns when .env file is in write set', async () => {
+		await writeFile(join(cwd, '.env'), 'DB_PASSWORD=hunter2\n');
+		const result = await runSecretsAtRestSensor(cwd, ['.env']);
+		assert.equal(result.status, 'warn');
+		assert.ok(result.message.includes('.env'));
+		assert.equal(result.severity, 'error');
+	});
+
+	it('does not flag .env.example', async () => {
+		await writeFile(
+			join(cwd, '.env.example'),
+			'DB_PASSWORD=your_password_here\n',
+		);
+		const result = await runSecretsAtRestSensor(cwd, ['.env.example']);
+		// .env.example is not a target type — sensor skips, no issues flagged
+		assert.ok(result.status === 'ok' || result.status === 'skipped');
+		assert.equal(result.issues.length, 0);
+	});
+
+	it('warns when JS file has a hardcoded credential', async () => {
+		await writeFile(
+			join(cwd, 'config.mjs'),
+			`export const API_KEY = 'sk-abc123xyz456789012345678';\n`,
+		);
+		const result = await runSecretsAtRestSensor(cwd, ['config.mjs']);
+		assert.equal(result.status, 'warn');
+		assert.ok(result.message.toLowerCase().includes('secret'));
+		assert.equal(result.severity, 'error');
+	});
+
+	it('ok when JS file has no hardcoded credentials', async () => {
+		await writeFile(
+			join(cwd, 'config.mjs'),
+			`export const API_KEY = process.env.API_KEY;\n`,
+		);
+		const result = await runSecretsAtRestSensor(cwd, ['config.mjs']);
+		assert.equal(result.status, 'ok');
 	});
 });

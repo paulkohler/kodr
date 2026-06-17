@@ -58,6 +58,7 @@ export const SENSOR_NAMES = {
 	LOCAL_IMPORT: 'local-import',
 	IMPORT_CYCLES: 'import-cycles',
 	SECRET_IN_RESPONSE: 'secret-in-response',
+	SECRETS_AT_REST: 'secrets-at-rest',
 };
 
 // Phase 188: per-sensor default severity.
@@ -69,6 +70,7 @@ export const SENSOR_SEVERITY = {
 	[SENSOR_NAMES.LOCAL_IMPORT]: 'error',
 	[SENSOR_NAMES.IMPORT_CYCLES]: 'error',
 	[SENSOR_NAMES.SECRET_IN_RESPONSE]: 'error',
+	[SENSOR_NAMES.SECRETS_AT_REST]: 'error',
 };
 
 // ---------------------------------------------------------------------------
@@ -1064,6 +1066,138 @@ export async function runSecretInResponseSensor(cwd, writePaths) {
 }
 
 // ---------------------------------------------------------------------------
+// Secrets-at-rest sensor (Phase 190)
+// ---------------------------------------------------------------------------
+
+// Flag .env files but not .env.example/.env.sample/.env.template (those are
+// committed-on-purpose safe defaults with no real credentials).
+const SECRET_ENV_FILE =
+	/(?:^|[/\\])\.env(?!\.(example|sample|template|dist|test|local))(\..+)?$/iu;
+
+// Matches: const/let/var SECRETNAME = 'long-literal' (24+ chars)
+// or SECRETNAME = 'long-literal' (assignment without declaration).
+// Captures: [1] name token, [2] the literal value.
+const HARDCODED_SECRET_RE =
+	/(?:const|let|var\s+)?(\w*(?:password|passwd|secret|api_?key|auth_?key|credential|private_?key)\w*)\s*=\s*['"`]([^'"`]{24,})['"`]/iu;
+
+// Placeholder strings that are clearly not real credentials.
+const PLACEHOLDER_RE =
+	/(?:your|example|change|xxx+|placeholder|dummy|test|sample|insert|replace|<|>)/iu;
+
+// Suppression comment for the at-rest sensor.
+const AT_REST_IGNORE = /\/\/\s*kodr-ignore:\s*secrets-at-rest/iu;
+
+/**
+ * Scan one JS/TS file for hardcoded secret literals assigned to secret-named
+ * variables. Returns hit objects { lineNo, line, name, value }.
+ * Suppressed by `// kodr-ignore: secrets-at-rest` on the same line.
+ *
+ * @param {string} content
+ * @returns {Array<{lineNo: number, line: string, name: string, value: string}>}
+ */
+export function scanSecretsAtRest(content) {
+	const lines = content.split('\n');
+	const hits = [];
+	for (let i = 0; i < lines.length; i++) {
+		if (AT_REST_IGNORE.test(lines[i])) continue;
+		const m = HARDCODED_SECRET_RE.exec(lines[i]);
+		if (!m) continue;
+		const value = m[2];
+		if (PLACEHOLDER_RE.test(value)) continue;
+		// Require the value to look like a real credential: mostly alphanumeric +
+		// common token chars, no whitespace.
+		if (/\s/u.test(value)) continue;
+		hits.push({ lineNo: i + 1, line: lines[i].trim(), name: m[1], value });
+	}
+	return hits;
+}
+
+/**
+ * Run the secrets-at-rest sensor.
+ * Flags: .env files in the write set; hardcoded credentials in JS source files.
+ *
+ * @param {string}   cwd
+ * @param {string[]} writePaths  Workspace-relative written file paths.
+ * @returns {Promise<{sensor: string, status: string, checked: number, issues: object[], message: string, severity: string}>}
+ */
+export async function runSecretsAtRestSensor(cwd, writePaths) {
+	// Nothing to scan if no relevant paths at all
+	if (writePaths.length === 0) {
+		return {
+			sensor: SENSOR_NAMES.SECRETS_AT_REST,
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no files in write set',
+		};
+	}
+
+	const allIssues = [];
+	let checked = 0;
+
+	// 1. .env files should not appear in the write set
+	for (const p of writePaths) {
+		if (SECRET_ENV_FILE.test(p)) {
+			checked++;
+			allIssues.push({ type: 'env-file', path: p });
+		}
+	}
+
+	// 2. Hardcoded credential literals in JS source files
+	const jsPaths = writePaths.filter((p) =>
+		LOCAL_JS_EXTENSIONS.has(extname(p).toLowerCase()),
+	);
+	for (const jsPath of jsPaths) {
+		let content;
+		try {
+			content = await readFile(join(cwd, jsPath), 'utf8');
+		} catch {
+			continue;
+		}
+		checked++;
+		for (const hit of scanSecretsAtRest(content)) {
+			allIssues.push({ type: 'hardcoded', jsPath, ...hit });
+		}
+	}
+
+	if (checked === 0) {
+		return {
+			sensor: SENSOR_NAMES.SECRETS_AT_REST,
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no .env or JS files in write set',
+		};
+	}
+
+	if (allIssues.length === 0) {
+		return {
+			checked,
+			issues: [],
+			message: `${checked} file${checked !== 1 ? 's' : ''} ok — no secrets at rest`,
+			sensor: SENSOR_NAMES.SECRETS_AT_REST,
+			status: 'ok',
+		};
+	}
+
+	const summary = allIssues
+		.slice(0, 3)
+		.map((i) =>
+			i.type === 'env-file' ? i.path : `${i.jsPath}:${i.lineNo} (${i.name})`,
+		)
+		.join('; ');
+	const extra = allIssues.length > 3 ? ` (+${allIssues.length - 3} more)` : '';
+	return {
+		checked,
+		issues: allIssues,
+		message: `${allIssues.length} secret${allIssues.length !== 1 ? 's' : ''} at rest: ${summary}${extra}`,
+		sensor: SENSOR_NAMES.SECRETS_AT_REST,
+		severity: SENSOR_SEVERITY[SENSOR_NAMES.SECRETS_AT_REST],
+		status: 'warn',
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Convenience gate: run all cross-ref sensors when a write was applied
 // ---------------------------------------------------------------------------
 
@@ -1085,16 +1219,18 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 		: [];
 	if (paths.length === 0) return [];
 
-	const [compose, css, localImport, cycles, secrets] = await Promise.all([
-		runComposeDockerfileSensor(cwd, paths),
-		runCssSelectorSensor(cwd, paths),
-		runLocalImportSensor(cwd, paths),
-		runImportCycleSensor(cwd, paths, { deep: opts.deep }),
-		runSecretInResponseSensor(cwd, paths),
-	]);
+	const [compose, css, localImport, cycles, secrets, secretsAtRest] =
+		await Promise.all([
+			runComposeDockerfileSensor(cwd, paths),
+			runCssSelectorSensor(cwd, paths),
+			runLocalImportSensor(cwd, paths),
+			runImportCycleSensor(cwd, paths, { deep: opts.deep }),
+			runSecretInResponseSensor(cwd, paths),
+			runSecretsAtRestSensor(cwd, paths),
+		]);
 
 	// Omit sensors that skipped (no relevant files) to keep summary lean
-	return [compose, css, localImport, cycles, secrets].filter(
+	return [compose, css, localImport, cycles, secrets, secretsAtRest].filter(
 		(r) => r.status !== 'skipped',
 	);
 }
