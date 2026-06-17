@@ -139,7 +139,47 @@ export async function runHookUninstall(options, io) {
 }
 
 /**
- * kodr hook — dispatch to sub-commands (install, uninstall).
+ * kodr hook status — report whether a pre-commit hook exists and who owns it.
+ *
+ * @param {object} options  Parsed CLI options.
+ * @param {object} io       { cwd, stdout }
+ * @returns {Promise<{ok: boolean, command: string, hookStatus?: string, hookPath?: string}>}
+ */
+export async function runHookStatus(options, io) {
+	const write = (s) => io.stdout.write(s);
+
+	const hooksDir = await resolveHooksDir(io.cwd);
+	if (!hooksDir) {
+		write('error: not inside a git repository\n');
+		return { ok: false, command: 'hook' };
+	}
+
+	const hookPath = join(hooksDir, 'pre-commit');
+
+	let existingContent = null;
+	try {
+		existingContent = await readFile(hookPath, 'utf8');
+	} catch {
+		write('pre-commit hook: not installed\n');
+		return { ok: true, command: 'hook', hookStatus: 'none' };
+	}
+
+	const isKodrHook = existingContent.includes(HOOK_HEADER);
+	if (isKodrHook) {
+		write(`pre-commit hook: installed by kodr\n`);
+		write(`  path: ${hookPath}\n`);
+		write(`  runs: kodr check --changed --strict\n`);
+		return { ok: true, command: 'hook', hookStatus: 'kodr', hookPath };
+	}
+
+	write(`pre-commit hook: foreign (not installed by kodr)\n`);
+	write(`  path: ${hookPath}\n`);
+	write(`  use --force with uninstall to remove it\n`);
+	return { ok: true, command: 'hook', hookStatus: 'foreign', hookPath };
+}
+
+/**
+ * kodr hook — dispatch to sub-commands (install, status, uninstall).
  *
  * @param {object} options
  * @param {object} io
@@ -150,10 +190,13 @@ export async function runHook(options, io) {
 	if (sub === 'install') {
 		return runHookInstall(options, io);
 	}
+	if (sub === 'status') {
+		return runHookStatus(options, io);
+	}
 	if (sub === 'uninstall') {
 		return runHookUninstall(options, io);
 	}
 	io.stdout.write(`error: unknown hook sub-command: ${sub || '(none)'}\n`);
-	io.stdout.write('  available: install, uninstall\n');
+	io.stdout.write('  available: install, status, uninstall\n');
 	return { ok: false, command: 'hook' };
 }

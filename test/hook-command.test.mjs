@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import {
 	runHookInstall,
 	runHookUninstall,
+	runHookStatus,
 	runHook,
 } from '../src/commands/hook.mjs';
 
@@ -171,6 +172,55 @@ describe('runHookUninstall', () => {
 	});
 });
 
+describe('runHookStatus', () => {
+	let cwd;
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), 'kodr-hook-'));
+	});
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	it('returns error when not in a git repo', async () => {
+		const io = makeIo(cwd);
+		const result = await runHookStatus({}, io);
+		assert.equal(result.ok, false);
+		assert.match(io._output(), /not inside a git repository/u);
+	});
+
+	it('reports not installed when no hook file exists', async () => {
+		await initGitRepo(cwd);
+		const io = makeIo(cwd);
+		const result = await runHookStatus({}, io);
+		assert.equal(result.ok, true);
+		assert.equal(result.hookStatus, 'none');
+		assert.match(io._output(), /not installed/u);
+	});
+
+	it('reports kodr-owned hook', async () => {
+		await initGitRepo(cwd);
+		await runHookInstall({}, makeIo(cwd));
+		const io = makeIo(cwd);
+		const result = await runHookStatus({}, io);
+		assert.equal(result.ok, true);
+		assert.equal(result.hookStatus, 'kodr');
+		assert.match(io._output(), /installed by kodr/u);
+		assert.match(io._output(), /kodr check --changed --strict/u);
+	});
+
+	it('reports foreign hook', async () => {
+		await initGitRepo(cwd);
+		const hooksDir = join(cwd, '.git', 'hooks');
+		await mkdir(hooksDir, { recursive: true });
+		await writeFile(join(hooksDir, 'pre-commit'), '#!/bin/sh\necho "custom"\n');
+		const io = makeIo(cwd);
+		const result = await runHookStatus({}, io);
+		assert.equal(result.ok, true);
+		assert.equal(result.hookStatus, 'foreign');
+		assert.match(io._output(), /foreign/u);
+	});
+});
+
 describe('runHook', () => {
 	let cwd;
 	beforeEach(async () => {
@@ -185,6 +235,14 @@ describe('runHook', () => {
 		const io = makeIo(cwd);
 		const result = await runHook({ hookSubcommand: 'install' }, io);
 		assert.equal(result.ok, true);
+	});
+
+	it('dispatches to status sub-command', async () => {
+		await initGitRepo(cwd);
+		const io = makeIo(cwd);
+		const result = await runHook({ hookSubcommand: 'status' }, io);
+		assert.equal(result.ok, true);
+		assert.equal(result.hookStatus, 'none');
 	});
 
 	it('dispatches to uninstall sub-command', async () => {
