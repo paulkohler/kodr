@@ -191,6 +191,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 189 Gate-Skip Observability
 - [x] 190 Secrets-at-Rest Sensor
 - [x] 191 Pre-push Hook and Configurable Hook Lifecycle
+- [x] 192 Cross-Ref Sensors on Proposals
 
 ## Phase Contract
 

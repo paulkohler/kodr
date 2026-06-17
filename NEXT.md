@@ -6,14 +6,16 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 191): `kodr check` is a comprehensive standalone
+Current frontier (phase 192): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
 and a path argument. Six cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
 `kodr hook install/status/uninstall` manage pre-commit and pre-push gates;
 `.kodr/config.json` `hooks` block customises the baked-in command.
-Gate-skip reasons are observable via `gateSkips` in JSON output. Smoke-check
-heal integration: `smokeResultToVerification` adapter + second heal pass on failure.
+Gate-skip reasons are observable via `gateSkips` in JSON output.
+`runCrossRefSensorsOnProposal` runs content-safe sensors (import-cycles,
+secret-in-response, secrets-at-rest) on dry-run proposals, surfaced as
+`summary.proposalSensors`. Smoke-check heal integration: second heal pass on failure.
 
 ## Candidates
 
@@ -34,16 +36,6 @@ summary so `kodr why` shows which model handled which step.
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
-
-### Run cross-ref sensors on the proposal, not just applied writes
-`runCrossRefSensors` and the smoke-check only fire when `writeResult.applied` is
-true, so a `--dry-run` (the propose-only path scripts and `--json` callers use)
-never shows sensor warnings — the diagnostics that would catch an unresolved
-import or a missing Dockerfile are invisible until you commit to applying. Rough
-shape: run the sensors against the dry-run write set (reading proposed content
-from the draft rather than disk where files do not yet exist) so a proposal can
-be judged before it lands. Open question: smoke-check needs files on disk to
-load-probe, so it may stay apply-only while the structural sensors move earlier.
 
 ### Bridge `kodr check` findings back into a fix run
 `kodr check` is purely diagnostic — it reports unresolved imports, missing

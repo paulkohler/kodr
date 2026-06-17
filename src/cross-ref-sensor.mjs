@@ -37,7 +37,15 @@
 //   'skipped' = no relevant files in write set; sensor did not run.
 // - Zero runtime dependencies; Node.js 24 built-ins only.
 
-import { access, readFile } from 'node:fs/promises';
+import {
+	access,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import {
 	basename,
 	dirname,
@@ -1233,4 +1241,54 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 	return [compose, css, localImport, cycles, secrets, secretsAtRest].filter(
 		(r) => r.status !== 'skipped',
 	);
+}
+
+/**
+ * Run content-safe sensors on proposed (not-yet-applied) writes.
+ *
+ * Only sensors that analyse file content without resolving external references
+ * are included. Sensors that verify structural references across the workspace
+ * (local-import path existence, Dockerfile presence, HTML/CSS co-location) are
+ * skipped to avoid false positives when the referenced files exist on disk but
+ * are not part of the proposal.
+ *
+ * Sensors run: import-cycles, secret-in-response, secrets-at-rest.
+ * Sensors skipped (apply-only): local-import, css-selector, compose-dockerfile.
+ *
+ * Results carry a `proposalOnly: true` marker so callers can present them
+ * separately from post-apply sensor results.
+ *
+ * @param {Array<{path: string, content: string}>} proposalFiles
+ * @param {{enabled?: boolean}} [opts]
+ * @returns {Promise<object[]>}
+ */
+export async function runCrossRefSensorsOnProposal(proposalFiles, opts = {}) {
+	if (opts.enabled === false) return [];
+	const writes = (proposalFiles ?? []).filter(
+		(f) => f?.path && typeof f.content === 'string',
+	);
+	if (writes.length === 0) return [];
+
+	const tmpDir = await mkdtemp(join(tmpdir(), 'kodr-proposal-'));
+	try {
+		const paths = [];
+		for (const { path, content } of writes) {
+			const absPath = join(tmpDir, path);
+			await mkdir(dirname(absPath), { recursive: true });
+			await writeFile(absPath, content, 'utf8');
+			paths.push(path);
+		}
+
+		const [cycles, secrets, secretsAtRest] = await Promise.all([
+			runImportCycleSensor(tmpDir, paths, { deep: false }),
+			runSecretInResponseSensor(tmpDir, paths),
+			runSecretsAtRestSensor(tmpDir, paths),
+		]);
+
+		return [cycles, secrets, secretsAtRest]
+			.filter((r) => r.status !== 'skipped')
+			.map((r) => ({ ...r, proposalOnly: true }));
+	} finally {
+		await rm(tmpDir, { recursive: true, force: true });
+	}
 }

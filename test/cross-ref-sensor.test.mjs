@@ -25,6 +25,7 @@ import {
 	scanSecretsAtRest,
 	runSecretsAtRestSensor,
 	runCrossRefSensors,
+	runCrossRefSensorsOnProposal,
 } from '../src/cross-ref-sensor.mjs';
 
 // ---------------------------------------------------------------------------
@@ -956,5 +957,86 @@ describe('runSecretsAtRestSensor', () => {
 		);
 		const result = await runSecretsAtRestSensor(cwd, ['config.mjs']);
 		assert.equal(result.status, 'ok');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// runCrossRefSensorsOnProposal (Phase 192)
+// ---------------------------------------------------------------------------
+
+describe('runCrossRefSensorsOnProposal', () => {
+	it('returns [] for empty proposal files', async () => {
+		const result = await runCrossRefSensorsOnProposal([]);
+		assert.deepEqual(result, []);
+	});
+
+	it('returns [] when enabled is false', async () => {
+		const result = await runCrossRefSensorsOnProposal(
+			[
+				{
+					path: 'a.mjs',
+					content: 'export const SECRET = "sk-prod-xyz123abc456def789ghi012";',
+				},
+			],
+			{ enabled: false },
+		);
+		assert.deepEqual(result, []);
+	});
+
+	it('detects secrets-at-rest in proposal content', async () => {
+		const results = await runCrossRefSensorsOnProposal([
+			{ path: '.env', content: 'API_KEY=sk-prod-abc123\n' },
+		]);
+		assert.ok(results.length > 0);
+		const sensor = results.find(
+			(r) => r.sensor === SENSOR_NAMES.SECRETS_AT_REST,
+		);
+		assert.ok(sensor, 'secrets-at-rest sensor should fire on .env proposal');
+		assert.equal(sensor.status, 'warn');
+	});
+
+	it('detects import cycles in proposal content', async () => {
+		const results = await runCrossRefSensorsOnProposal([
+			{ path: 'a.mjs', content: "import { b } from './b.mjs';\n" },
+			{ path: 'b.mjs', content: "import { a } from './a.mjs';\n" },
+		]);
+		const sensor = results.find((r) => r.sensor === SENSOR_NAMES.IMPORT_CYCLES);
+		assert.ok(sensor, 'import-cycles sensor should fire on cyclic proposal');
+		assert.equal(sensor.status, 'warn');
+	});
+
+	it('all proposal sensor results carry proposalOnly: true', async () => {
+		const results = await runCrossRefSensorsOnProposal([
+			{ path: '.env', content: 'API_KEY=sk-prod-abc123\n' },
+		]);
+		for (const r of results) {
+			assert.equal(r.proposalOnly, true);
+		}
+	});
+
+	it('returns ok (not skipped) when proposal has clean JS files', async () => {
+		const results = await runCrossRefSensorsOnProposal([
+			{
+				path: 'utils.mjs',
+				content: 'export function greet(name) { return `hello ${name}`; }\n',
+			},
+		]);
+		// Sensor results with status 'ok' are not included (filtered by status !== 'skipped')
+		// — all three sensors run and return 'ok', so they are included
+		for (const r of results) {
+			assert.ok(
+				r.status === 'ok' || r.status === 'warn',
+				`unexpected status: ${r.status}`,
+			);
+		}
+	});
+
+	it('skips proposal files without content', async () => {
+		const results = await runCrossRefSensorsOnProposal([
+			{ path: 'empty.mjs', content: undefined },
+			{ path: 'real.mjs', content: 'export const x = 1;\n' },
+		]);
+		// Should not throw; real.mjs is processed normally
+		assert.ok(Array.isArray(results));
 	});
 });

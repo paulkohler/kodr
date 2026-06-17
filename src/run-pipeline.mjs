@@ -78,7 +78,10 @@ import {
 	runSmokeCheckIfNeeded,
 	smokeResultToVerification,
 } from './smoke-check.mjs';
-import { runCrossRefSensors } from './cross-ref-sensor.mjs';
+import {
+	runCrossRefSensors,
+	runCrossRefSensorsOnProposal,
+} from './cross-ref-sensor.mjs';
 import { captureEnvironmentFacts } from './system-env.mjs';
 import {
 	runSyntaxGateIfNeeded,
@@ -703,6 +706,19 @@ export async function runPrompt(options, io) {
 					: [];
 				if (sensorsResult.length > 0) {
 					summary.sensors = sensorsResult;
+				}
+				// Phase 192: proposal sensors when not applied.
+				if (
+					!subagentWriteResult?.applied &&
+					orchestrationResult.proposal?.files?.length > 0
+				) {
+					const proposalSensorsResult = await runCrossRefSensorsOnProposal(
+						orchestrationResult.proposal.files,
+						{ enabled: options.sensors !== false },
+					);
+					if (proposalSensorsResult.length > 0) {
+						summary.proposalSensors = proposalSensorsResult;
+					}
 				}
 				taskPlan = updateTasksFromRun(taskPlan, summary);
 				summary.taskCounts = taskCounts(taskPlan);
@@ -1705,6 +1721,19 @@ export async function runPrompt(options, io) {
 				: [];
 		if (sensorsResult.length > 0) {
 			summary.sensors = sensorsResult;
+		}
+		// Phase 192: run content-safe sensors on proposals before they land.
+		// Only fires when the write was NOT applied (dry-run / proposal-only path).
+		// Skips local-import/css-selector/compose-dockerfile to avoid false positives
+		// from references to existing disk files not present in the proposal.
+		if (!writeResult?.applied && proposal?.files?.length > 0) {
+			const proposalSensorsResult = await runCrossRefSensorsOnProposal(
+				proposal.files,
+				{ enabled: options.sensors !== false },
+			);
+			if (proposalSensorsResult.length > 0) {
+				summary.proposalSensors = proposalSensorsResult;
+			}
 		}
 		// C4 (phase 122): record which Node/ESM guidance applied (builtin vs a
 		// project/user `lang:node` override). Omitted when no block fired.
