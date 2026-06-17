@@ -74,7 +74,10 @@ import {
 	mergeBlockPatches,
 	renderEditFormatContract,
 } from './edit-formats.mjs';
-import { runSmokeCheckIfNeeded } from './smoke-check.mjs';
+import {
+	runSmokeCheckIfNeeded,
+	smokeResultToVerification,
+} from './smoke-check.mjs';
 import { runCrossRefSensors } from './cross-ref-sensor.mjs';
 import { captureEnvironmentFacts } from './system-env.mjs';
 import {
@@ -1534,7 +1537,7 @@ export async function runPrompt(options, io) {
 		// model code is never run on the host to escape the sandbox. Inconclusive
 		// outcomes (deps not installed, timeout) stay advisory; a definitive load
 		// failure flips summary.ok below.
-		const smokeResult =
+		let smokeResult =
 			shouldApply &&
 			!writeError &&
 			!runError &&
@@ -1544,6 +1547,39 @@ export async function runPrompt(options, io) {
 						sandboxActive: activeExecutor != null,
 					})
 				: null;
+
+		// Phase 184: if smoke fails definitively and a testCommand is available,
+		// attempt a second heal pass driven by the smoke failure. The heal loop
+		// uses options.testCommand for in-loop verification (so the repair is
+		// validated end-to-end, not just by re-smoking). Re-run smoke after heal
+		// to get the final load-check status.
+		let smokeHealResult = null;
+		if (
+			smokeResult?.status === 'failed' &&
+			options.testCommand &&
+			shouldApply &&
+			!writeError &&
+			!runError
+		) {
+			smokeHealResult = await runHealingIfNeeded({
+				cwd: verifyCwd,
+				commandRunner,
+				model,
+				options: { ...options, yes: shouldApply },
+				postWriteDiagnostics,
+				registry,
+				runDir,
+				systemPrompt: context.systemPrompt,
+				testResult: smokeResultToVerification(smokeResult),
+				writeCount: writeResult.writes.length,
+			});
+			if (smokeHealResult) {
+				smokeResult = await runSmokeCheckIfNeeded(verifyCwd, writeResult, {
+					enabled: options.smoke !== false,
+					sandboxActive: activeExecutor != null,
+				});
+			}
+		}
 		const gitCommitResult = await maybeCommitAppliedWrites(io.cwd, options, {
 			prompt,
 			runDir,
@@ -1557,9 +1593,15 @@ export async function runPrompt(options, io) {
 		summary.applyDecision = applyDecision;
 		summary.dependencyInstallRequired = dependencyInstallRequired;
 		summary.gitCommit = gitCommitResult;
-		summary.healed = healingResult ? healingResult.healed : false;
-		summary.healStopReason = healingResult?.stopReason || '';
-		if (healingResult?.goalSubstitutionSuspected) {
+		summary.healed =
+			(healingResult ? healingResult.healed : false) ||
+			(smokeHealResult ? smokeHealResult.healed : false);
+		summary.healStopReason =
+			healingResult?.stopReason || smokeHealResult?.stopReason || '';
+		if (
+			healingResult?.goalSubstitutionSuspected ||
+			smokeHealResult?.goalSubstitutionSuspected
+		) {
 			summary.goalSubstitutionSuspected = true;
 		}
 		summary.installed = installResult !== null;

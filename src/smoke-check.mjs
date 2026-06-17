@@ -287,6 +287,34 @@ export async function runSmokeCheck(cwd, entry, opts = {}) {
 }
 
 /**
+ * Convert a definitive smoke-check failure into the verification-result shape
+ * expected by the heal loop. Mirrors `syntaxResultToVerification` in
+ * `syntax-gate.mjs`.
+ *
+ * Only call this when `smokeResult.status === 'failed'` — inconclusive outcomes
+ * (deps-not-installed, timeout) should remain advisory and not drive a repair.
+ *
+ * @param {object} smokeResult  Result from `runSmokeCheck` / `runSmokeCheckIfNeeded`.
+ * @returns {{command: string, durationMs: number, exitCode: number, finishedAt: string, ok: false, startedAt: string, stderr: string, stdout: string, timedOut: boolean}}
+ */
+export function smokeResultToVerification(smokeResult) {
+	const now = new Date().toISOString();
+	return {
+		command: `node --input-type=module (smoke: ${smokeResult.entry ?? 'unknown'})`,
+		durationMs: smokeResult.durationMs ?? 0,
+		exitCode: 1,
+		finishedAt: now,
+		ok: false,
+		startedAt: now,
+		stderr:
+			smokeResult.message ??
+			`smoke-check failed: ${smokeResult.entry ?? 'unknown'}`,
+		stdout: '',
+		timedOut: false,
+	};
+}
+
+/**
  * Convenience gate: run the smoke-check only when writes were applied, at least
  * one JS file was written, smoke-checking is enabled, no sandbox executor is
  * active, and an entry point is detectable. Returns null otherwise (so the

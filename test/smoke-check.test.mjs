@@ -17,6 +17,7 @@ import {
 	entryFromStartScript,
 	runSmokeCheck,
 	runSmokeCheckIfNeeded,
+	smokeResultToVerification,
 } from '../src/smoke-check.mjs';
 
 let tmp;
@@ -369,5 +370,47 @@ describe('runSmokeCheckIfNeeded', () => {
 			await runSmokeCheckIfNeeded(cwd, writeResultFor(['lib.mjs'])),
 			null,
 		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// smokeResultToVerification (Phase 184)
+// ---------------------------------------------------------------------------
+
+describe('smokeResultToVerification', () => {
+	it('returns ok:false', () => {
+		const v = smokeResultToVerification({
+			status: 'failed',
+			entry: 'index.mjs',
+			message: 'ReferenceError: x is not defined',
+			durationMs: 45,
+		});
+		assert.equal(v.ok, false);
+		assert.equal(v.exitCode, 1);
+	});
+
+	it('includes the entry point in the command field', () => {
+		const v = smokeResultToVerification({
+			status: 'failed',
+			entry: 'server.mjs',
+			message: 'TypeError',
+			durationMs: 10,
+		});
+		assert.ok(v.command.includes('server.mjs'));
+	});
+
+	it('surfaces the error message in stderr', () => {
+		const v = smokeResultToVerification({
+			status: 'failed',
+			entry: 'app.mjs',
+			message: 'Cannot find module "./missing.mjs"',
+			durationMs: 5,
+		});
+		assert.ok(v.stderr.includes('missing.mjs'));
+	});
+
+	it('uses a fallback message when message is absent', () => {
+		const v = smokeResultToVerification({ status: 'failed', entry: 'a.mjs' });
+		assert.ok(v.stderr.length > 0);
 	});
 });
