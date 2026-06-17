@@ -481,6 +481,17 @@ const IMPORT_RESOLVE_EXTS = ['.mjs', '.js', '.cjs'];
  * Extract relative import/export-from specifiers from JS source text.
  * Only returns specifiers that start with '.' or '..' (relative paths).
  *
+ * Uses a line-level filter: only scans lines whose first non-whitespace token
+ * is the keyword `import` or `export` (followed by space, `{`, or `*`).
+ * This avoids false positives from:
+ * - `//` line comments  (`// import x from './path'` → skipped)
+ * - String literals containing sample code  (`const s = "import x from './f'"` → skipped)
+ * - Identifiers starting with `import`/`export`  (`imports.push(...)` → skipped)
+ * The trade-off is that multi-line imports where the `from` clause is on its
+ * own continuation line are not detected — acceptable because the model
+ * primarily writes single-line imports, and false negatives are safer than
+ * false positives for an advisory sensor.
+ *
  * @param {string} content  Source text of a JS file.
  * @returns {string[]}  Array of relative specifier strings (e.g. ['./utils.mjs', '../lib']).
  */
@@ -492,10 +503,17 @@ export function extractLocalImportPaths(content) {
 		/\bimport\s+['"](\.[^'"]+)['"]/gu,
 	];
 	const found = new Set();
-	for (const re of patterns) {
-		let m;
-		while ((m = re.exec(content)) !== null) {
-			found.add(m[1]);
+	for (const line of content.split('\n')) {
+		const trimmed = line.trimStart();
+		// Require import/export to be a keyword (followed by whitespace, {, or *)
+		// not a prefix of an identifier like `imports.push(...)` or `exports.foo`.
+		if (!/^(?:import|export)[\s{*]/u.test(trimmed)) continue;
+		for (const re of patterns) {
+			re.lastIndex = 0;
+			let m;
+			while ((m = re.exec(trimmed)) !== null) {
+				found.add(m[1]);
+			}
 		}
 	}
 	return [...found];

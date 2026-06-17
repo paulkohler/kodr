@@ -333,10 +333,8 @@ describe('runCssSelectorSensor', () => {
 
 describe('extractLocalImportPaths', () => {
 	it('extracts named and default imports from relative paths', () => {
-		const code = `
-import x from './utils.mjs';
-import { y } from '../lib/helper.mjs';
-`;
+		const code =
+			"import x from './utils.mjs';\nimport { y } from '../lib/helper.mjs';\n";
 		const result = extractLocalImportPaths(code);
 		assert.ok(result.includes('./utils.mjs'));
 		assert.ok(result.includes('../lib/helper.mjs'));
@@ -363,6 +361,37 @@ import { y } from '../lib/helper.mjs';
 		const code = `import x from './utils.mjs';\nimport y from './utils.mjs';`;
 		const result = extractLocalImportPaths(code);
 		assert.equal(result.filter((p) => p === './utils.mjs').length, 1);
+	});
+
+	it('ignores paths in // line comments', () => {
+		const code = `// import x from './commented.mjs';\nimport y from './real.mjs';`;
+		const result = extractLocalImportPaths(code);
+		assert.ok(!result.includes('./commented.mjs'));
+		assert.ok(result.includes('./real.mjs'));
+	});
+
+	it('ignores paths inside string literals (fixture data)', () => {
+		// Test files store sample code as string data — should not be matched
+		const code = [
+			'const sample = "import { x } from \'./fixture.mjs\';";',
+			'import y from "./real.mjs";',
+		].join('\n');
+		const result = extractLocalImportPaths(code);
+		assert.ok(!result.includes('./fixture.mjs'));
+		assert.ok(result.includes('./real.mjs'));
+	});
+
+	it('ignores identifiers that start with import/export (not keywords)', () => {
+		// `imports.push(...)` and `exports.foo` start with import/export but are not keywords
+		const code = [
+			"imports.push(`import { v } from '../src/m.mjs';`);",
+			"exports.helper = require('./legacy.js');",
+			"import { real } from './actual.mjs';",
+		].join('\n');
+		const result = extractLocalImportPaths(code);
+		assert.ok(!result.includes('../src/m.mjs'));
+		assert.ok(!result.includes('./legacy.js'));
+		assert.ok(result.includes('./actual.mjs'));
 	});
 });
 
