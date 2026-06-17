@@ -196,6 +196,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 194 Bridge `kodr check` Findings Into a Fix Run
 - [x] 195 Fix Sensor Issue Formatting in buildFixPrompt
 - [x] 196 Auto-Recheck After kodr check --fix
+- [x] 197 kodr hook status --json
 
 ## Phase Contract
 

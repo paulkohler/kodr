@@ -226,9 +226,6 @@ export async function runHookStatus(options, io) {
 		}
 	};
 
-	renderStatus('pre-commit', preCommitPath, preCommitStatus);
-	renderStatus('pre-push', prePushPath, prePushStatus);
-
 	const hookStatuses = {
 		'pre-commit': preCommitStatus,
 		'pre-push': prePushStatus,
@@ -243,6 +240,14 @@ export async function runHookStatus(options, io) {
 		hookStatuses,
 	};
 	if (preCommitStatus !== 'none') result.hookPath = preCommitPath;
+
+	if (options.json) {
+		write(JSON.stringify(result, null, 2));
+		write('\n');
+	} else {
+		renderStatus('pre-commit', preCommitPath, preCommitStatus);
+		renderStatus('pre-push', prePushPath, prePushStatus);
+	}
 
 	return result;
 }

@@ -229,6 +229,32 @@ describe('runHookStatus', () => {
 		assert.equal(result.hookStatuses['pre-commit'], 'kodr');
 		assert.equal(result.hookStatuses['pre-push'], 'kodr');
 	});
+
+	// Phase 197: --json flag
+	it('--json emits structured JSON with hookStatuses', async () => {
+		await initGitRepo(cwd);
+		await runHookInstall({}, makeIo(cwd));
+		const io = makeIo(cwd);
+		const result = await runHookStatus({ json: true }, io);
+		assert.equal(result.ok, true);
+		const parsed = JSON.parse(io._output());
+		assert.equal(parsed.ok, true);
+		assert.equal(parsed.command, 'hook');
+		assert.equal(parsed.hookStatuses['pre-commit'], 'kodr');
+		assert.equal(parsed.hookStatuses['pre-push'], 'none');
+	});
+
+	it('--json emits valid JSON even when no hooks installed', async () => {
+		await initGitRepo(cwd);
+		const io = makeIo(cwd);
+		await runHookStatus({ json: true }, io);
+		const parsed = JSON.parse(io._output());
+		assert.equal(parsed.hookStatus, 'none');
+		assert.ok(
+			!io._output().includes('not installed'),
+			'--json must not mix in text',
+		);
+	});
 });
 
 describe('runHookInstall --pre-push (Phase 191)', () => {
