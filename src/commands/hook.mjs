@@ -128,11 +128,17 @@ export async function runHookInstall(options, io) {
 	await writeFile(hookPath, hookScript(cmd), 'utf8');
 	await chmod(hookPath, 0o755);
 
-	write(`installed ${hookName} hook: ${hookPath}\n`);
-	write(`  runs: ${cmd}\n`);
-	write(`  remove with: rm ${hookPath}\n`);
+	const result = { ok: true, command: 'hook', hookPath, hookName, cmd };
+	if (options.json) {
+		write(JSON.stringify(result, null, 2));
+		write('\n');
+	} else {
+		write(`installed ${hookName} hook: ${hookPath}\n`);
+		write(`  runs: ${cmd}\n`);
+		write(`  remove with: rm ${hookPath}\n`);
+	}
 
-	return { ok: true, command: 'hook', hookPath };
+	return result;
 }
 
 /**
@@ -171,9 +177,16 @@ export async function runHookUninstall(options, io) {
 	}
 
 	await unlink(hookPath);
-	write(`removed ${hookName} hook: ${hookPath}\n`);
 
-	return { ok: true, command: 'hook', hookPath };
+	const result = { ok: true, command: 'hook', hookPath, hookName };
+	if (options.json) {
+		write(JSON.stringify(result, null, 2));
+		write('\n');
+	} else {
+		write(`removed ${hookName} hook: ${hookPath}\n`);
+	}
+
+	return result;
 }
 
 /**

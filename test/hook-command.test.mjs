@@ -107,6 +107,23 @@ describe('runHookInstall', () => {
 		const content = await readFile(result.hookPath, 'utf8');
 		assert.match(content, /kodr check --changed --strict/u);
 	});
+
+	// Phase 199: --json flag
+	it('--json emits structured JSON with hookPath and cmd', async () => {
+		await initGitRepo(cwd);
+		const io = makeIo(cwd);
+		const result = await runHookInstall({ json: true }, io);
+		assert.equal(result.ok, true);
+		const parsed = JSON.parse(io._output());
+		assert.equal(parsed.ok, true);
+		assert.equal(parsed.command, 'hook');
+		assert.ok(parsed.hookPath?.endsWith('pre-commit'));
+		assert.match(parsed.cmd, /kodr check --changed --strict/u);
+		assert.ok(
+			!io._output().includes('installed pre-commit hook'),
+			'--json must not mix in text',
+		);
+	});
 });
 
 describe('runHookUninstall', () => {
@@ -169,6 +186,23 @@ describe('runHookUninstall', () => {
 		const io = makeIo(cwd);
 		const result = await runHookUninstall({ force: true }, io);
 		assert.equal(result.ok, true);
+	});
+
+	// Phase 199: --json flag
+	it('--json emits structured JSON with hookPath', async () => {
+		await initGitRepo(cwd);
+		await runHookInstall({}, makeIo(cwd));
+		const io = makeIo(cwd);
+		const result = await runHookUninstall({ json: true }, io);
+		assert.equal(result.ok, true);
+		const parsed = JSON.parse(io._output());
+		assert.equal(parsed.ok, true);
+		assert.equal(parsed.command, 'hook');
+		assert.ok(parsed.hookPath?.endsWith('pre-commit'));
+		assert.ok(
+			!io._output().includes('removed pre-commit hook'),
+			'--json must not mix in text',
+		);
 	});
 });
 

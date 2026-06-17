@@ -198,6 +198,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 196 Auto-Recheck After kodr check --fix
 - [x] 197 kodr hook status --json
 - [x] 198 Help Text Update for Missing Commands and Flags
+- [x] 199 kodr hook install/uninstall --json
 
 ## Phase Contract
 
