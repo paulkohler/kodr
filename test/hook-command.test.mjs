@@ -6,7 +6,11 @@ import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import { runHookInstall, runHook } from '../src/commands/hook.mjs';
+import {
+	runHookInstall,
+	runHookUninstall,
+	runHook,
+} from '../src/commands/hook.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -104,6 +108,69 @@ describe('runHookInstall', () => {
 	});
 });
 
+describe('runHookUninstall', () => {
+	let cwd;
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), 'kodr-hook-'));
+	});
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	it('returns error when not in a git repo', async () => {
+		const io = makeIo(cwd);
+		const result = await runHookUninstall({}, io);
+		assert.equal(result.ok, false);
+		assert.match(io._output(), /not inside a git repository/u);
+	});
+
+	it('returns error when hook does not exist', async () => {
+		await initGitRepo(cwd);
+		const io = makeIo(cwd);
+		const result = await runHookUninstall({}, io);
+		assert.equal(result.ok, false);
+		assert.match(io._output(), /does not exist/u);
+	});
+
+	it('removes a kodr-installed hook', async () => {
+		await initGitRepo(cwd);
+		const io1 = makeIo(cwd);
+		const installed = await runHookInstall({}, io1);
+		assert.equal(installed.ok, true);
+
+		const io2 = makeIo(cwd);
+		const result = await runHookUninstall({}, io2);
+		assert.equal(result.ok, true);
+		assert.match(io2._output(), /removed pre-commit hook/u);
+
+		// File should no longer exist
+		await assert.rejects(() => readFile(installed.hookPath, 'utf8'), {
+			code: 'ENOENT',
+		});
+	});
+
+	it('refuses to remove a foreign hook without --force', async () => {
+		await initGitRepo(cwd);
+		const hooksDir = join(cwd, '.git', 'hooks');
+		await mkdir(hooksDir, { recursive: true });
+		await writeFile(join(hooksDir, 'pre-commit'), '#!/bin/sh\necho "custom"\n');
+		const io = makeIo(cwd);
+		const result = await runHookUninstall({}, io);
+		assert.equal(result.ok, false);
+		assert.match(io._output(), /use --force/u);
+	});
+
+	it('removes a foreign hook with --force', async () => {
+		await initGitRepo(cwd);
+		const hooksDir = join(cwd, '.git', 'hooks');
+		await mkdir(hooksDir, { recursive: true });
+		await writeFile(join(hooksDir, 'pre-commit'), '#!/bin/sh\necho "custom"\n');
+		const io = makeIo(cwd);
+		const result = await runHookUninstall({ force: true }, io);
+		assert.equal(result.ok, true);
+	});
+});
+
 describe('runHook', () => {
 	let cwd;
 	beforeEach(async () => {
@@ -117,6 +184,15 @@ describe('runHook', () => {
 		await initGitRepo(cwd);
 		const io = makeIo(cwd);
 		const result = await runHook({ hookSubcommand: 'install' }, io);
+		assert.equal(result.ok, true);
+	});
+
+	it('dispatches to uninstall sub-command', async () => {
+		await initGitRepo(cwd);
+		// Install first, then uninstall
+		await runHookInstall({}, makeIo(cwd));
+		const io2 = makeIo(cwd);
+		const result = await runHook({ hookSubcommand: 'uninstall' }, io2);
 		assert.equal(result.ok, true);
 	});
 

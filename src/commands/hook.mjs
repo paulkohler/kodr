@@ -3,8 +3,18 @@
 // Phase 174: kodr hook install writes a .git/hooks/pre-commit that runs
 // `kodr check --changed --strict`, giving a fast, git-aware pre-commit gate
 // without external tooling (husky, lint-staged, etc.).
+//
+// Phase 177: kodr hook uninstall removes a kodr-installed pre-commit hook.
+// Refuses to remove a hook not installed by kodr (use --force to override).
 
-import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	readFile,
+	rm,
+	unlink,
+	writeFile,
+} from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { runGit } from '../git-workspace.mjs';
 
@@ -89,7 +99,47 @@ export async function runHookInstall(options, io) {
 }
 
 /**
- * kodr hook — dispatch to sub-commands (install, ...).
+ * kodr hook uninstall — remove the kodr-installed pre-commit hook.
+ * Refuses to remove a hook not installed by kodr unless --force is set.
+ *
+ * @param {object} options  Parsed CLI options ({ force }).
+ * @param {object} io       { cwd, stdout }
+ * @returns {Promise<{ok: boolean, command: string, hookPath?: string}>}
+ */
+export async function runHookUninstall(options, io) {
+	const write = (s) => io.stdout.write(s);
+
+	const hooksDir = await resolveHooksDir(io.cwd);
+	if (!hooksDir) {
+		write('error: not inside a git repository\n');
+		return { ok: false, command: 'hook' };
+	}
+
+	const hookPath = join(hooksDir, 'pre-commit');
+
+	let existingContent = null;
+	try {
+		existingContent = await readFile(hookPath, 'utf8');
+	} catch {
+		write(`error: ${hookPath} does not exist\n`);
+		return { ok: false, command: 'hook' };
+	}
+
+	const isKodrHook = existingContent.includes(HOOK_HEADER);
+	if (!isKodrHook && !options.force) {
+		write(`error: ${hookPath} was not installed by kodr.\n`);
+		write('       use --force to remove it anyway.\n');
+		return { ok: false, command: 'hook' };
+	}
+
+	await unlink(hookPath);
+	write(`removed pre-commit hook: ${hookPath}\n`);
+
+	return { ok: true, command: 'hook', hookPath };
+}
+
+/**
+ * kodr hook — dispatch to sub-commands (install, uninstall).
  *
  * @param {object} options
  * @param {object} io
@@ -100,7 +150,10 @@ export async function runHook(options, io) {
 	if (sub === 'install') {
 		return runHookInstall(options, io);
 	}
+	if (sub === 'uninstall') {
+		return runHookUninstall(options, io);
+	}
 	io.stdout.write(`error: unknown hook sub-command: ${sub || '(none)'}\n`);
-	io.stdout.write('  available: install\n');
+	io.stdout.write('  available: install, uninstall\n');
 	return { ok: false, command: 'hook' };
 }

@@ -176,6 +176,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 174 kodr hook install Pre-commit Hook Installer
 - [x] 175 kodr check --watch File Watch Mode
 - [x] 176 NEXT.md Cleanup (post-175 retrospective)
+- [x] 177 kodr hook uninstall
 
 ## Phase Contract
 
