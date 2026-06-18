@@ -27,6 +27,10 @@ for hook subcommands, `--fix`, `--watch`, and `sensors`/`hooks` config blocks.
 Phase 205 added thinking-model profile defaults (`wireNoStream`); phase 206
 excluded `.kodr` from the inspection file index; phase 207 encoded the five
 recurring phase-204 Node.js example pitfalls in the `lang:node` builtin skill.
+Phase 208 dogfooding (209a/b) confirmed: inspection context is safe for qwen3.6
+on fresh workspaces (0 files indexed → no looping). The looping was caused by
+`.kodr/backups/` stale files, not inspection context itself. `--continue`
+sessions with existing source files remain untested.
 
 ## Candidates
 
@@ -40,8 +44,20 @@ Phase 205 added `wireNoStream` to `applyModelProfileDefaults`. The remaining
 gap: `inspectContext` is not set to `false` when `wireNoStream: true`, so
 thinking-model runs still require an explicit `--no-inspect-context` flag.
 Rescoped: just add `if (profile.wireNoStream) defaults.inspectContext = false`
-in `applyModelProfileDefaults`. The empty-output problem persists in session
-logs after 205/206, so this is still live.
+in `applyModelProfileDefaults`.
+Phase-209 study showed qwen3.6 is safe with inspection context on a **fresh
+workspace** (0 files indexed). The risky path is `--continue` runs where the
+workspace already has substantive source files — untested as of 209b. This
+candidate stays live until that path is validated.
+
+### deliveryNudge false-positive path extraction
+The nudge that recovers undelivered files fires a second turn and creates files
+when it finds path-like strings in freeform prompt or reasoning text, not just
+in the model's structured proposal (`files[].path`, `patches[].path`). Phase-209
+saw `store.mjs` (no `src/` prefix in the prompt description), `test.txt` and
+`files/test.txt` (from `filename="test.txt"` in the multipart body helper)
+written as spurious files in both test arms. Tests passed but phantom files are
+a correctness problem. Fix: restrict extraction to the structured arrays only.
 
 ### Smoke-as-verification in the heal loop
 Phase 184 wired a smoke-driven second heal pass, but the in-loop verification
