@@ -39,4 +39,11 @@ Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
 
+### Exclude .kodr/backups/ from inspection file indexing
+The inspection plan currently indexes `.kodr/backups/` files alongside current
+source. When a multi-session example refactors an API (e.g., db-as-parameter
+replacing a singleton), the backup contains the old version. The model sees both
+and conflates them, causing confusion. Backups are for recovery, not context.
+Exclude the `.kodr/` directory entirely from the file map and inspection index.
+
 
