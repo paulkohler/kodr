@@ -1,29 +1,88 @@
-# Example Idea: Rate Limiter
+# Example: Rate Limiter with Express
 
-A sliding-window HTTP rate limiter built in Node.js with no external dependencies.
-Five to six interdependent source files where each module imports from the previous
-one — designed to stress multi-file coordination and the heal loop.
+A sliding-window in-process rate limiter, with Express middleware and integration
+tests. Single session.
 
-## Areas exercised
+**Workspace:** `~/src/kodr-testing/phase-204/rate-limiter-1`  
+**Model:** `qwen/qwen3.6-35b-a3b`
 
-- Multi-file coordinated generation (store → limiter → http; imports must align)
-- Private class fields and Map internals (a devstral trap)
-- Node.js built-in `node:http` server without a framework
-- Test isolation (each test creates its own store/limiter instance)
-- Heal loop pressure: cross-file import errors, wrong method signatures, off-by-one in window arithmetic
-
-## File structure
+## Files
 
 ```
-src/window.mjs     — SlidingWindow(limit, windowMs): tracks request timestamps per key
-src/store.mjs      — LRUStore(maxKeys): evicts oldest key when full, wraps SlidingWindow instances
-src/limiter.mjs    — RateLimiter(store, config): check(key) → { allowed, remaining, resetAt }
-src/http.mjs       — createLimitedServer(limiter, handler): Node http.createServer with rate header injection
-test/window.test.mjs
-test/limiter.test.mjs
+package.json              — {"type":"module","dependencies":{"express":"^4"}}
+src/limiter.mjs           — createLimiter(maxRequests, windowMs) → limit(key) fn
+src/server.mjs            — createServer(limiter) → Express app
+test/limiter.test.mjs     — unit tests: allow/block/expiry
+test/server.test.mjs      — integration tests: 200/429 via node:http
 ```
 
-## Suggested prompt (single shot)
+## Prompt
+
+```
+Build a simple in-process rate limiter with Express (in node_modules already).
+
+src/limiter.mjs — sliding window rate limiter:
+  export function createLimiter(maxRequests, windowMs) {
+    const counts = new Map(); // key => [timestamps]
+    return function limit(key) {
+      const now = Date.now();
+      const timestamps = (counts.get(key) || []).filter(t => now - t < windowMs);
+      if (timestamps.length >= maxRequests) return false;
+      timestamps.push(now);
+      counts.set(key, timestamps);
+      return true;
+    };
+  }
+
+src/server.mjs:
+  export function createServer(limiter) {
+    Creates an Express app. Single route: GET /api/data.
+    The limiter is called with req.ip. If it returns false, respond 429 JSON
+    { error: 'Rate limit exceeded' }. Otherwise respond 200 JSON { data: 'ok' }.
+    Returns the app (not a listening server).
+  }
+
+test/limiter.test.mjs — node:test unit tests (no server):
+  Test: createLimiter(3, 1000) allows first 3 calls and blocks 4th for same key.
+  Test: createLimiter(3, 1000) allows calls from different keys independently.
+  Test: createLimiter(3, 100) allows again after window expires (wait 110ms).
+
+test/server.test.mjs — node:test integration test with node:http:
+  Single server instance: use before/after hooks to start/stop cleanly.
+  after: server.closeAllConnections?.(); await new Promise(r => server.close(r));
+  Test: GET /api/data within limit returns 200.
+  Test: GET /api/data over limit returns 429.
+
+package.json — patch to add: 'scripts': { 'test': 'node --test test/*.test.mjs' }
+```
+
+## Run
+
+```sh
+mkdir -p ~/src/kodr-testing/phase-204/rate-limiter-1
+cd ~/src/kodr-testing/phase-204/rate-limiter-1
+echo '{"type":"module","dependencies":{"express":"^4"}}' > package.json
+npm install
+
+kodr run --yes --heal --no-tools --test "node --test" --max-turns 20 \
+  --no-inspect-context --no-protect-existing -p "<prompt>"
+```
+
+## Result
+
+Run ok on first attempt.  
+Tokens: 1,365 prompt / 1,352 completion. Tests: 5/5 passing.
+
+## Notes
+
+- Model correctly used `server.closeAllConnections?.()` in the `after` hook — the
+  explicit instruction in the prompt was needed (without it the server hangs, see
+  the file-upload failure entries in `process/failures.jsonl`).
+- The integration test uses a 5-second window (`createLimiter(3, 5000)`) to avoid
+  the window expiring mid-test.
+- `--no-protect-existing` needed because `package.json` existed before the run.
+
+## Original planned prompt (for future comparison runs)
 
 ```
 Create a sliding-window rate limiter in Node.js using only built-in modules.
@@ -33,50 +92,9 @@ timestamps for a single key and exposes: record() to register a request, check()
 to return { allowed: boolean, remaining: number, resetAt: number (ms epoch) }.
 Remove timestamps older than windowMs on each call.
 
-src/store.mjs — export class LRUStore(maxKeys). Holds one SlidingWindow per key,
-evicts the least-recently-used key when maxKeys is exceeded. Expose get(key) and
-evict statistics via size getter.
-
 src/limiter.mjs — export class RateLimiter(store, options) where options = {
-limit, windowMs }. Expose check(key) that delegates to the store's SlidingWindow
-and returns { allowed, remaining, resetAt }.
+limit, windowMs }. Expose check(key) that delegates to the store's SlidingWindow.
 
-src/http.mjs — export function createLimitedServer(limiter, handler). Returns a
-node:http server. Before calling handler, run limiter.check(remoteAddress); if not
-allowed return 429 with X-RateLimit-Remaining and Retry-After headers. On allowed
-requests, inject X-RateLimit-Remaining into the response before calling handler.
-
-test/window.test.mjs — node:test tests for SlidingWindow: initial state allows,
-fills up to limit, rejects when full, allows again after window expires (use
-fake timestamps via Date.now override or just set windowMs very small and sleep).
-
-test/limiter.test.mjs — node:test tests for RateLimiter: allow then reject, correct
-remaining count, check that eviction doesn't break a concurrent key.
-
-Use ES modules throughout. No npm dependencies.
-```
-
-## What to watch for
-
-- Does the model declare `#timestamps` at the top of the class body? (devstral trap)
-- Do the test files import from the correct relative paths?
-- Does the http module use `node:http` or try to require express?
-- How many heal cycles does it take to get `node --test` passing?
-
-## Suggested models
-
-- devstral: expect 1–2 heal cycles; model:devstral guidance should prevent the
-  private-field declaration error
-- qwen3.6: usually clean ESM; interesting to compare total cycle count
-
-## Run command
-
-```sh
-mkdir -p ~/src/kodr-testing/rate-limiter-qwen
-cd ~/src/kodr-testing/rate-limiter-qwen
-kodr run -p "..." --model qwen/qwen3.6-35b-a3b
-
-mkdir -p ~/src/kodr-testing/rate-limiter-devstral
-cd ~/src/kodr-testing/rate-limiter-devstral
-kodr run -p "..." --model mistralai/devstral-small-2-2512
+test/window.test.mjs — node:test tests: initial state allows, fills up to limit,
+rejects when full, allows again after window expires.
 ```

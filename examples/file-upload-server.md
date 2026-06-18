@@ -1,14 +1,21 @@
 # Example: File Upload Server
 
-A two-session Express server that accepts file uploads via multipart form,
-stores them on disk, and serves a simple HTML UI. Session 1 builds the API.
-Session 2 adds a static frontend and a download endpoint. Designed to exercise:
+> **Status: incomplete — two failed runs.** See `process/failures.jsonl`
+> entries `204-file-upload` and `204-file-upload-2`.
+>
+> Failure 1: test process hung (no `server.closeAllConnections()`, 600s timeout).  
+> Failure 2: model used `new Busboy()` but busboy v1 exports an arrow function;
+> heal loop hit context overflow (32K tokens) before fixing it.
+>
+> Lesson: multipart upload tests are tricky — explicit teardown instructions and
+> the busboy v1 factory pattern must be in the prompt.
 
-- Express + multipart upload (using `node:stream` + manual boundary parsing, OR
-  a clean approach via `busboy` if the model chooses — we note both and see what happens)
-- `express-async-route` sensor: route handlers must be arrow functions
-- `protectExisting`: Session 2 patches server.mjs, does not rewrite it
-- `--test-timeout`: upload tests complete in bounded time
+A two-session Express server that accepts file uploads via multipart form.
+Session 1 builds the API. Designed to exercise:
+
+- Express + `busboy` multipart upload
+- HTTP integration tests with proper server teardown
+- `--no-inspect-context` flag needed for qwen3.6 (thinking model)
 
 ## File structure after Session 1
 
