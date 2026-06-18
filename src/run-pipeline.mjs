@@ -3131,20 +3131,29 @@ const FILE_EXTENSIONS = new Set([
 // Only matches things that look like workspace-relative paths (no leading /).
 export function extractPromptFilePaths(promptText) {
 	if (!promptText) return [];
+	// Strip fenced code blocks — paths inside examples are not output requirements.
+	const stripped = promptText.replace(/`{3}[\s\S]*?`{3}/g, '');
 	// Match lowercase-starting tokens with at least one / OR a known code extension.
 	// Require first char to be lowercase (excludes Node.js, Date.now);
 	// word-boundary lookbehind prevents matching mid-word (e.g. 'ode.js' from 'Node.js').
 	const pathRe = /(?<!\w)[a-z][\w./-]*\.[a-z]{1,6}/g;
 	const found = new Set();
-	for (const m of promptText.matchAll(pathRe)) {
+	for (const m of stripped.matchAll(pathRe)) {
 		const p = m[0];
 		// Skip node: specifiers, URLs, and version strings.
 		if (p.includes(':') || /^\d/.test(p)) continue;
-		// Accept if it has a directory separator (unambiguously a path),
-		// or if its extension is in the known code/config set.
 		const ext = p.split('.').at(-1);
-		if (p.includes('/') || FILE_EXTENSIONS.has(ext)) {
+		if (p.includes('/')) {
+			// Has a directory separator — unambiguously a path.
 			found.add(p);
+		} else if (FILE_EXTENSIONS.has(ext)) {
+			// Bare name (no /): only accept when it starts a line (manifest entry).
+			// Rejects mid-sentence references like "the store.mjs module".
+			const lineStart = stripped.lastIndexOf('\n', m.index);
+			const beforeOnLine = stripped.slice(lineStart + 1, m.index);
+			if (/^[ \t]*(?:-[ \t]*)?$/.test(beforeOnLine)) {
+				found.add(p);
+			}
 		}
 	}
 	return [...found];

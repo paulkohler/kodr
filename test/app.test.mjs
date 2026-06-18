@@ -6370,6 +6370,63 @@ describe('extractPromptFilePaths (Phase 139)', () => {
 			'should deduplicate',
 		);
 	});
+
+	// Phase 208 — deliveryNudge false-positive fixes
+	it('does not extract paths from fenced code blocks', () => {
+		const prompt =
+			'Build a file upload endpoint.\n```js\nconst busboy = Busboy({ headers: req.headers });\nreq.pipe(busboy);\nbusboy.on("file", (name, stream, info) => {\n  const filename = info.filename; // test.txt\n  fs.writeFileSync("files/test.txt", stream);\n});\n```\n';
+		const paths = extractPromptFilePaths(prompt);
+		assert.ok(
+			!paths.includes('test.txt'),
+			'test.txt from code block should be excluded',
+		);
+		assert.ok(
+			!paths.includes('files/test.txt'),
+			'files/test.txt from code block should be excluded',
+		);
+	});
+
+	it('does not extract bare names embedded mid-sentence', () => {
+		const prompt =
+			'The application uses store.mjs as its state layer. Import server.mjs to start.';
+		const paths = extractPromptFilePaths(prompt);
+		assert.ok(
+			!paths.includes('store.mjs'),
+			'mid-sentence bare name should be excluded',
+		);
+		assert.ok(
+			!paths.includes('server.mjs'),
+			'mid-sentence bare name should be excluded',
+		);
+	});
+
+	it('extracts bare names that start a line (manifest entry)', () => {
+		const prompt =
+			'Create these files:\npackage.json — {"type":"module"}\nindex.mjs — entry point';
+		const paths = extractPromptFilePaths(prompt);
+		assert.ok(
+			paths.includes('package.json'),
+			'line-start bare name should be extracted',
+		);
+		assert.ok(
+			paths.includes('index.mjs'),
+			'line-start bare name should be extracted',
+		);
+	});
+
+	it('extracts bare names after a bullet at line start', () => {
+		const prompt =
+			'Files:\n- store.mjs: exports Store\n- index.mjs: entry point';
+		const paths = extractPromptFilePaths(prompt);
+		assert.ok(
+			paths.includes('store.mjs'),
+			'bullet bare name should be extracted',
+		);
+		assert.ok(
+			paths.includes('index.mjs'),
+			'bullet bare name should be extracted',
+		);
+	});
 });
 
 // Phase 141 — route-auto: model resolved from run-history in main()
