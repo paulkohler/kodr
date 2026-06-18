@@ -148,7 +148,7 @@ const markdown = renderInspectionSummary({
 
 - `renderFileMapText` includes the tool names `read_file` and `list_files`
   which are kodr-specific. These should be parameterized before publishing.
-- `.kodr` ignore pattern is not baked in; pass it via `ignorePatterns`.
+- `.kodr` is excluded by default (baked into `DEFAULT_IGNORES`).
 - No index caching. Each `inspectWorkspace` call does a full walk + read.
 
 ## Supported languages

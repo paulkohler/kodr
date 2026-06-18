@@ -71,6 +71,25 @@ describe('repomap public API round-trip', () => {
 		assert.ok(selected.usedChars <= budget, 'used chars within budget');
 	});
 
+	it('phase 206: .kodr is excluded from the file index by default', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-repomap-kodrdir-'));
+		await fixture(cwd, 'src/app.mjs', 'export function app() {}');
+		await fixture(
+			cwd,
+			'.kodr/backups/2026-01-01T00-00-00.000Z/src/app.mjs',
+			'export function oldApp() {}',
+		);
+
+		const index = await inspectWorkspace(cwd);
+		const kodrFiles = index.files.filter((f) => f.path.startsWith('.kodr/'));
+
+		assert.deepEqual(kodrFiles, [], '.kodr directory not indexed by default');
+		assert.ok(
+			index.files.some((f) => f.path === 'src/app.mjs'),
+			'src/app.mjs is indexed',
+		);
+	});
+
 	it('respects ignore options passed to inspectWorkspace', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-repomap-ignore-'));
 		await fixture(cwd, 'src/app.mjs', 'export function app() {}');

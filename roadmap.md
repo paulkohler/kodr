@@ -205,6 +205,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 203 Express Async-Route Antipattern Sensor
 - [x] 204 ANSI-Aware String Truncation Utility
 - [x] 205 Thinking Model Profile Defaults
+- [x] 206 Exclude .kodr from Inspection File Index
 
 ## Phase Contract
 
