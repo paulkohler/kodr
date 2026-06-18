@@ -128,19 +128,23 @@ describe('captureEnvironmentFacts', () => {
 // ---------------------------------------------------------------------------
 
 describe('renderBehavioursBlock', () => {
-	it('starts with # Behaviours and has four lines', () => {
+	it('starts with # Behaviours and has six lines', () => {
 		const block = renderBehavioursBlock();
 		assert.match(block, /^# Behaviours/u);
 		const lines = block.split('\n').filter((l) => l.startsWith('-'));
-		assert.equal(lines.length, 4, 'expected 4 behaviour lines');
+		assert.equal(lines.length, 6, 'expected 6 behaviour lines');
 	});
 
-	it('contains the four expected directive keywords', () => {
+	it('contains the six expected directive keywords', () => {
 		const block = renderBehavioursBlock();
 		assert.match(block, /ONE JSON envelope/u);
 		assert.match(block, /claim success/u);
 		assert.match(block, /repeat the identical call/u);
 		assert.match(block, /write it/u);
+		// Phase 207: wrong-path writes (phase 57-example/62/72/109-dogfood).
+		assert.match(block, /exact file path/u);
+		// Phase 207: cross-file import/export drift (phase 146-trial/155/204).
+		assert.match(block, /imported name must be exported/u);
 	});
 });
 
@@ -336,12 +340,18 @@ describe('prompt assembly with environment facts', () => {
 describe('prompt budget guard', () => {
 	// Phase 117 (W5): two new tool lines (write_file, edit_file) add ~220 chars.
 	// Budget deliberately updated from 2900 → 3200. Stable section grew from two
-	// to four tool-description lines; still well below the 4096-token LM Studio limit.
+	// to four tool-description lines.
 	// Phase 118 (T4): native and envelope modes tested explicitly.
 	// Phase 121 (C2): Node/ESM workspaces gain ~393 chars for the ESM contract
 	// block. Budget updated to 3600 for Node/ESM greenfield (one .mjs file).
-	// Non-Node workspaces (no .mjs, no type:module) stay under 3200.
-	it('standard Node/ESM greenfield system message stays under 3600 chars (auto mode)', async () => {
+	// Phase 204/207: the lang:node skill body grew to ~2432 chars (node:sqlite,
+	// HTTP integration, busboy pitfall sections with code patterns). Node/ESM
+	// budgets raised to 6000 (auto) / 5000 (native). These guards now catch
+	// runaway growth, not a 4096-token wire limit — context windows are 32K+
+	// since phase 146 auto-discovery.
+	// Phase 207: two new behaviour lines (exact-path, import/export sync) add
+	// ~210 chars to every prompt; the non-Node budget is raised to 3500.
+	it('standard Node/ESM greenfield system message stays under 6000 chars (auto mode)', async () => {
 		const cwd = await mkWorkspace({
 			'app.mjs': 'export function add(a, b) { return a + b; }',
 		});
@@ -363,12 +373,12 @@ describe('prompt budget guard', () => {
 		});
 		const promptLen = context.systemPrompt.length;
 		assert.ok(
-			promptLen < 3600,
-			`Node/ESM system message must stay under 3600 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 6000,
+			`Node/ESM system message must stay under 6000 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
-	it('non-Node workspace stays under 3200 chars (no ESM block)', async () => {
+	it('non-Node workspace stays under 3500 chars (no ESM block)', async () => {
 		const cwd = await mkWorkspace({
 			'main.py': 'def add(a, b): return a + b\n',
 		});
@@ -389,12 +399,12 @@ describe('prompt budget guard', () => {
 		});
 		const promptLen = context.systemPrompt.length;
 		assert.ok(
-			promptLen < 3200,
-			`Non-Node system message must stay under 3200 chars; got ${promptLen} chars`,
+			promptLen < 3500,
+			`Non-Node system message must stay under 3500 chars; got ${promptLen} chars`,
 		);
 	});
 
-	it('native mode stays under 3600 chars (Node/ESM workspace)', async () => {
+	it('native mode stays under 5000 chars (Node/ESM workspace)', async () => {
 		const cwd = await mkWorkspace({
 			'app.mjs': 'export function add(a, b) { return a + b; }',
 		});
@@ -416,8 +426,8 @@ describe('prompt budget guard', () => {
 		});
 		const promptLen = context.systemPrompt.length;
 		assert.ok(
-			promptLen < 3600,
-			`Native mode system message must stay under 3600 chars; got ${promptLen} chars`,
+			promptLen < 5000,
+			`Native mode system message must stay under 5000 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -494,10 +504,17 @@ describe('renderLanguageGuidanceBlock', () => {
 		assert.match(block, /separate tokens/u);
 	});
 
-	it('has exactly 4 lines (header + 3 bullet lines)', () => {
+	// Phase 122 shipped a 4-line block; phases 204/207 added node:sqlite, HTTP
+	// integration, and busboy pitfall sections with code patterns. Assert the
+	// pitfall coverage rather than a brittle exact line count.
+	it('includes the phase-204/207 example pitfalls', () => {
 		const block = renderLanguageGuidanceBlock({ isNodeEsm: true });
-		const lines = block.split('\n');
-		assert.equal(lines.length, 4, `expected 4 lines, got ${lines.length}`);
+		assert.match(block, /node:sqlite/u);
+		assert.match(block, /lastInsertRowid/u);
+		assert.match(block, /CURRENT_TIMESTAMP/u);
+		assert.match(block, /closeAllConnections/u);
+		assert.match(block, /server\.address\(\)\.port/u);
+		assert.match(block, /Busboy is not a constructor/u);
 	});
 
 	it('is byte-stable when called twice with same facts', () => {
@@ -702,7 +719,7 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 		assert.doesNotMatch(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
 	});
 
-	it('prompt budget guard still holds with ESM block (Node workspace under 3200 chars)', async () => {
+	it('prompt budget guard still holds with ESM block (Node workspace under 6000 chars)', async () => {
 		const cwd = await mkWorkspace({
 			'app.mjs': 'export function add(a, b) { return a + b; }',
 		});
@@ -721,9 +738,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 			environmentFacts: facts,
 			toolsMode: true,
 		});
+		// Phase 204/207 grew the lang:node skill body; budget raised from 3600.
 		assert.ok(
-			context.systemPrompt.length < 3600,
-			`System message must stay under 3600 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 6000,
+			`System message must stay under 6000 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });

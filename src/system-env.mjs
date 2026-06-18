@@ -71,6 +71,13 @@ export function renderEnvironmentBlock(facts) {
  * - claim success: goal-substitution heal (phase 113-dogfood)
  * - repeat identical call: repeat-call short-circuit (phase 109)
  * - write proposal: turn-budget exhaustion (phase 109)
+ * - exact paths: wrong-path writes (note-linker to repo root phase 57-example;
+ *   nemotron root utils.js vs tests/utils.js phase 62; repair wrote wordfreq.mjs
+ *   while tests lived in test/wordfreq.test.mjs phase 72/73/109-dogfood)
+ * - imports match exports: cross-file contract drift (escapeHtml imported but
+ *   not exported phase 146-trial; named import from CJS / missing listLinks in
+ *   import then dynamic-import workaround phase 155-stress/204-url-shortener;
+ *   test imports symbols impl never exports phase 113-validation)
  *
  * @returns {string}
  */
@@ -81,6 +88,8 @@ export function renderBehavioursBlock() {
 		'- If verification or tests fail, say so in messages — never claim success.',
 		'- If a tool call fails or returns nothing useful, change your approach — do not repeat the identical call.',
 		'- When you have enough information to write the proposal, write it — do not keep exploring.',
+		'- Write the exact file path the task names; to fix a failing test, edit the file in the failure, not a new sibling file.',
+		'- Every imported name must be exported by the file it comes from; keep imports and exports in sync across files.',
 	].join('\n');
 }
 
