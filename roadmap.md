@@ -201,6 +201,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 199 kodr hook install/uninstall --json
 - [x] 200 Include fixPrompt in kodr check --json Output
 - [x] 201 Test-Timeout Default in --test Runner
+- [x] 202 protectExisting On By Default
 
 ## Phase Contract
 

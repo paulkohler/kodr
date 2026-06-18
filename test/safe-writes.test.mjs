@@ -356,6 +356,60 @@ describe('safe writes', () => {
 		);
 	});
 
+	it('protectExisting blocks files[] overwrite of an existing file', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-protect-existing-'));
+		await writeFile(join(cwd, 'server.mjs'), 'original\n', 'utf8');
+
+		await assert.rejects(
+			() =>
+				prepareChanges(
+					cwd,
+					{ files: [{ content: 'rewrite\n', path: 'server.mjs' }] },
+					{ apply: false, protectExisting: true },
+				),
+			/Refusing to overwrite existing file/u,
+		);
+		// File on disk must be untouched.
+		assert.equal(await readFile(join(cwd, 'server.mjs'), 'utf8'), 'original\n');
+	});
+
+	it('protectExisting allows files[] to create new files', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-protect-new-'));
+
+		const result = await prepareChanges(
+			cwd,
+			{ files: [{ content: 'new content\n', path: 'new.mjs' }] },
+			{ apply: true, protectExisting: true },
+		);
+
+		assert.equal(result.writes.length, 1);
+		assert.equal(result.writes[0].status, 'create');
+		assert.equal(await readFile(join(cwd, 'new.mjs'), 'utf8'), 'new content\n');
+	});
+
+	it('protectExisting allows patches[] to modify existing files', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-protect-patch-ok-'));
+		await writeFile(join(cwd, 'app.mjs'), 'hello world\n', 'utf8');
+
+		const result = await prepareChanges(
+			cwd,
+			{
+				patches: [
+					{
+						path: 'app.mjs',
+						search: 'hello world\n',
+						replace: 'hello patch\n',
+					},
+				],
+			},
+			{ apply: true, protectExisting: true },
+		);
+
+		assert.equal(result.writes.length, 1);
+		assert.equal(result.writes[0].status, 'patch');
+		assert.equal(await readFile(join(cwd, 'app.mjs'), 'utf8'), 'hello patch\n');
+	});
+
 	it('protects patches and matches regardless of separators or absolute form', async () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-safe-protect-patch-'));
 		await writeFile(join(cwd, 'prompt.md'), 'keep me\n', 'utf8');

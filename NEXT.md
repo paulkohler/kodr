@@ -27,15 +27,6 @@ for hook subcommands, `--fix`, `--watch`, and `sensors`/`hooks` config blocks.
 
 ## Candidates
 
-### Session 2 file-protection by default
-
-In every example run, Session 2 introduced regressions by rewriting files from
-Session 1 from scratch rather than extending them. A `--protect-session-1` mode
-(or simply applying `--protect-existing` to files that pre-date the current run)
-would force the model to patch rather than replace, catching API breakage before
-tests run. Concretely: any file written in a prior kodr run should be diff-only
-(no full replacement) in a subsequent run unless explicitly opted out.
-
 ### Async Express route antipattern sensor
 
 A repeating model mistake: `app.post('/route', asyncFn(args))` where `asyncFn(args)`

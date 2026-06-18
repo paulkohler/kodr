@@ -84,7 +84,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		prompt: '',
 		promptCache: 'auto',
 		promptFile: '',
-		protectExisting: false,
+		protectExisting: true,
 		provider: 'local',
 		replayDir: '',
 		agent: '',
@@ -257,6 +257,12 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 
 		if (arg === '--protect-existing') {
 			options.protectExisting = true;
+			options._protectExistingSet = true;
+			continue;
+		}
+
+		if (arg === '--no-protect-existing') {
+			options.protectExisting = false;
 			options._protectExistingSet = true;
 			continue;
 		}
@@ -984,7 +990,7 @@ Usage:
   kodr run --prompt-file prompt.md --openshell-worker --yes [--install] [--test "npm test"]
   kodr run -p "task" [--no-tools] [--no-stream] [--wire-no-stream] [--no-heal] [--no-inspect-context]
   kodr run -p "task" --tools --hooks [--hooks-config .kodr/hooks.json]
-  kodr run -p "task" --yes --protect-existing
+  kodr run -p "task" --yes --no-protect-existing
   kodr run -p "task" --tools --yes --staged
   kodr run -p "task" --yes --subagent-stages
   kodr run -p "task" --stream
