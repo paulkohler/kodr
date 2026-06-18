@@ -39,4 +39,13 @@ Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
 
+### Auto-disable inspection context for thinking models (wireNoStream profiles)
+Inspection-aware context gives the model selected chunks of files, not complete
+content. Thinking models that need exact patch search strings reason endlessly
+over incomplete information, exhaust their context budget, and produce empty
+output. Profile-level opt-out: when `wireNoStream: true`, set `inspectContext:
+false` by default in `applyModelProfileDefaults`. Callers can still opt in with
+`--inspect-context`. This would make thinking-model runs work without requiring
+`--no-inspect-context` explicitly.
+
 
