@@ -25,32 +25,10 @@ for hook subcommands, `--fix`, `--watch`, and `sensors`/`hooks` config blocks.
 `kodr hook install/uninstall --json` completes the hook JSON surface.
 `kodr check --json` includes `fixPrompt` when there are fixable issues.
 Phase 205 added thinking-model profile defaults (`wireNoStream`); phase 206
-excluded `.kodr` from the inspection file index.
+excluded `.kodr` from the inspection file index; phase 207 encoded the five
+recurring phase-204 Node.js example pitfalls in the `lang:node` builtin skill.
 
 ## Candidates
-
-### Node.js example pitfalls in the node skill
-Four rounds of examples (phase 204) exposed four recurring traps that cost 1–3
-extra Kodr runs each time:
-
-1. **node:sqlite BigInt bind** — `lastInsertRowid` is a BigInt; binding it as a
-   SQL parameter throws `TypeError: Provided value cannot be bound`. Wrap with
-   `Number()` before any SQL bind.
-2. **node:sqlite DEFAULT expression** — `DEFAULT (datetime('now'))` is rejected
-   as non-constant; use `DEFAULT CURRENT_TIMESTAMP`.
-3. **busboy v1 factory** — busboy v1 changed from class to arrow-function
-   factory; `new Busboy({...})` throws `TypeError: Busboy is not a constructor`.
-   Call it as `Busboy({ headers: req.headers })`.
-4. **HTTP server teardown** — `server.close()` alone leaves keep-alive
-   connections open; `node --test` hangs 600 s. Must call
-   `server.closeAllConnections?.()` before `server.close()`.
-5. **port:0 → 0||80 coercion** — `http.request({ port: 0 })` silently becomes
-   port 80. Capture the actual port with `server.address().port` inside the
-   `listen` callback.
-
-All five should go into `src/builtin-skills/languages/node/SKILL.md` as
-explicit code patterns — same file, same root cause class (model trained on
-stale APIs / subtle JS coercion).
 
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the

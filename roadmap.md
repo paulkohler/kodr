@@ -206,6 +206,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 204 ANSI-Aware String Truncation Utility
 - [x] 205 Thinking Model Profile Defaults
 - [x] 206 Exclude .kodr from Inspection File Index
+- [x] 207 Node.js Example Pitfalls in the Node Skill
 
 ## Phase Contract
 
