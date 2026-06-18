@@ -208,6 +208,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 206 Exclude .kodr from Inspection File Index
 - [x] 207 Node.js Example Pitfalls in the Node Skill
 - [x] 208 deliveryNudge False-Positive Path Extraction Fix
+- [x] 209 Auto-disable Inspection Context for Thinking Models
 
 ## Phase Contract
 

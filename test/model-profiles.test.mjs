@@ -398,4 +398,45 @@ describe('model profiles', () => {
 		});
 		assert.equal(profile.wireNoStream, false);
 	});
+
+	// Phase 209 — auto-disable inspectContext for thinking models
+	it('phase 209: thinking model auto-disables inspectContext when not CLI-set', () => {
+		const options = applyModelProfileDefaults({
+			model: 'qwen/qwen3.6-35b-a3b',
+			provider: 'local',
+			inspectContext: 'auto',
+			_inspectContextSet: false,
+		});
+		assert.equal(options.inspectContext, false);
+	});
+
+	it('phase 209: --inspect-context CLI flag overrides auto-disable', () => {
+		const options = applyModelProfileDefaults({
+			model: 'qwen/qwen3.6-35b-a3b',
+			provider: 'local',
+			inspectContext: true,
+			_inspectContextSet: true,
+		});
+		assert.equal(options.inspectContext, true);
+	});
+
+	it('phase 209: --no-inspect-context CLI flag is preserved on thinking model', () => {
+		const options = applyModelProfileDefaults({
+			model: 'qwen/qwen3.6-35b-a3b',
+			provider: 'local',
+			inspectContext: false,
+			_inspectContextSet: true,
+		});
+		assert.equal(options.inspectContext, false);
+	});
+
+	it('phase 209: non-thinking model leaves inspectContext unchanged', () => {
+		const options = applyModelProfileDefaults({
+			model: 'mistralai/devstral-small-2-2512',
+			provider: 'local',
+			inspectContext: 'auto',
+			_inspectContextSet: false,
+		});
+		assert.equal(options.inspectContext, 'auto');
+	});
 });

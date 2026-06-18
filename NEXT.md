@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 208): `kodr check` is a comprehensive standalone
+Current frontier (phase 209): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
 `--fix`, and a path argument. Six cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
@@ -30,9 +30,10 @@ recurring phase-204 Node.js example pitfalls in the `lang:node` builtin skill.
 Phase 208 fixed `extractPromptFilePaths` in the deliveryNudge: strip fenced
 code blocks before scanning, require bare names (no `/`) to appear at line
 start. Eliminates `test.txt`/`files/test.txt` from code examples and bare
-module names mid-sentence. Phase-209 dogfooding confirmed: inspection context
-is safe for qwen3.6 on fresh workspaces (0 files indexed → no looping).
-`--continue` sessions with existing source files remain untested.
+module names mid-sentence. Phase 209 wired `inspectContext = false` to
+`wireNoStream` in `applyModelProfileDefaults` — thinking-model runs now
+disable inspection context automatically unless `--inspect-context` is
+explicitly passed.
 
 ## Candidates
 
@@ -41,16 +42,14 @@ Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
 
-### Auto-disable inspection context for thinking models
-Phase 205 added `wireNoStream` to `applyModelProfileDefaults`. The remaining
-gap: `inspectContext` is not set to `false` when `wireNoStream: true`, so
-thinking-model runs still require an explicit `--no-inspect-context` flag.
-Rescoped: just add `if (profile.wireNoStream) defaults.inspectContext = false`
-in `applyModelProfileDefaults`.
-Phase-209 study showed qwen3.6 is safe with inspection context on a **fresh
-workspace** (0 files indexed). The risky path is `--continue` runs where the
-workspace already has substantive source files — untested as of 209b. This
-candidate stays live until that path is validated.
+### deliveryNudge spurious nudge turn for route path strings
+Phase 208 fixed phantom file writes. A follow-on: the nudge still fires an
+extra model turn for route-like path strings with `/` (e.g. `files/test.txt`
+from `GET /files/test.txt` in a test bullet list). `recovered: []` so no files
+are written, but the wasted turn adds latency and tokens. Fix: filter
+`extractPromptFilePaths` results against paths that look like URL routes
+(start with a well-known route segment without a file extension, or follow
+`GET`/`POST`/etc.).
 
 ### Smoke-as-verification in the heal loop
 Phase 184 wired a smoke-driven second heal pass, but the in-loop verification

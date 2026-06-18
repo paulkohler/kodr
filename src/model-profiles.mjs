@@ -194,6 +194,9 @@ export function applyModelProfileDefaults(
 	}
 	if (profile.wireNoStream) {
 		next.wireNoStream = true;
+		if (!options._inspectContextSet) {
+			next.inspectContext = false;
+		}
 	}
 	if (!options._editFormatSet) {
 		next.editFormat = profile.editFormat;
