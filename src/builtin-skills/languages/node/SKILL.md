@@ -4,7 +4,16 @@ description: Node.js / ESM coding contract — the mechanical rules local models
 ---
 # Node.js / ESM Contract
 - ESM only: use `import`/`export`; never `require` or `module.exports`; no top-level `return` outside a function.
-- Tests: `import { test } from 'node:test'` and `node:assert` — do not invent methods like `t.assert()`.
+- Tests: import lifecycle hooks explicitly — `import { test, before, after } from 'node:test'`. `before`/`after` are NOT globals; omitting them from the import crashes the module with `ReferenceError: before is not defined`. Use `node:assert` only — do not invent methods like `t.assert()`.
+- Shared test state: declare `let` variables at module scope, not inside `test()` blocks. Variables declared with `const`/`let` inside one `test()` block are not visible to later blocks.
+
+```js
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+let server, port; // module-scope so all test() blocks can share them
+before(async () => { ... });
+after(async () => { ... });
+```
 - CLI argv: `process.argv` entries are separate tokens (`--top` and `3` are two entries); parse flags with a token loop, not a single-string regex.
 - ANSI truncation: truncate terminal strings by visible width, not raw `.length`. Raw length over-counts when ANSI colour codes are present, clipping mid-sequence and producing garbage output. Use the pattern below.
 
