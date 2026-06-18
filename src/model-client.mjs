@@ -82,7 +82,9 @@ export async function listModels(options) {
 export async function createChatCompletion(options, body) {
 	const requestBody = buildChatRequestBody(options, body);
 
-	// Explicit escape hatch for debugging: --wire-no-stream flag only.
+	// Non-streaming wire: set via --wire-no-stream flag or profile.wireNoStream.
+	// Required for thinking models (e.g. qwen3.6) where LM Studio ignores
+	// max_thinking_tokens in streaming mode.
 	if (options.wireNoStream) {
 		return requestJson(`${options.baseUrl}/chat/completions`, {
 			apiKey: options.apiKey,

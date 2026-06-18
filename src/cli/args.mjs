@@ -1129,9 +1129,9 @@ OpenRouter:
   --no-staged          Disable automatic staged execution.
   --subagent-stages    Run planner, implementer, and reviewer as isolated tool agents.
   --no-review          Skip the advisory reviewer stage in --subagent-stages runs.
-  --wire-no-stream     Disable SSE streaming on the wire (debug only — servers that
-                       cannot stream). Never chosen automatically; use --no-stream
-                       to suppress display rendering instead.
+  --wire-no-stream     Disable SSE streaming on the wire. Required for thinking models
+                       (e.g. qwen3.6) on LM Studio where max_thinking_tokens is only
+                       honored in non-streaming mode. Also set via model profile.
   --first-token-timeout-ms N
                        Abort and retry if no first SSE chunk arrives within N ms.
                        Default: 120000 (120s). Also configurable per model profile.
@@ -1325,6 +1325,7 @@ function assignValue(options, flag, value) {
 		options._maxRetriesSet = true;
 	} else if (flag === '--max-thinking-tokens') {
 		options.maxThinkingTokens = Number(value);
+		options._maxThinkingTokensSet = true;
 	} else if (flag === '--max-tokens') {
 		options.maxTokens = Number(value);
 		options._maxTokensSet = true;

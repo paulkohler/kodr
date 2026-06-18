@@ -43,11 +43,13 @@ const DEFAULT_PROFILES = [
 		contextWindow: 32768,
 		firstTokenTimeoutMs: 120000,
 		id: 'qwen/qwen3.6-35b-a3b',
+		maxThinkingTokens: 4096,
 		nativeToolCalls: true,
 		provider: 'local',
 		responseEnvelope: 'json',
 		structuredOutput: 'none',
 		timeoutMs: 600000,
+		wireNoStream: true,
 	},
 	{
 		baseUrl: LMSTUDIO_BASE_URL,
@@ -55,11 +57,13 @@ const DEFAULT_PROFILES = [
 		contextWindow: 32768,
 		firstTokenTimeoutMs: 120000,
 		id: 'qwen/qwen3.6-35b-a3b',
+		maxThinkingTokens: 4096,
 		nativeToolCalls: true,
 		provider: 'lmstudio',
 		responseEnvelope: 'json',
 		structuredOutput: 'none',
 		timeoutMs: 600000,
+		wireNoStream: true,
 	},
 	{
 		baseUrl: LMSTUDIO_BASE_URL,
@@ -184,6 +188,12 @@ export function applyModelProfileDefaults(
 	}
 	if (!options._firstTokenTimeoutSet) {
 		next.firstTokenTimeoutMs = profile.firstTokenTimeoutMs;
+	}
+	if (!options._maxThinkingTokensSet && profile.maxThinkingTokens != null) {
+		next.maxThinkingTokens = profile.maxThinkingTokens;
+	}
+	if (profile.wireNoStream) {
+		next.wireNoStream = true;
 	}
 	if (!options._editFormatSet) {
 		next.editFormat = profile.editFormat;
@@ -318,6 +328,7 @@ function normalizeProfile(profile, source) {
 	const toolWrites = VALID_TOOL_WRITES_MODES.has(profile.toolWrites)
 		? profile.toolWrites
 		: 'auto';
+	const maxThinkingTokensRaw = positiveInteger(profile.maxThinkingTokens, 0);
 	return {
 		baseUrl: stringValue(profile.baseUrl || defaultBaseUrl(provider)),
 		completionReserve: positiveInteger(
@@ -334,6 +345,9 @@ function normalizeProfile(profile, source) {
 			DEFAULT_FIRST_TOKEN_TIMEOUT_MS,
 		),
 		id,
+		...(maxThinkingTokensRaw > 0
+			? { maxThinkingTokens: maxThinkingTokensRaw }
+			: {}),
 		nativeToolCalls: profile.nativeToolCalls !== false,
 		provider,
 		responseEnvelope: stringValue(profile.responseEnvelope || 'json'),
@@ -341,6 +355,7 @@ function normalizeProfile(profile, source) {
 		structuredOutput,
 		timeoutMs: positiveInteger(profile.timeoutMs, DEFAULT_TIMEOUT_MS),
 		toolWrites,
+		wireNoStream: profile.wireNoStream === true,
 		...(toolAliases !== null ? { toolAliases } : {}),
 	};
 }

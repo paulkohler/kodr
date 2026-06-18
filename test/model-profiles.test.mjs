@@ -362,4 +362,40 @@ describe('model profiles', () => {
 			assert.deepEqual(r, { window: 32768, source: null, changed: false });
 		}
 	});
+
+	it('phase 205: qwen3.6 profile has maxThinkingTokens and wireNoStream', () => {
+		const profile = resolveModelProfile({
+			model: 'qwen/qwen3.6-35b-a3b',
+			provider: 'local',
+		});
+		assert.equal(profile.maxThinkingTokens, 4096);
+		assert.equal(profile.wireNoStream, true);
+	});
+
+	it('phase 205: applyModelProfile applies maxThinkingTokens from profile when not CLI-set', () => {
+		const options = applyModelProfileDefaults({
+			model: 'qwen/qwen3.6-35b-a3b',
+			provider: 'local',
+		});
+		assert.equal(options.maxThinkingTokens, 4096);
+		assert.equal(options.wireNoStream, true);
+	});
+
+	it('phase 205: --max-thinking-tokens CLI flag overrides profile default', () => {
+		const options = applyModelProfileDefaults({
+			model: 'qwen/qwen3.6-35b-a3b',
+			provider: 'local',
+			maxThinkingTokens: 1000,
+			_maxThinkingTokensSet: true,
+		});
+		assert.equal(options.maxThinkingTokens, 1000);
+	});
+
+	it('phase 205: wireNoStream is false for profiles that do not declare it', () => {
+		const profile = resolveModelProfile({
+			model: 'mistralai/devstral-small-2-2512',
+			provider: 'local',
+		});
+		assert.equal(profile.wireNoStream, false);
+	});
 });
