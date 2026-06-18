@@ -213,8 +213,8 @@ session tail ends with a `repeat:true` sentinel tool result followed by a
 role alternation; this tail state triggers: "conversation roles must alternate
 user and assistant roles except for tool calls and results."
 
-**Pending fix**: strip or avoid emitting the trailing empty assistant message
-before submitting continued history.
+**Fixed in Phase 147 (commit 4bc1b0d)**: `sanitizeSessionTail` strips the
+repeat-sentinel tail before submission; `--continue` now works for devstral.
 
 | Dimension | Trial (no Phase 146) | Phase 146 |
 |-----------|----------------------|-----------|
