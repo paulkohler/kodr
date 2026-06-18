@@ -48,4 +48,18 @@ false` by default in `applyModelProfileDefaults`. Callers can still opt in with
 `--inspect-context`. This would make thinking-model runs work without requiring
 `--no-inspect-context` explicitly.
 
+### Prompt-level node:sqlite pitfalls as user-facing docs
+After four rounds of examples, three recurring node:sqlite issues surface every
+time: (1) `lastInsertRowid` is BigInt — wrap with `Number()` before SQL bind;
+(2) `DEFAULT (datetime('now'))` rejected — use `DEFAULT CURRENT_TIMESTAMP`;
+(3) BigInt from SELECT id columns in results — wrap on access. Expose these as
+a `kodr node:sqlite` help topic or embed in the system prompt for runs that
+import `node:sqlite`. Prevents the same user mistakes across example prompts.
+
+### Prompt-level busboy v1 factory-function note
+busboy v1 changed from class to factory: `Busboy(cfg)` not `new Busboy(cfg)`.
+This trips the model every first run. Add to system prompt or kodr run help text:
+"If you use busboy, call it as a factory function (no new keyword) — busboy v1
+is not a constructor."
+
 
