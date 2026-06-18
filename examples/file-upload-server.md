@@ -1,117 +1,131 @@
 # Example: File Upload Server
 
-> **Status: incomplete — two failed runs.** See `process/failures.jsonl`
-> entries `204-file-upload` and `204-file-upload-2`.
->
-> Failure 1: test process hung (no `server.closeAllConnections()`, 600s timeout).  
-> Failure 2: model used `new Busboy()` but busboy v1 exports an arrow function;
-> heal loop hit context overflow (32K tokens) before fixing it.
->
-> Lesson: multipart upload tests are tricky — explicit teardown instructions and
-> the busboy v1 factory pattern must be in the prompt.
+An Express server that accepts file uploads via multipart form and serves them back.
+Single session, in-memory store.
 
-A two-session Express server that accepts file uploads via multipart form.
-Session 1 builds the API. Designed to exercise:
+**Workspace:** `~/src/kodr-testing/phase-204/file-upload-3`  
+**Model:** `qwen/qwen3.6-35b-a3b`
 
-- Express + `busboy` multipart upload
-- HTTP integration tests with proper server teardown
-- `--no-inspect-context` flag needed for qwen3.6 (thinking model)
-
-## File structure after Session 1
+## Files
 
 ```
 package.json          — {"type":"module","dependencies":{"express":"^4","busboy":"^1"}}
-src/store.mjs         — saveFile(name, stream), listFiles(), getFilePath(name)
-src/server.mjs        — createApp(storeDir), startServer(port)
-test/server.test.mjs  — node:test: POST /upload → 201, GET /files → JSON list
+src/store.mjs         — createStore(), saveFile(store, name, buf), listFiles(store), getFile(store, name)
+src/server.mjs        — createServer(store) → Express app
+test/server.test.mjs  — node:test: 5 integration tests via raw node:http multipart
 ```
 
-## File structure after Session 2
-
-```
-(Session 1 files patched, not rewritten)
-public/index.html     — HTML form: file input + submit → POST /upload; lists files
-src/static.mjs        — serveStatic(app): serves public/ dir
-src/server.mjs        — patched: import serveStatic, call after API routes
-test/static.test.mjs  — GET / returns 200 with HTML
-```
-
-## Session 1 prompt
+## Prompt (succeeded on 3rd attempt)
 
 ```
 Build an Express file-upload server.
 
 package.json — {"type":"module","dependencies":{"express":"^4","busboy":"^1"}}.
 
-src/store.mjs — Manages uploaded files in a directory.
-  Export async function saveFile(storeDir, name, stream): mkdir storeDir, pipe
-    stream to fs.createWriteStream(join(storeDir, name)), return path.
-  Export function listFiles(storeDir): readdirSync(storeDir) filtered to files,
-    return array of names. Return [] if dir doesn't exist.
-  Export function getFilePath(storeDir, name): join(storeDir, name).
+src/store.mjs — in-memory store (no disk I/O needed).
+  export function createStore() { return { files: new Map() }; }
+  export function saveFile(store, name, buffer) {
+    store.files.set(name, buffer);
+    return { name, size: buffer.length };
+  }
+  export function listFiles(store) { return [...store.files.keys()]; }
+  export function getFile(store, name) { return store.files.get(name) ?? null; }
 
-src/server.mjs — import express; import Busboy from 'busboy'; import store.
-  Export function createApp(storeDir):
-    const app = express(); app.use(express.json()).
-    POST /upload: parse multipart with Busboy. For each file field, call
-      saveFile(storeDir, filename, fileStream). Respond 201 {saved: filename}.
-      Route handler must be: app.post('/upload', async (req, res) => { ... })
-    GET /files: respond 200 {files: listFiles(storeDir)}.
-    Return app.
-  Export async function startServer(port=3000, storeDir='./uploads'):
-    const app = createApp(storeDir). app.listen(port).
-    Return {app, server, close: () => new Promise(r => server.close(r))}.
+src/server.mjs — import express and Busboy.
+  IMPORTANT: busboy v1 exports a factory function, NOT a constructor.
+  Use: const busboy = Busboy({ headers: req.headers });
+  NOT: new Busboy({ headers: req.headers });  // TypeError: Busboy is not a constructor
 
-test/server.test.mjs — node:test integration tests.
-  In before(): startServer(3001, tmpStoreDir). In after(): close().
-  Use globalThis.fetch.
+  export function createServer(store) {
+    const app = express();
+
+    app.post('/upload', (req, res) => {
+      const busboy = Busboy({ headers: req.headers });
+      const saves = [];
+      busboy.on('file', (_field, stream, info) => {
+        const chunks = [];
+        stream.on('data', c => chunks.push(c));
+        stream.on('end', () => {
+          const buf = Buffer.concat(chunks);
+          saves.push(saveFile(store, info.filename, buf));
+        });
+      });
+      busboy.on('finish', () => res.json({ uploaded: saves }));
+      req.pipe(busboy);
+    });
+
+    app.get('/files', (_req, res) => res.json({ files: listFiles(store) }));
+
+    app.get('/files/:name', (req, res) => {
+      const buf = getFile(store, req.params.name);
+      if (!buf) return res.status(404).json({ error: 'File not found' });
+      res.set('Content-Type', 'application/octet-stream');
+      res.send(buf);
+    });
+
+    return app;
+  }
+
+test/server.test.mjs — node:test integration tests using node:http (not fetch — multipart needs raw HTTP).
+  Use before/after hooks for a single shared server instance.
+  after(): server.closeAllConnections?.(); await new Promise(r => server.close(r));
+  Listen on port 0; capture actual port from server.address().port.
+
+  Helper to build multipart body manually (include file content bytes):
+    function buildMultipart(filename, content, boundary) {
+      const buf = typeof content === 'string' ? Buffer.from(content) : content;
+      const header = Buffer.from(
+        '--' + boundary + '\r\n' +
+        'Content-Disposition: form-data; name="file"; filename="' + filename + '"\r\n' +
+        'Content-Type: application/octet-stream\r\n\r\n'
+      );
+      const footer = Buffer.from('\r\n--' + boundary + '--\r\n');
+      return Buffer.concat([header, buf, footer]);
+    }
+
   Tests:
-    - GET /files returns 200 with {files: []} initially
-    - POST /upload with a text file returns 201 {saved: 'test.txt'}
-    - GET /files after upload returns {files: ['test.txt']}
+    - GET /files returns 200 {files:[]}
+    - POST /upload with a text file returns 200 {uploaded:[{name:'test.txt',size:11}]}
+    - GET /files after upload returns {files:['test.txt']}
+    - GET /files/test.txt returns the file bytes
+    - GET /files/missing.txt returns 404
+
+package.json — add 'scripts':{'test':'node --test'}
 ```
 
-## Session 2 prompt
-
-```
-The upload API is done and tests pass. Add a browser frontend.
-
-public/index.html — Simple HTML page:
-  Title: "File Uploader". A <form> with enctype="multipart/form-data" and
-  method="post" action="/upload". A file input named "file". A submit button.
-  Below the form, a <div id="files"> that on page load fetches GET /files and
-  renders the filenames as a <ul>.
-
-src/static.mjs — import express; import { fileURLToPath } from 'node:url';
-  import { dirname, join } from 'node:path'.
-  const __dirname = dirname(fileURLToPath(import.meta.url)).
-  Export function serveStatic(app):
-    app.use(express.static(join(__dirname, '..', 'public'))).
-    app.get('*', (req, res) => res.sendFile('index.html', {root: join(__dirname,'..','public')})).
-
-Patch src/server.mjs: import { serveStatic } from './static.mjs'.
-  In createApp(storeDir), call serveStatic(app) after API routes.
-
-test/static.test.mjs — node:test: startServer(3002, tmpDir).
-  Test: GET / returns 200 and body contains 'File Uploader'.
-  Teardown: close().
-```
-
-## What to watch for
-
-- Does the model use `async (req, res) => { ... }` for route handlers (not call expressions)?
-- Does the `express-async-route` sensor fire if the model makes the mistake?
-- Does `protectExisting` force Session 2 to patch `src/server.mjs`?
-- Does `busboy` work correctly in an ESM context?
-
-## Run commands
+## Run
 
 ```sh
-mkdir -p ~/src/kodr-testing/phase-204/file-upload-1
-cd ~/src/kodr-testing/phase-204/file-upload-1
-npm install  # after Session 1 creates package.json
-kodr run --yes --heal --test "node --test" --max-turns 20 -p "<session 1 prompt>"
+mkdir -p ~/src/kodr-testing/phase-204/file-upload-3
+cd ~/src/kodr-testing/phase-204/file-upload-3
+echo '{"type":"module","dependencies":{"express":"^4","busboy":"^1"}}' > package.json
+npm install
 
-# Session 2
-kodr run --yes --heal --test "node --test" --max-turns 20 -p "<session 2 prompt>"
+kodr run --yes --no-heal --no-tools --no-inspect-context --no-protect-existing \
+  --test "node --test" --max-turns 20 -p "<prompt>"
 ```
+
+## Result
+
+Run ok on first attempt with this prompt.  
+Tokens: 3,556 (prompt 1,666 / completion 1,890). Tests: 5/5 passing.
+
+## Failed attempts (see process/failures.jsonl)
+
+| Attempt | Error |
+|---------|-------|
+| file-upload-1 | Test process hung 600s — no `server.closeAllConnections()`, multipart body was headers-only (no content bytes) |
+| file-upload-2 | `new Busboy()` → TypeError: Busboy is not a constructor; heal loop context overflow |
+
+## Notes
+
+- busboy v1 changed from class to arrow function factory. The explicit warning in the prompt
+  was essential — the model had learned the v0.x class-based API from training data.
+- Multipart body helpers must include the actual file bytes between the MIME header and footer.
+  The boundary lines need `\r\n` separators (CRLF), not just `\n`.
+- Raw `node:http` is better than `globalThis.fetch` for multipart tests — easier to control
+  exact Content-Type header with boundary parameter.
+- `server.closeAllConnections?.()` is needed before `server.close()` to release keep-alive
+  connections and let `node --test` exit.
+- `--no-heal` with `--no-inspect-context` is the reliable pattern for qwen3.6: full context
+  in, no repair loop that can overflow the 32K token window.
