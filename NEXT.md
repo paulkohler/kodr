@@ -27,14 +27,6 @@ for hook subcommands, `--fix`, `--watch`, and `sensors`/`hooks` config blocks.
 
 ## Candidates
 
-### ANSI-aware string truncation utility
-
-`formatTable` in the issue-tracker example truncated cells by raw character count,
-clipping mid-ANSI-escape-sequence and producing visible garbage. A small utility
-`visibleWidth(str)` + `truncateVisible(str, width)` that strips escape sequences
-before measuring would fix this pattern. Worth adding to the Node dev builtin skill
-so models can `import { truncateVisible } from 'kodr:ansi'` or similar.
-
 ### Smoke-as-verification in the heal loop
 Phase 184 wired a smoke-driven second heal pass, but the in-loop verification
 still uses `options.testCommand`. When no testCommand is set, smoke failures can't
