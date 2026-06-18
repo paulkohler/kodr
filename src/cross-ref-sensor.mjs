@@ -67,6 +67,7 @@ export const SENSOR_NAMES = {
 	IMPORT_CYCLES: 'import-cycles',
 	SECRET_IN_RESPONSE: 'secret-in-response',
 	SECRETS_AT_REST: 'secrets-at-rest',
+	EXPRESS_ASYNC_ROUTE: 'express-async-route',
 };
 
 // Phase 188: per-sensor default severity.
@@ -79,6 +80,7 @@ export const SENSOR_SEVERITY = {
 	[SENSOR_NAMES.IMPORT_CYCLES]: 'error',
 	[SENSOR_NAMES.SECRET_IN_RESPONSE]: 'error',
 	[SENSOR_NAMES.SECRETS_AT_REST]: 'error',
+	[SENSOR_NAMES.EXPRESS_ASYNC_ROUTE]: 'error',
 };
 
 // ---------------------------------------------------------------------------
@@ -1206,6 +1208,120 @@ export async function runSecretsAtRestSensor(cwd, writePaths) {
 }
 
 // ---------------------------------------------------------------------------
+// Express async-route antipattern sensor (Phase 203)
+// ---------------------------------------------------------------------------
+//
+// Detects: app.post('/route', asyncFn(args)) — where a route handler argument
+// is a call expression rather than a function literal or reference. Express
+// receives the return value (usually a Promise) instead of a function, and
+// throws "Route.post() requires a callback function but got a [object Promise]".
+//
+// The correct form: app.post('/route', async (req, res) => { await asyncFn(args); })
+
+// Matches: [app|router].METHOD('route', ident( ...
+// Captures group 1: the identifier being called as a handler.
+// Negative lookahead prevents matching JS keywords async/function which introduce
+// legitimate function-literal handlers.
+const EXPRESS_ROUTE_CALL_RE =
+	/\b(?:app|router)\s*\.\s*(?:get|post|put|patch|delete|all)\s*\([ \t]*['"`][^'"`\n]*['"`][ \t]*,[ \t]*(?!async\b|function\b)(\w+)[ \t]*\(/u;
+
+// Suppression comment that silences this sensor for a specific line.
+const IGNORE_EXPRESS_ASYNC = /\/\/\s*kodr-ignore:\s*express-async-route/iu;
+
+/**
+ * Scan one JS file for route registrations where a handler is a direct call
+ * expression (not a function literal or reference).
+ * Returns { lineNo, line, callExpr } for each hit.
+ *
+ * @param {string} content
+ * @returns {Array<{lineNo: number, line: string, callExpr: string}>}
+ */
+export function scanExpressAsyncRoutes(content) {
+	const lines = content.split('\n');
+	const hits = [];
+	for (let i = 0; i < lines.length; i++) {
+		if (IGNORE_EXPRESS_ASYNC.test(lines[i])) continue;
+		const m = EXPRESS_ROUTE_CALL_RE.exec(lines[i]);
+		if (m) {
+			hits.push({ lineNo: i + 1, line: lines[i].trim(), callExpr: m[1] });
+		}
+	}
+	return hits;
+}
+
+/**
+ * Run the express-async-route sensor on a set of written JS files.
+ *
+ * @param {string}   cwd
+ * @param {string[]} writePaths  Workspace-relative written file paths.
+ * @returns {Promise<{sensor: string, status: string, checked: number, issues: object[], message: string}>}
+ */
+export async function runExpressAsyncRouteSensor(cwd, writePaths) {
+	const jsPaths = writePaths.filter((p) =>
+		LOCAL_JS_EXTENSIONS.has(extname(p).toLowerCase()),
+	);
+	if (jsPaths.length === 0) {
+		return {
+			sensor: SENSOR_NAMES.EXPRESS_ASYNC_ROUTE,
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no JS files in write set',
+		};
+	}
+
+	let checked = 0;
+	const allIssues = [];
+
+	for (const jsPath of jsPaths) {
+		let content;
+		try {
+			content = await readFile(join(cwd, jsPath), 'utf8');
+		} catch {
+			continue;
+		}
+		checked++;
+		for (const hit of scanExpressAsyncRoutes(content)) {
+			allIssues.push({ jsPath, ...hit });
+		}
+	}
+
+	if (checked === 0) {
+		return {
+			sensor: SENSOR_NAMES.EXPRESS_ASYNC_ROUTE,
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no readable JS files in write set',
+		};
+	}
+
+	if (allIssues.length === 0) {
+		return {
+			checked,
+			issues: [],
+			message: `${checked} file${checked !== 1 ? 's' : ''} ok — no express async-route antipatterns`,
+			sensor: SENSOR_NAMES.EXPRESS_ASYNC_ROUTE,
+			status: 'ok',
+		};
+	}
+
+	const summary = allIssues
+		.slice(0, 3)
+		.map((i) => `${i.jsPath}:${i.lineNo} (${i.callExpr}(...))`)
+		.join('; ');
+	const extra = allIssues.length > 3 ? ` (+${allIssues.length - 3} more)` : '';
+	return {
+		checked,
+		issues: allIssues,
+		message: `${allIssues.length} express async-route antipattern${allIssues.length !== 1 ? 's' : ''}: ${summary}${extra}`,
+		sensor: SENSOR_NAMES.EXPRESS_ASYNC_ROUTE,
+		severity: SENSOR_SEVERITY[SENSOR_NAMES.EXPRESS_ASYNC_ROUTE],
+		status: 'warn',
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Convenience gate: run all cross-ref sensors when a write was applied
 // ---------------------------------------------------------------------------
 
@@ -1255,23 +1371,38 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 				}
 			: null;
 
-	const [compose, css, localImport, cycles, secrets, secretsAtRest] =
-		await Promise.all([
-			skip(SENSOR_NAMES.COMPOSE_DOCKERFILE) ??
-				runComposeDockerfileSensor(cwd, paths),
-			skip(SENSOR_NAMES.CSS_SELECTOR) ?? runCssSelectorSensor(cwd, paths),
-			skip(SENSOR_NAMES.LOCAL_IMPORT) ?? runLocalImportSensor(cwd, paths),
-			skip(SENSOR_NAMES.IMPORT_CYCLES) ??
-				runImportCycleSensor(cwd, paths, { deep: opts.deep }),
-			skip(SENSOR_NAMES.SECRET_IN_RESPONSE) ??
-				runSecretInResponseSensor(cwd, paths),
-			skip(SENSOR_NAMES.SECRETS_AT_REST) ?? runSecretsAtRestSensor(cwd, paths),
-		]);
+	const [
+		compose,
+		css,
+		localImport,
+		cycles,
+		secrets,
+		secretsAtRest,
+		asyncRoute,
+	] = await Promise.all([
+		skip(SENSOR_NAMES.COMPOSE_DOCKERFILE) ??
+			runComposeDockerfileSensor(cwd, paths),
+		skip(SENSOR_NAMES.CSS_SELECTOR) ?? runCssSelectorSensor(cwd, paths),
+		skip(SENSOR_NAMES.LOCAL_IMPORT) ?? runLocalImportSensor(cwd, paths),
+		skip(SENSOR_NAMES.IMPORT_CYCLES) ??
+			runImportCycleSensor(cwd, paths, { deep: opts.deep }),
+		skip(SENSOR_NAMES.SECRET_IN_RESPONSE) ??
+			runSecretInResponseSensor(cwd, paths),
+		skip(SENSOR_NAMES.SECRETS_AT_REST) ?? runSecretsAtRestSensor(cwd, paths),
+		skip(SENSOR_NAMES.EXPRESS_ASYNC_ROUTE) ??
+			runExpressAsyncRouteSensor(cwd, paths),
+	]);
 
 	// Omit sensors that skipped (no relevant files or disabled) to keep summary lean
-	return [compose, css, localImport, cycles, secrets, secretsAtRest].filter(
-		(r) => r.status !== 'skipped',
-	);
+	return [
+		compose,
+		css,
+		localImport,
+		cycles,
+		secrets,
+		secretsAtRest,
+		asyncRoute,
+	].filter((r) => r.status !== 'skipped');
 }
 
 /**
@@ -1283,7 +1414,7 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
  * skipped to avoid false positives when the referenced files exist on disk but
  * are not part of the proposal.
  *
- * Sensors run: import-cycles, secret-in-response, secrets-at-rest.
+ * Sensors run: import-cycles, secret-in-response, secrets-at-rest, express-async-route.
  * Sensors skipped (apply-only): local-import, css-selector, compose-dockerfile.
  *
  * Results carry a `proposalOnly: true` marker so callers can present them
@@ -1322,16 +1453,18 @@ export async function runCrossRefSensorsOnProposal(proposalFiles, opts = {}) {
 			paths.push(path);
 		}
 
-		const [cycles, secrets, secretsAtRest] = await Promise.all([
+		const [cycles, secrets, secretsAtRest, asyncRoute] = await Promise.all([
 			skip(SENSOR_NAMES.IMPORT_CYCLES) ??
 				runImportCycleSensor(tmpDir, paths, { deep: false }),
 			skip(SENSOR_NAMES.SECRET_IN_RESPONSE) ??
 				runSecretInResponseSensor(tmpDir, paths),
 			skip(SENSOR_NAMES.SECRETS_AT_REST) ??
 				runSecretsAtRestSensor(tmpDir, paths),
+			skip(SENSOR_NAMES.EXPRESS_ASYNC_ROUTE) ??
+				runExpressAsyncRouteSensor(tmpDir, paths),
 		]);
 
-		return [cycles, secrets, secretsAtRest]
+		return [cycles, secrets, secretsAtRest, asyncRoute]
 			.filter((r) => r.status !== 'skipped')
 			.map((r) => ({ ...r, proposalOnly: true }));
 	} finally {

@@ -202,6 +202,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 200 Include fixPrompt in kodr check --json Output
 - [x] 201 Test-Timeout Default in --test Runner
 - [x] 202 protectExisting On By Default
+- [x] 203 Express Async-Route Antipattern Sensor
 
 ## Phase Contract
 

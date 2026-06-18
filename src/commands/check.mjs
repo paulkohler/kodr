@@ -366,6 +366,10 @@ function formatSensorIssue(sensorName, issue) {
 			// { cssPath, htmlPath, selector, type: 'selector-no-element', value }
 			return `${sensorName} in ${issue.cssPath}: selector '${issue.selector}' not found in ${issue.htmlPath}`;
 
+		case 'express-async-route':
+			// { jsPath, lineNo, line, callExpr }
+			return `${sensorName} in ${issue.jsPath}:${issue.lineNo}: route handler '${issue.callExpr}(...)' is a call expression — use async (req, res) => { await ${issue.callExpr}(...) } instead`;
+
 		default:
 			// Unknown sensor — emit JSON so no information is lost
 			return `${sensorName}: ${JSON.stringify(issue)}`;

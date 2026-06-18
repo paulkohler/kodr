@@ -24,6 +24,8 @@ import {
 	runSecretInResponseSensor,
 	scanSecretsAtRest,
 	runSecretsAtRestSensor,
+	scanExpressAsyncRoutes,
+	runExpressAsyncRouteSensor,
 	runCrossRefSensors,
 	runCrossRefSensorsOnProposal,
 } from '../src/cross-ref-sensor.mjs';
@@ -775,15 +777,16 @@ describe('runCrossRefSensors', () => {
 // SENSOR_NAMES registry
 // ---------------------------------------------------------------------------
 describe('SENSOR_NAMES', () => {
-	it('exports all six canonical names', () => {
+	it('exports all seven canonical names', () => {
 		const names = Object.values(SENSOR_NAMES);
-		assert.equal(names.length, 6);
+		assert.equal(names.length, 7);
 		assert.ok(names.includes('compose-dockerfile'));
 		assert.ok(names.includes('css-selector'));
 		assert.ok(names.includes('local-import'));
 		assert.ok(names.includes('import-cycles'));
 		assert.ok(names.includes('secret-in-response'));
 		assert.ok(names.includes('secrets-at-rest'));
+		assert.ok(names.includes('express-async-route'));
 	});
 
 	it('SENSOR_SEVERITY has error/warning entry for every sensor', () => {
@@ -956,6 +959,87 @@ describe('runSecretsAtRestSensor', () => {
 			`export const API_KEY = process.env.API_KEY;\n`,
 		);
 		const result = await runSecretsAtRestSensor(cwd, ['config.mjs']);
+		assert.equal(result.status, 'ok');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// scanExpressAsyncRoutes / runExpressAsyncRouteSensor (Phase 203)
+// ---------------------------------------------------------------------------
+
+describe('scanExpressAsyncRoutes', () => {
+	it('detects call-expression handler in app.post', () => {
+		const content = `app.post('/register', register(pool));\n`;
+		const hits = scanExpressAsyncRoutes(content);
+		assert.equal(hits.length, 1);
+		assert.equal(hits[0].callExpr, 'register');
+		assert.equal(hits[0].lineNo, 1);
+	});
+
+	it('detects call-expression handler in router.get', () => {
+		const content = `router.get('/users', getUsers(db));\n`;
+		const hits = scanExpressAsyncRoutes(content);
+		assert.equal(hits.length, 1);
+		assert.equal(hits[0].callExpr, 'getUsers');
+	});
+
+	it('does not flag arrow function handlers', () => {
+		const content = `app.post('/register', async (req, res) => { res.json({}); });\n`;
+		const hits = scanExpressAsyncRoutes(content);
+		assert.equal(hits.length, 0);
+	});
+
+	it('does not flag bare function reference handlers', () => {
+		const content = `app.get('/me', authMiddleware, handler);\n`;
+		const hits = scanExpressAsyncRoutes(content);
+		assert.equal(hits.length, 0);
+	});
+
+	it('does not flag app.use without a route string', () => {
+		const content = `app.use(express.json());\n`;
+		const hits = scanExpressAsyncRoutes(content);
+		assert.equal(hits.length, 0);
+	});
+
+	it('suppressed by kodr-ignore comment on the same line', () => {
+		const content = `app.post('/x', fn(args)); // kodr-ignore: express-async-route\n`;
+		const hits = scanExpressAsyncRoutes(content);
+		assert.equal(hits.length, 0);
+	});
+});
+
+describe('runExpressAsyncRouteSensor', () => {
+	let cwd;
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), 'kodr-ear-'));
+	});
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	it('skips when no JS files in write set', async () => {
+		const result = await runExpressAsyncRouteSensor(cwd, ['index.html']);
+		assert.equal(result.status, 'skipped');
+	});
+
+	it('warns when a route has a call-expression handler', async () => {
+		await writeFile(
+			join(cwd, 'server.mjs'),
+			`app.post('/register', register(pool));\n`,
+		);
+		const result = await runExpressAsyncRouteSensor(cwd, ['server.mjs']);
+		assert.equal(result.status, 'warn');
+		assert.equal(result.severity, 'error');
+		assert.ok(result.message.includes('register'));
+		assert.equal(result.issues[0].callExpr, 'register');
+	});
+
+	it('ok when all route handlers are arrow functions', async () => {
+		await writeFile(
+			join(cwd, 'server.mjs'),
+			`app.post('/register', async (req, res) => { res.json({}); });\n`,
+		);
+		const result = await runExpressAsyncRouteSensor(cwd, ['server.mjs']);
 		assert.equal(result.status, 'ok');
 	});
 });

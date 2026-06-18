@@ -27,14 +27,6 @@ for hook subcommands, `--fix`, `--watch`, and `sensors`/`hooks` config blocks.
 
 ## Candidates
 
-### Async Express route antipattern sensor
-
-A repeating model mistake: `app.post('/route', asyncFn(args))` where `asyncFn(args)`
-returns a Promise that Express misinterprets as a non-function callback. This is
-detectable statically: if a route handler is not a function literal or identifier
-but a call expression, flag it. Could live in the `local-import` sensor family
-or as a new `express-async-route` cross-ref sensor.
-
 ### ANSI-aware string truncation utility
 
 `formatTable` in the issue-tracker example truncated cells by raw character count,
