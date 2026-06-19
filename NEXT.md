@@ -78,22 +78,6 @@ wording (see candidate below).
 
 ## Candidates
 
-### StagedProposalTooLargeError: raise maxStageWrites or auto-split
-Phase-219 dogfooding: a 6-file task hit the 5-file per-stage limit and wrote 0
-files — hard cliff with no fallback. Either raise `maxStageWrites` to 7–8 (covers
-standard project skeletons: server + db + auth + 3 test files), or include the
-limit in the staged system prompt so the model autonomously splits the first stage
-into ≤5 files and puts remaining files in stage 2.
-
-### npm install auto-run after package.json is applied in staged mode
-Phase-216/219 dogfooding: model kept calling run_command(npm install) across
-multiple stages; all were blocked by the pending-write guard or TEST_RUNNER_RE.
-After stage 1 applied package.json to disk, dependencies were never installed before
-stage 2 ran. Tests then failed with ERR_MODULE_NOT_FOUND. Fix: after a stage applies
-writes and package.json was among the applied files (and no node_modules exists), run
-`npm install --silent` automatically before the next stage starts — same pattern as
-the existing depInstall flow in non-staged runs.
-
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its

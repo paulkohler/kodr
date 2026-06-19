@@ -1849,7 +1849,7 @@ async function runStagedPrompt({
 	runDir,
 	skills,
 }) {
-	const maxStageWrites = 5;
+	const maxStageWrites = 8;
 	const maxExecutionStages = Math.max(
 		1,
 		Math.min(8, Number(options.maxTurns || 8) - 1),
@@ -2089,6 +2089,46 @@ async function runStagedPrompt({
 			responseChars: completion.text.length,
 			writeCount: writeResult.writes.length,
 		});
+
+		// Inter-stage npm install: if this stage applied package.json and
+		// node_modules does not yet exist, install dependencies before the next
+		// stage starts.
+		if (
+			options.installDependencies &&
+			options.yes &&
+			hasDependencyMetadataWrites(writeResult.writes)
+		) {
+			const nodeModulesPath = join(io.cwd, 'node_modules');
+			try {
+				await access(nodeModulesPath);
+				// node_modules already exists — skip
+			} catch {
+				const interInstall = await runDependencyInstall(
+					await verificationCwd(io.cwd, options),
+					{
+						runner: options.installRunner ?? commandRunner,
+						timeoutMs: options.timeoutMs,
+					},
+				);
+				if (!interInstall.ok) {
+					writeError = {
+						message: `Inter-stage dependency install failed: ${interInstall.command}`,
+						name: 'DependencyInstallError',
+					};
+					stageRecords.push({
+						error: writeError,
+						interStageInstall: true,
+						name: `implement-${stageIndex}-install`,
+					});
+					break;
+				}
+				stageRecords.push({
+					interStageInstall: true,
+					name: `implement-${stageIndex}-install`,
+					ok: interInstall.ok,
+				});
+			}
+		}
 	}
 
 	const installResult =

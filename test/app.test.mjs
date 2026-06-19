@@ -2568,7 +2568,7 @@ describe('run', () => {
 			);
 			assert.match(
 				server.recordings[2].requestBody.messages[1].content,
-				/at most 5 total file writes/u,
+				/at most 8 total file writes/u,
 			);
 		} finally {
 			await server.close();
@@ -6918,6 +6918,576 @@ describe('Phase 215 — runStagedPrompt tool-channel draft fallback', () => {
 				summary.writeError?.name,
 				'ProposalMissingError',
 				`expected ProposalMissingError, got: ${summary.writeError?.name}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+// Phase 221 — maxStageWrites raised to 8
+// ---------------------------------------------------------------------------
+
+describe('Phase 221 — runStagedPrompt maxStageWrites boundary', () => {
+	it('staged proposal with exactly 8 file writes succeeds (no StagedProposalTooLargeError)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p221-8files-'));
+
+		// Build a files array of exactly 8 files.
+		const eightFiles = Array.from({ length: 8 }, (_, i) => ({
+			content: `export const f${i} = ${i};\n`,
+			path: `src/f${i}.mjs`,
+		}));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["write 8 files"],"next":"write 8 files"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: 8 file writes — exactly at the limit.
+				{
+					body: proposalResponse({
+						files: eightFiles,
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["write 8 files"],"next":""}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Write 8 files',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p221-8files-out',
+					'--timeout-ms',
+					'5000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p221-8files-out', 'summary.json'), 'utf8'),
+			);
+
+			// 8 files must not trigger StagedProposalTooLargeError.
+			assert.notEqual(
+				summary.writeError?.name,
+				'StagedProposalTooLargeError',
+				`unexpected StagedProposalTooLargeError at 8 files`,
+			);
+			assert.equal(summary.writeCount, 8);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('staged proposal with 9 file writes throws StagedProposalTooLargeError', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p221-9files-'));
+
+		// Build a files array of 9 files — one over the limit.
+		const nineFiles = Array.from({ length: 9 }, (_, i) => ({
+			content: `export const g${i} = ${i};\n`,
+			path: `src/g${i}.mjs`,
+		}));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["write 9 files"],"next":"write 9 files"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: 9 file writes — one over the limit.
+				{
+					body: proposalResponse({
+						files: nineFiles,
+						messages: [{ content: 'All files written.', level: 'info' }],
+						scratchpad: '{"done":["write 9 files"],"next":""}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Write 9 files',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p221-9files-out',
+					'--timeout-ms',
+					'5000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p221-9files-out', 'summary.json'), 'utf8'),
+			);
+
+			// 9 files must trigger StagedProposalTooLargeError.
+			assert.equal(
+				summary.writeError?.name,
+				'StagedProposalTooLargeError',
+				`expected StagedProposalTooLargeError at 9 files, got: ${summary.writeError?.name}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+// Phase 222 — runStagedPrompt inter-stage npm install
+// ---------------------------------------------------------------------------
+
+describe('runStagedPrompt inter-stage npm install (Phase 222)', () => {
+	it('triggers install between stage 1 and stage 2 when package.json applied and node_modules absent', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p222-install-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create package.json","done"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write package.json.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: '{"name":"test-pkg","version":"1.0.0"}\n',
+								path: 'package.json',
+							},
+						],
+						messages: [{ content: 'Wrote package.json.', level: 'info' }],
+						scratchpad: '{"done":["create package.json"],"next":"done"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: STAGED_DONE.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["all"],"next":""}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		const installerCalls = [];
+		try {
+			const options = parseArgs([
+				'run',
+				'-p',
+				'Create package.json',
+				'--staged',
+				'--base-url',
+				server.baseUrl,
+				'--out',
+				'p222-install-out',
+				'--timeout-ms',
+				'10000',
+				'--yes',
+				'--json',
+				'--install',
+			]);
+			// Inject a mock runner so npm is not actually invoked.
+			options.installRunner = async (_cwd, parsed) => {
+				installerCalls.push(`${parsed.bin} ${parsed.args.join(' ')}`);
+				return {
+					exitCode: 0,
+					stderr: '',
+					stdout: 'ok',
+					timedOut: false,
+				};
+			};
+
+			await handleChannelRequest(
+				{ kind: 'run-turn', options },
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p222-install-out', 'summary.json'), 'utf8'),
+			);
+
+			// Must have at least one inter-stage install record.
+			const interStageRecord = summary.staged?.stages?.find(
+				(s) => s.interStageInstall === true,
+			);
+			assert.ok(
+				interStageRecord,
+				`expected an interStageInstall stageRecord, got stages: ${JSON.stringify(summary.staged?.stages)}`,
+			);
+			assert.equal(interStageRecord.ok, true);
+			// The mock installer must have been called.
+			assert.ok(
+				installerCalls.length >= 1,
+				`installRunner must be called at least once, got: ${installerCalls.length}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('skips inter-stage install when node_modules already exists', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p222-skip-nm-'));
+		// Pre-create node_modules so the access() check succeeds.
+		await mkdir(join(cwd, 'node_modules'), { recursive: true });
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["update package.json"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write package.json — but node_modules already exists.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: '{"name":"existing-pkg","version":"2.0.0"}\n',
+								path: 'package.json',
+							},
+						],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["update package.json"],"next":""}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		const installerCalls = [];
+		try {
+			const options = parseArgs([
+				'run',
+				'-p',
+				'Update package.json',
+				'--staged',
+				'--base-url',
+				server.baseUrl,
+				'--out',
+				'p222-skip-nm-out',
+				'--timeout-ms',
+				'10000',
+				'--yes',
+				'--json',
+				'--install',
+			]);
+			options.installRunner = async (_cwd, parsed) => {
+				installerCalls.push(`${parsed.bin} ${parsed.args.join(' ')}`);
+				return { exitCode: 0, stderr: '', stdout: 'ok', timedOut: false };
+			};
+
+			await handleChannelRequest(
+				{ kind: 'run-turn', options },
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p222-skip-nm-out', 'summary.json'), 'utf8'),
+			);
+
+			// No inter-stage install record must appear.
+			const interStageRecord = summary.staged?.stages?.find(
+				(s) => s.interStageInstall === true,
+			);
+			assert.ok(
+				!interStageRecord,
+				`expected no interStageInstall record when node_modules exists, got: ${JSON.stringify(interStageRecord)}`,
+			);
+			// options.installRunner is only used by the inter-stage path
+			// (runner: options.installRunner ?? commandRunner). The final-stage
+			// install uses runner: commandRunner directly and does not go through
+			// options.installRunner, so installerCalls tracks inter-stage calls only.
+			assert.equal(
+				installerCalls.length,
+				0,
+				`inter-stage installRunner must not be called when node_modules already exists`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('skips inter-stage install when stage applies only non-package.json files', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p222-no-pkg-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/index.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write src/index.mjs only — no package.json.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const x = 1;\n',
+								path: 'src/index.mjs',
+							},
+						],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["create src/index.mjs"],"next":""}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		const installerCalls = [];
+		try {
+			const options = parseArgs([
+				'run',
+				'-p',
+				'Create src/index.mjs',
+				'--staged',
+				'--base-url',
+				server.baseUrl,
+				'--out',
+				'p222-no-pkg-out',
+				'--timeout-ms',
+				'10000',
+				'--yes',
+				'--json',
+				'--install',
+			]);
+			options.installRunner = async (_cwd, parsed) => {
+				installerCalls.push(`${parsed.bin} ${parsed.args.join(' ')}`);
+				return { exitCode: 0, stderr: '', stdout: 'ok', timedOut: false };
+			};
+
+			await handleChannelRequest(
+				{ kind: 'run-turn', options },
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p222-no-pkg-out', 'summary.json'), 'utf8'),
+			);
+
+			// No inter-stage install record must appear.
+			const interStageRecord = summary.staged?.stages?.find(
+				(s) => s.interStageInstall === true,
+			);
+			assert.ok(
+				!interStageRecord,
+				`expected no interStageInstall when only non-package.json files applied, got: ${JSON.stringify(interStageRecord)}`,
+			);
+			// options.installRunner is only used by the inter-stage path. No
+			// package.json was in the stage writes, so hasDependencyMetadataWrites
+			// returns false and the inter-stage block is skipped entirely. The
+			// final-stage install uses runner: commandRunner directly, not
+			// options.installRunner, so installerCalls stays empty.
+			assert.equal(
+				installerCalls.length,
+				0,
+				`inter-stage installRunner must not be called when no package.json in writes, got ${installerCalls.length} calls`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('sets writeError and breaks stage loop on install failure', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p222-fail-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create package.json","then more work"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write package.json — install will fail.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: '{"name":"fail-pkg","version":"1.0.0"}\n',
+								path: 'package.json',
+							},
+						],
+						messages: [{ content: 'Wrote package.json.', level: 'info' }],
+						scratchpad: '{"done":["create package.json"],"next":"more work"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: should never be reached (loop breaks on install failure).
+				{
+					body: proposalResponse({
+						files: [{ content: 'export const y = 2;\n', path: 'src/y.mjs' }],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["more work"],"next":""}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const options = parseArgs([
+				'run',
+				'-p',
+				'Create package.json',
+				'--staged',
+				'--base-url',
+				server.baseUrl,
+				'--out',
+				'p222-fail-out',
+				'--timeout-ms',
+				'10000',
+				'--yes',
+				'--json',
+				'--install',
+			]);
+			// Inject a failing runner.
+			options.installRunner = async (_cwd, _parsed) => ({
+				exitCode: 1,
+				stderr: 'npm error: install failed',
+				stdout: '',
+				timedOut: false,
+			});
+
+			await handleChannelRequest(
+				{ kind: 'run-turn', options },
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p222-fail-out', 'summary.json'), 'utf8'),
+			);
+
+			// writeError must be set with DependencyInstallError.
+			assert.equal(
+				summary.writeError?.name,
+				'DependencyInstallError',
+				`expected DependencyInstallError, got: ${summary.writeError?.name}`,
+			);
+			assert.match(
+				summary.writeError?.message ?? '',
+				/Inter-stage dependency install failed/u,
+			);
+			// The inter-stage install stageRecord with error must exist.
+			const failRecord = summary.staged?.stages?.find(
+				(s) => s.interStageInstall === true && s.error,
+			);
+			assert.ok(
+				failRecord,
+				`expected interStageInstall error record, got stages: ${JSON.stringify(summary.staged?.stages)}`,
+			);
+			// Stage 2 must NOT have been reached — server recorded only 2 requests
+			// (plan + stage 1). Stage 2 response was never fetched.
+			const requestCount = server.recordings.length;
+			assert.ok(
+				requestCount <= 2,
+				`stage loop must break after install failure, got ${requestCount} requests`,
 			);
 		} finally {
 			await server.close();
