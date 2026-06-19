@@ -141,4 +141,4 @@ Add a `Phase 223 — StagedProposalTooLargeError path dedup` suite with 2 tests:
 - [x] Blog post exists.
 - [x] NEXT.md candidates removed (FIFO).
 - [x] Roadmap entry marked done.
-- [ ] Commit made.
+- [x] Commit made.
