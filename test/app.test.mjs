@@ -7057,6 +7057,19 @@ describe('runStagedPrompt zero-new-write auto-advance (Phase 224)', () => {
 				true,
 				'implement-3 must have implicitDone:true',
 			);
+			// The double-steer path must complete: staged.done must be true so the
+			// post-loop StagedIncompleteError synthesis stays gated.
+			assert.equal(
+				summary.staged?.done,
+				true,
+				'staged.done must be true for double-steer implicit completion',
+			);
+			// Neither steered stage may overwrite the file: src/a.mjs keeps stage-1 content.
+			assert.equal(
+				await readFile(join(cwd, 'src', 'a.mjs'), 'utf8'),
+				'export const a = 1;\n',
+				'src/a.mjs must keep the stage-1 content (steered overwrites never apply)',
+			);
 		} finally {
 			await server.close();
 		}
