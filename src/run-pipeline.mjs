@@ -2017,7 +2017,8 @@ async function runStagedPrompt({
 					done,
 					implicitDone: true,
 					name: `implement-${stageIndex}`,
-					paths,
+					appliedPaths: [],
+					proposedPaths: paths,
 					responseChars: completion.text.length,
 				});
 				break;
@@ -2026,7 +2027,8 @@ async function runStagedPrompt({
 				done,
 				name: `implement-${stageIndex}`,
 				noProgress: !done,
-				paths,
+				appliedPaths: [],
+				proposedPaths: paths,
 				responseChars: completion.text.length,
 			});
 			if (done) {
@@ -2060,7 +2062,8 @@ async function runStagedPrompt({
 						done,
 						implicitDone: true,
 						name: `implement-${stageIndex}`,
-						paths,
+						appliedPaths: [],
+						proposedPaths: paths,
 						responseChars: completion.text.length,
 					});
 					break;
@@ -2090,7 +2093,8 @@ async function runStagedPrompt({
 				stageRecords.push({
 					name: `implement-${stageIndex}`,
 					safeWriteSteer: true,
-					paths,
+					appliedPaths: [],
+					proposedPaths: paths,
 					responseChars: completion.text.length,
 				});
 				continue;
@@ -2102,10 +2106,48 @@ async function runStagedPrompt({
 			stageRecords.push({
 				error: writeError,
 				name: `implement-${stageIndex}`,
-				paths,
+				proposedPaths: paths,
 				responseChars: completion.text.length,
 			});
 			break;
+		}
+
+		// Phase 225: branch on applied write count.
+		// Zero-applied-write stage: proposal claimed paths but prepareChanges produced
+		// no writes (e.g. no-op edit_file patches whose search strings no longer match).
+		// This is a no-progress event — increment noProgressTurns and, after N=2
+		// consecutive such stages gated on allWrites.length > 0, auto-complete
+		// (implicitDone) instead of grinding to StagedIncompleteError.
+		if (writeResult.writes.length === 0) {
+			if (!done && allWrites.length > 0 && noProgressTurns + 1 >= 2) {
+				done = true;
+				stageRecords.push({
+					done,
+					implicitDone: true,
+					name: `implement-${stageIndex}`,
+					appliedPaths: [],
+					proposedPaths: paths,
+					writeCount: 0,
+					responseChars: completion.text.length,
+				});
+				break;
+			}
+			noProgressTurns += 1;
+			stageRecords.push({
+				name: `implement-${stageIndex}`,
+				noProgress: true,
+				appliedPaths: [],
+				proposedPaths: paths,
+				writeCount: 0,
+				responseChars: completion.text.length,
+			});
+			scratchpad = [
+				scratchpad,
+				`No-progress feedback: implementation stage ${stageIndex} made no file changes. Correct that now by returning 1-${maxStageWrites} files or patches.`,
+			]
+				.filter(Boolean)
+				.join('\n\n');
+			continue;
 		}
 
 		allWrites.push(...writeResult.writes);
@@ -2120,7 +2162,8 @@ async function runStagedPrompt({
 		stageRecords.push({
 			applied: writeResult.applied,
 			name: `implement-${stageIndex}`,
-			paths,
+			appliedPaths,
+			proposedPaths: paths,
 			responseChars: completion.text.length,
 			writeCount: writeResult.writes.length,
 		});

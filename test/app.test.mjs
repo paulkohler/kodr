@@ -7296,6 +7296,570 @@ describe('runStagedPrompt zero-new-write auto-advance (Phase 224)', () => {
 	});
 });
 
+// Phase 225 — runStagedPrompt zero-applied-write auto-advance
+// ---------------------------------------------------------------------------
+
+describe('runStagedPrompt zero-applied-write auto-advance (Phase 225)', () => {
+	it('two consecutive no-op patch stages auto-complete (N=2)', async () => {
+		// Plan; stage 1 writes new src/notes.mjs via files[].
+		// Stages 2 and 3 emit patches[] for src/notes.mjs with a search string
+		// that is absent from the file (zero applied writes each).
+		// After streak=2, harness triggers implicitDone.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p225-two-noop-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/notes.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write new file — applies.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const notes = [];\n',
+								path: 'src/notes.mjs',
+							},
+						],
+						messages: [{ content: 'Wrote notes.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/notes.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: no-op patch (search string absent) — zero applied writes.
+				{
+					body: proposalResponse({
+						patches: [
+							{
+								path: 'src/notes.mjs',
+								replace:
+									'export const notes = [];\nexport const VERSION = 1;\n',
+								search: 'DOES_NOT_EXIST_IN_FILE',
+							},
+						],
+						messages: [{ content: 'Patch notes.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/notes.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 3: another no-op patch — streak hits 2 → implicitDone.
+				{
+					body: proposalResponse({
+						patches: [
+							{
+								path: 'src/notes.mjs',
+								replace:
+									'export const notes = [];\nexport const READY = true;\n',
+								search: 'ALSO_DOES_NOT_EXIST',
+							},
+						],
+						messages: [{ content: 'Another patch.', level: 'info' }],
+						scratchpad: '{"done":["src/notes.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Create src/notes.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p225-two-noop-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p225-two-noop-out', 'summary.json'), 'utf8'),
+			);
+
+			// No StagedIncompleteError.
+			assert.ok(
+				!summary.writeError ||
+					summary.writeError?.name !== 'StagedIncompleteError',
+				`Should not produce StagedIncompleteError, got: ${summary.writeError?.name}`,
+			);
+			// staged.done must be true.
+			assert.equal(summary.staged?.done, true, 'staged.done must be true');
+			// implement-3 must carry implicitDone:true with zero applied.
+			const stage3 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-3',
+			);
+			assert.ok(stage3, 'implement-3 stage record must exist');
+			assert.equal(
+				stage3.implicitDone,
+				true,
+				'implement-3 must have implicitDone:true',
+			);
+			assert.equal(stage3.writeCount, 0, 'implement-3 writeCount must be 0');
+			assert.deepEqual(
+				stage3.appliedPaths,
+				[],
+				'implement-3 appliedPaths must be []',
+			);
+			assert.deepEqual(
+				stage3.proposedPaths,
+				['src/notes.mjs'],
+				'implement-3 proposedPaths must be [src/notes.mjs]',
+			);
+			// Loop must not have reached the cap.
+			const stageCount = summary.staged?.stages?.length ?? 0;
+			assert.ok(
+				stageCount < (summary.staged?.maxExecutionStages ?? 8) + 1,
+				`stages count (${stageCount}) should be below the cap`,
+			);
+			// Stage-1 content must be on disk.
+			const content = await readFile(join(cwd, 'src', 'notes.mjs'), 'utf8');
+			assert.equal(
+				content,
+				'export const notes = [];\n',
+				'src/notes.mjs must keep stage-1 content',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('single no-op stage gets the nudge, does NOT auto-complete', async () => {
+		// Plan; stage 1 writes src/a.mjs; stage 2 emits a no-op patch (streak=1,
+		// nudge fires); stage 3 writes new src/b.mjs (resets noProgressTurns);
+		// stage 4 emits STAGED_DONE to exit cleanly.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p225-one-noop-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["src/a.mjs","src/b.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write src/a.mjs.
+				{
+					body: proposalResponse({
+						files: [{ content: 'export const a = 1;\n', path: 'src/a.mjs' }],
+						messages: [{ content: 'Wrote a.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/a.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: no-op patch (streak=1) — nudge fires, no implicitDone.
+				{
+					body: proposalResponse({
+						patches: [
+							{
+								path: 'src/a.mjs',
+								replace: 'export const a = 99;\n',
+								search: 'MISSING_STRING',
+							},
+						],
+						messages: [{ content: 'Try to patch a.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/a.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 3: write new src/b.mjs — resets noProgressTurns.
+				{
+					body: proposalResponse({
+						files: [{ content: 'export const b = 2;\n', path: 'src/b.mjs' }],
+						messages: [{ content: 'Wrote b.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/a.mjs","src/b.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 4: STAGED_DONE to exit cleanly.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["all"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Create src/a.mjs and src/b.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p225-one-noop-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p225-one-noop-out', 'summary.json'), 'utf8'),
+			);
+
+			// implement-2 must be noProgress:true, no implicitDone.
+			const stage2 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-2',
+			);
+			assert.ok(stage2, 'implement-2 stage record must exist');
+			assert.equal(
+				stage2.noProgress,
+				true,
+				'implement-2 must have noProgress:true',
+			);
+			assert.equal(stage2.writeCount, 0, 'implement-2 writeCount must be 0');
+			assert.ok(!stage2.implicitDone, 'implement-2 must NOT have implicitDone');
+			// Stage 3 request body must contain the corrective nudge text.
+			const stage3Request = server.recordings.find((r) =>
+				(r.requestBody?.messages ?? []).some(
+					(m) =>
+						typeof m.content === 'string' &&
+						m.content.includes('No-progress feedback'),
+				),
+			);
+			assert.ok(
+				stage3Request,
+				'stage 3 prompt must contain No-progress feedback nudge',
+			);
+			// src/b.mjs must exist (stage 3 applied).
+			const bContent = await readFile(join(cwd, 'src', 'b.mjs'), 'utf8');
+			assert.equal(bContent, 'export const b = 2;\n', 'src/b.mjs must exist');
+			// No StagedIncompleteError.
+			assert.ok(
+				!summary.writeError ||
+					summary.writeError?.name !== 'StagedIncompleteError',
+				`Should not produce StagedIncompleteError, got: ${summary.writeError?.name}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('no-op patches with NO prior real write do not false-complete', async () => {
+		// Plan; stages 1 and 2 both emit no-op patches on a pre-created file.
+		// allWrites.length === 0 throughout, so the gate never fires.
+		// Expected: staged.done === false; StagedIncompleteError.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p225-no-prior-'));
+		// Pre-create the file so the patch proposal finds a target but can't match.
+		await mkdir(join(cwd, 'src'), { recursive: true });
+		await writeFile(join(cwd, 'src', 'preexist.mjs'), 'export const x = 0;\n');
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["patch src/preexist.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: no-op patch (allWrites empty — gate blocked).
+				{
+					body: proposalResponse({
+						patches: [
+							{
+								path: 'src/preexist.mjs',
+								replace: 'export const x = 1;\n',
+								search: 'MISSING_FROM_FILE',
+							},
+						],
+						messages: [{ content: 'Patch preexist.', level: 'info' }],
+						scratchpad: '{"done":[]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: another no-op patch — streak=2 but gate still blocked.
+				{
+					body: proposalResponse({
+						patches: [
+							{
+								path: 'src/preexist.mjs',
+								replace: 'export const x = 2;\n',
+								search: 'ALSO_MISSING',
+							},
+						],
+						messages: [{ content: 'Another patch.', level: 'info' }],
+						scratchpad: '{"done":[]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stages 3-7: also no-op patches to exhaust the budget without STAGED_DONE.
+				...Array.from({ length: 6 }, (_, i) => ({
+					body: proposalResponse({
+						patches: [
+							{
+								path: 'src/preexist.mjs',
+								replace: `export const x = ${i + 3};\n`,
+								search: `NO_MATCH_${i}`,
+							},
+						],
+						messages: [{ content: `Stage ${i + 3}.`, level: 'info' }],
+						scratchpad: '{"done":[]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				})),
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Patch src/preexist.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p225-no-prior-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p225-no-prior-out', 'summary.json'), 'utf8'),
+			);
+
+			// staged.done must be false — allWrites gate blocked implicitDone.
+			assert.equal(summary.staged?.done, false, 'staged.done must be false');
+			// No implicitDone in any stage record.
+			const hasImplicit = (summary.staged?.stages ?? []).some(
+				(s) => s.implicitDone,
+			);
+			assert.ok(
+				!hasImplicit,
+				'No stage should have implicitDone when no prior real writes',
+			);
+			// Falls to StagedIncompleteError.
+			assert.equal(
+				summary.writeError?.name,
+				'StagedIncompleteError',
+				`expected StagedIncompleteError, got: ${summary.writeError?.name}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('phase-224 regression: steer arm still auto-completes (proposedPaths/appliedPaths rename)', async () => {
+		// Stage 1 writes new src/answer.mjs; stage 2 re-writes via files[] →
+		// SafeWriteError → safeWriteSteer; stage 3 zero proposed paths, no STAGED_DONE
+		// → phase-224 implicitDone. Also verifies the renamed forensics fields.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p225-regression-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write new file — applies.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const answer = 42;\n',
+								path: 'src/answer.mjs',
+							},
+						],
+						messages: [{ content: 'Wrote answer.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: re-writes via files[] → SafeWriteError → steer.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const answer = 99;\n',
+								path: 'src/answer.mjs',
+							},
+						],
+						messages: [{ content: 'Update answer.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 3: zero files, no STAGED_DONE → phase-224 implicitDone.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'All looks good.', level: 'info' }],
+						scratchpad: '{"done":["src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Create src/answer.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p225-regression-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(
+					join(cwd, 'p225-regression-out', 'summary.json'),
+					'utf8',
+				),
+			);
+
+			// No StagedIncompleteError.
+			assert.ok(
+				!summary.writeError ||
+					summary.writeError?.name !== 'StagedIncompleteError',
+				`Should not produce StagedIncompleteError, got: ${summary.writeError?.name}`,
+			);
+			// staged.done must be true.
+			assert.equal(summary.staged?.done, true, 'staged.done must be true');
+			// implement-2 must carry safeWriteSteer:true + forensics fields.
+			const stage2 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-2',
+			);
+			assert.ok(stage2, 'implement-2 stage record must exist');
+			assert.equal(
+				stage2.safeWriteSteer,
+				true,
+				'implement-2 must have safeWriteSteer:true',
+			);
+			assert.deepEqual(
+				stage2.appliedPaths,
+				[],
+				'implement-2 appliedPaths must be []',
+			);
+			assert.deepEqual(
+				stage2.proposedPaths,
+				['src/answer.mjs'],
+				'implement-2 proposedPaths must be [src/answer.mjs]',
+			);
+			// implement-3 must carry implicitDone:true.
+			const stage3 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-3',
+			);
+			assert.ok(stage3, 'implement-3 stage record must exist');
+			assert.equal(
+				stage3.implicitDone,
+				true,
+				'implement-3 must have implicitDone:true',
+			);
+			// src/answer.mjs must contain stage-1 content.
+			const content = await readFile(join(cwd, 'src', 'answer.mjs'), 'utf8');
+			assert.equal(
+				content,
+				'export const answer = 42;\n',
+				'src/answer.mjs must keep stage-1 content',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
 // Phase 215 — runStagedPrompt draft fallback
 // ---------------------------------------------------------------------------
 

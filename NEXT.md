@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 224)
+## Current frontier (phase 225)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -17,36 +17,15 @@ Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
 The live work is the **staged execution pipeline** (`runStagedPrompt`). Phases
-213–224 chipped at it for local thinking models (qwen3.6): pending-write
+213–225 chipped at it for local thinking models (qwen3.6): pending-write
 `run_command` guards, W3 draft fallback, `SafeWriteError` steering with
 `clearFiles`, raised `maxStageWrites` (8) with unique-path dedup, inter-stage
-`npm install`, `lang:node` skill pitfalls, and the phase-224 `safeWriteSteered`
-flag that terminates the loop after a `files[]`-vs-existing steer. Phase-224
-dogfooding showed the budget-exhaustion problem is only *partly* closed: a
-sibling stall — consecutive stages that apply *zero* writes (no-op `edit_file`
-patches on already-correct files, so no `SafeWriteError` and no empty proposal)
-— still grinds to the stage budget. See the top candidate below.
+`npm install`, `lang:node` skill pitfalls, the phase-224 `safeWriteSteered` flag,
+and the phase-225 zero-applied-write auto-advance that generalizes phase-224 to
+cover no-op `edit_file` patches (where no `SafeWriteError` fires but the proposal
+still claims paths and `writeResult.writes` is empty).
 
 ## Candidates
-
-### Stage auto-advance on zero *applied* writes (no-op patch stall)
-Phase-224 dogfooding (Express+SQLite notes API, qwen3.6): the model wrote all
-four files in stage 1, fixed two real bugs with `edit_file` patches in stage 2,
-then in stages 3–7 re-read the files, judged them correct, and looped on rejected
-`run_command` calls. Each of those stages recorded `applied:true` but
-`writeCount:0` (no-op patches / no matching edits). Phase-224's arm only fires on
-`safeWriteSteered` (a `files[]`-vs-existing `SafeWriteError`), and the
-`paths.length===0` no-progress branch never fired because the proposal still
-*claimed* paths. So the loop ground to the 7-stage budget — ending `ok:true` only
-because the tests happened to pass, with `staged.done:false`.
-Fix: key no-progress on *applied* writes (`writeResult.writes.length === 0`), not
-on proposed `paths.length`. Increment `noProgressTurns` on a zero-applied-write
-stage, and after N consecutive such stages (with real writes applied earlier in
-the run) auto-complete — the same mechanical break as phase 224, generalized to
-the no-op-patch pattern. Secondary: the stage record's `paths` field shows
-*proposed* paths on zero-write stages, which is misleading in forensics — record
-applied paths, or add a separate `appliedPaths`/`writeCount`-only view. This is
-the direct continuation of phase 224 and the strongest next step.
 
 ### Staged completion: synthetic user turn instead of embedded tool hint
 Phase-223 dogfooding: embedding STAGED_DONE JSON in a tool-error message does not
