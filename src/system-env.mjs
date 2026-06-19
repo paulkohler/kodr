@@ -118,15 +118,25 @@ export function renderBehavioursBlock() {
  * The builtin body carries a trailing newline; `.trim()` makes the rendered
  * block byte-identical to the phase-121 hardcoded block (prefix stability).
  *
- * @param {{ isNodeEsm?: boolean, guidance?: string }} [facts]
+ * @param {{ language?: string, isNodeEsm?: boolean, guidance?: string }} [facts]
  * @returns {string}
  */
 export function renderLanguageGuidanceBlock(facts) {
-	if (!facts?.isNodeEsm) return '';
+	// Accept { language } (new) or { isNodeEsm } (legacy) — both resolve to a language tag.
+	const language = facts?.language ?? (facts?.isNodeEsm ? 'node' : null);
+	if (!language) return '';
+	let builtinBody = '';
+	if (!(typeof facts.guidance === 'string' && facts.guidance.trim())) {
+		try {
+			builtinBody = getBuiltinSkill(`lang:${language}`).body;
+		} catch {
+			return ''; // no builtin for this language
+		}
+	}
 	const guidance =
 		typeof facts.guidance === 'string' && facts.guidance.trim()
 			? facts.guidance
-			: getBuiltinSkill('lang:node').body;
+			: builtinBody;
 	return guidance.trim();
 }
 

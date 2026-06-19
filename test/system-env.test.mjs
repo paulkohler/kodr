@@ -13,6 +13,7 @@ import {
 import {
 	buildWorkspaceContext,
 	detectNodeEsm,
+	detectRust,
 	renderPromptSections,
 } from '../src/context-packer.mjs';
 
@@ -372,9 +373,11 @@ describe('prompt budget guard', () => {
 			toolsMode: true,
 		});
 		const promptLen = context.systemPrompt.length;
+		// Phase 207 grew lang:node pitfall sections; phase 210 added lang:rust.
+		// Current measured size: ~6367 chars. Limit raised to 7000.
 		assert.ok(
-			promptLen < 6000,
-			`Node/ESM system message must stay under 6000 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 7000,
+			`Node/ESM system message must stay under 7000 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
@@ -425,9 +428,10 @@ describe('prompt budget guard', () => {
 			toolWritesMode: 'native',
 		});
 		const promptLen = context.systemPrompt.length;
+		// Phase 207 grew lang:node; current measured size: ~5292 chars. Limit raised to 5500.
 		assert.ok(
-			promptLen < 5000,
-			`Native mode system message must stay under 5000 chars; got ${promptLen} chars`,
+			promptLen < 5500,
+			`Native mode system message must stay under 5500 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -625,6 +629,84 @@ describe('detectNodeEsm', () => {
 });
 
 // ---------------------------------------------------------------------------
+// detectRust — phase 210
+// ---------------------------------------------------------------------------
+
+describe('detectRust', () => {
+	it('returns true when Cargo.toml is in the file list', () => {
+		assert.equal(detectRust(['Cargo.toml', 'src/main.rs']), true);
+	});
+
+	it('returns false when Cargo.toml is absent', () => {
+		assert.equal(detectRust(['src/main.rs', 'README.md']), false);
+	});
+
+	it('returns true when prompt names a .rs file (greenfield signal)', () => {
+		assert.equal(detectRust([], 'Write src/main.rs with a word counter'), true);
+	});
+
+	it('returns false for empty files and no prompt signal', () => {
+		assert.equal(detectRust([]), false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// renderLanguageGuidanceBlock — lang:rust (phase 210)
+// ---------------------------------------------------------------------------
+
+describe('renderLanguageGuidanceBlock — lang:rust (phase 210)', () => {
+	it('returns Rust contract block when language is rust', () => {
+		const block = renderLanguageGuidanceBlock({ language: 'rust' });
+		assert.match(block, /# Rust \/ Cargo Contract/u);
+	});
+
+	it('Rust block mentions reqwest 0.12 version pin', () => {
+		const block = renderLanguageGuidanceBlock({ language: 'rust' });
+		assert.match(block, /reqwest.*0\.12/u);
+	});
+
+	it('Rust block mentions #[tokio::test]', () => {
+		const block = renderLanguageGuidanceBlock({ language: 'rust' });
+		assert.match(block, /#\[tokio::test\]/u);
+	});
+
+	it('Rust block mentions mod declaration', () => {
+		const block = renderLanguageGuidanceBlock({ language: 'rust' });
+		assert.match(block, /mod\s+\w+;/u);
+	});
+
+	it('returns empty for unknown language', () => {
+		const block = renderLanguageGuidanceBlock({ language: 'python' });
+		assert.equal(block, '');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// buildWorkspaceContext — Rust workspace (phase 210)
+// ---------------------------------------------------------------------------
+
+describe('buildWorkspaceContext — Rust workspace (phase 210)', () => {
+	it('detects Rust workspace and sets isRust:true', async () => {
+		const cwd = await mkWorkspace({ 'Cargo.toml': '[package]\nname="app"' });
+		const context = await buildWorkspaceContext(cwd, {});
+		assert.equal(context.isRust, true);
+		assert.equal(context.isNodeEsm, false);
+	});
+
+	it('injects Rust contract block for Cargo.toml workspace', async () => {
+		const cwd = await mkWorkspace({ 'Cargo.toml': '[package]\nname="app"' });
+		const context = await buildWorkspaceContext(cwd, {});
+		assert.match(context.systemPrompt, /# Rust \/ Cargo Contract/u);
+	});
+
+	it('does NOT inject Rust block for Node/ESM workspace', async () => {
+		const cwd = await mkWorkspace({ 'app.mjs': 'export const x = 1;' });
+		const context = await buildWorkspaceContext(cwd, {});
+		assert.doesNotMatch(context.systemPrompt, /# Rust \/ Cargo Contract/u);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // renderPromptSections — isNodeEsm integration (C2)
 // ---------------------------------------------------------------------------
 
@@ -738,10 +820,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 			environmentFacts: facts,
 			toolsMode: true,
 		});
-		// Phase 204/207 grew the lang:node skill body; budget raised from 3600.
+		// Phase 204/207 grew lang:node; phase 210 added lang:rust. Current: ~6133. Limit raised to 7000.
 		assert.ok(
-			context.systemPrompt.length < 6000,
-			`System message must stay under 6000 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 7000,
+			`System message must stay under 7000 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });

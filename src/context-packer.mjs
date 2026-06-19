@@ -59,12 +59,20 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			? options.isNodeEsm
 			: await detectNodeEsm(cwd, files, options.taskPrompt || '');
 	const isNodeEsm = options.suppressLanguageGuidance ? false : detectedNodeEsm;
-	// C3 (phase 122): resolve the Node/ESM guidance once per session. A discovered
-	// `lang:node` skill (any tier) shadows the builtin; otherwise the builtin body
+	// Phase 210: detect Rust workspace (Cargo.toml or .rs prompt signal). Node takes
+	// priority — a workspace can't be both. suppressLanguageGuidance also suppresses Rust.
+	const detectedRust =
+		options.isRust !== undefined
+			? options.isRust
+			: !detectedNodeEsm && detectRust(files, options.taskPrompt || '');
+	const isRust = options.suppressLanguageGuidance ? false : detectedRust;
+	// C3 (phase 122): resolve language guidance once per session. A discovered
+	// `lang:<language>` skill (any tier) shadows the builtin; otherwise the builtin body
 	// is used downstream. Result is deterministic per workspace → stable prefix.
+	const detectedLanguage = isNodeEsm ? 'node' : isRust ? 'rust' : null;
 	const languageGuidance = await resolveLanguageGuidance(
 		cwd,
-		isNodeEsm,
+		detectedLanguage,
 		options,
 	);
 	// Phase 143: model-family guidance — fires when model matches a known family.
@@ -103,6 +111,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			fileMap,
 			files: [],
 			isNodeEsm,
+			isRust,
 			languageGuidance,
 			memory,
 			modelGuidance,
@@ -153,6 +162,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			files: packedFiles,
 			inspection,
 			isNodeEsm,
+			isRust,
 			languageGuidance,
 			memory,
 			modelGuidance,
@@ -220,6 +230,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		environmentFacts,
 		files: packedFiles,
 		isNodeEsm,
+		isRust,
 		languageGuidance,
 		memory,
 		modelGuidance,
@@ -306,21 +317,30 @@ export async function detectNodeEsm(cwd, files, taskPrompt = '') {
  * body. Discovery is dynamically imported to avoid a static import cycle
  * (skills.mjs already imports from this module).
  */
-async function resolveLanguageGuidance(cwd, isNodeEsm, options = {}) {
-	if (!isNodeEsm) return null;
+async function resolveLanguageGuidance(cwd, language, options = {}) {
+	if (!language) return null;
+	const skillName = `lang:${language}`;
 	try {
 		const { discoverSkills } = await import('./skills.mjs');
 		const skills = await discoverSkills(cwd, {
 			skillsDirs: options.skillsDirs || [],
 		});
-		const override = skills.find((skill) => skill.name === 'lang:node');
+		const override = skills.find((skill) => skill.name === skillName);
 		if (override?.body?.trim()) {
-			return { guidance: override.body, language: 'node', source: 'override' };
+			return { guidance: override.body, language, source: 'override' };
 		}
 	} catch {
 		// Discovery failure must not break prompt assembly — fall back to builtin.
 	}
-	return { guidance: undefined, language: 'node', source: 'builtin' };
+	return { guidance: undefined, language, source: 'builtin' };
+}
+
+// Phase 210: detect Rust workspace. Cargo.toml presence is the primary signal;
+// a .rs file named in the task prompt catches greenfield runs.
+export function detectRust(files, taskPrompt = '') {
+	if (files.includes('Cargo.toml')) return true;
+	if (typeof taskPrompt === 'string' && /\.rs\b/u.test(taskPrompt)) return true;
+	return false;
 }
 
 // Phase 143: map model ID to a family name. Returns null for unknown models.
@@ -468,7 +488,7 @@ export function renderPromptSections(context = {}) {
 	};
 	return {
 		// stable: identity + envelope + behaviours + tools (tools only when toolsMode)
-		// + language guidance for Node/ESM workspaces (C2, phase 121)
+		// + language guidance for Node/ESM or Rust workspaces (C2, phase 121; phase 210)
 		// + model guidance for known model families (phase 143).
 		stable: renderStableSection(
 			context?.editFormat,
@@ -477,6 +497,7 @@ export function renderPromptSections(context = {}) {
 			context?.isNodeEsm ?? false,
 			context?.languageGuidance?.guidance,
 			context?.modelGuidance?.guidance,
+			context?.languageGuidance?.language,
 		),
 		// environment: session-stable facts (cwd, git, node, model, date)
 		environment: context?.environmentFacts
@@ -659,6 +680,7 @@ export function renderKodrCorePrompt(context = {}, options = {}) {
 // wording (phase 119 D1) and the tools block wording (phase 118).
 // isNodeEsm (C2, phase 121): adds the ESM contract block when true. Non-Node
 // workspaces receive an identical prompt to phase 120 (byte-stable regression).
+// language (phase 210): explicit language tag ('node'|'rust'); shadows isNodeEsm.
 function renderStableSection(
 	editFormat = 'patch',
 	toolsMode = false,
@@ -666,6 +688,7 @@ function renderStableSection(
 	isNodeEsm = false,
 	languageGuidance = undefined,
 	modelGuidanceBody = undefined,
+	language = undefined,
 ) {
 	const parts = [
 		renderKodrBaseContract(editFormat, toolWritesMode),
@@ -676,7 +699,7 @@ function renderStableSection(
 	}
 	const langBlock = renderLanguageGuidanceBlock({
 		guidance: languageGuidance,
-		isNodeEsm,
+		language: language ?? (isNodeEsm ? 'node' : null),
 	});
 	if (langBlock) {
 		parts.push(langBlock);

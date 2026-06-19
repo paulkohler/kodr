@@ -9,6 +9,15 @@
 		"resources": []
 	},
 	{
+		"body": "# Rust / Cargo Contract\n\n## Cargo.toml dependency pins\n\nAlways pin reqwest to `\"0.12\"`, not `\"0.11\"`. The two majors are API-incompatible: 0.11 uses hyper 0.14, 0.12 uses hyper 1.x. Mixing them in a workspace causes `reqwest::Client` type conflicts at crate boundaries that the compiler rejects. Use this exact block:\n\n```toml\n[dependencies]\ntokio = { version = \"1\", features = [\"full\"] }\nreqwest = { version = \"0.12\", features = [\"json\"] }\nserde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n```\n\n- `reqwest` requires `features = [\"json\"]` to call `.json::<T>().await` on responses.\n- `serde` requires `features = [\"derive\"]` to use `#[derive(Deserialize, Serialize)]`.\n- If you suspect a duplicate-version conflict, run `cargo tree -d` to surface it.\n\n## Async tests\n\nTests that call `.await` must use `#[tokio::test]`, not plain `#[test]`:\n\n```rust\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[tokio::test]\n    async fn test_fetch() {\n        let client = reqwest::Client::new();\n        let result = fetch_something(&client).await;\n        assert!(result.is_ok());\n    }\n}\n```\n\nPlain `#[test]` does not provide a Tokio runtime; calling `.await` inside it panics at runtime.\n\n## Module layout\n\nDeclare submodules with `mod name;` in `main.rs` or `lib.rs` — not with a `use` statement alone:\n\n```rust\n// src/main.rs\nmod api;   // declares src/api.rs as a module\n\nuse api::fetch_post;  // then import from it\n```\n\nBring parent-scope items into test modules with `use super::*`:\n\n```rust\n#[cfg(test)]\nmod tests {\n    use super::*;\n    // helpers and structs from the parent module are now in scope\n}\n```\n",
+		"builtin": true,
+		"commands": [],
+		"description": "Rust / Cargo coding contract — dependency version pins and async patterns local models most often get wrong",
+		"name": "lang:rust",
+		"path": "builtin/languages/rust/SKILL.md",
+		"resources": []
+	},
+	{
 		"body": "# Devstral Contract\n- Private class fields: declare `#field;` or `#field = value;` at the top of the class body before referencing `this.#field` in any method.\n- ESM only: `import`/`export`; never `require` or `module.exports`.\n- Tests: `import { test } from 'node:test'` and `node:assert` — never `t.assert()`.\n",
 		"builtin": true,
 		"commands": [],

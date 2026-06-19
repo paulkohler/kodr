@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 209): `kodr check` is a comprehensive standalone
+Current frontier (phase 210): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
 `--fix`, and a path argument. Six cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
@@ -33,7 +33,12 @@ start. Eliminates `test.txt`/`files/test.txt` from code examples and bare
 module names mid-sentence. Phase 209 wired `inspectContext = false` to
 `wireNoStream` in `applyModelProfileDefaults` — thinking-model runs now
 disable inspection context automatically unless `--inspect-context` is
-explicitly passed.
+explicitly passed. Phase 210 added a `lang:rust` builtin skill (reqwest 0.12
+pin, serde derive, #[tokio::test] pattern, mod declaration) and Rust workspace
+detection via Cargo.toml; `renderLanguageGuidanceBlock` now dispatches on a
+language tag, making future lang:X skills plug-in without further pipeline
+changes. Also added a NEXT.md candidate for a `cargo tree -d` duplicate-version
+sensor in `kodr check`.
 
 ## Candidates
 
@@ -41,6 +46,17 @@ explicitly passed.
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
+
+### cargo duplicate-version sensor in kodr check
+`cargo tree -d` lists crates that appear at multiple versions in the dependency
+graph. Mixing reqwest 0.11 and 0.12 (or tokio 0.x and 1.x) in a workspace
+causes `reqwest::Client` type conflicts at crate boundaries that the compiler
+rejects. A `kodr check` sensor that runs `cargo tree -d` on Rust workspaces
+and flags multi-major duplicates would catch this before the model's output
+reaches the test runner. Complements the lang:rust skill pin guidance with a
+verification step. Needs design: sensor should only run when `Cargo.toml` is
+present and `cargo` is in PATH; report should name the conflicting crate and
+its versions.
 
 ### deliveryNudge spurious nudge turn for route path strings
 Phase 208 fixed phantom file writes. A follow-on: the nudge still fires an
@@ -50,6 +66,17 @@ are written, but the wasted turn adds latency and tokens. Fix: filter
 `extractPromptFilePaths` results against paths that look like URL routes
 (start with a well-known route segment without a file extension, or follow
 `GET`/`POST`/etc.).
+
+### llms.txt doc-lookup pattern for skills
+When a skill covers a library or API with online docs, encode a `llms.txt`
+index URL as the fallback documentation source. Pattern observed in
+google/gemma-skills: if an MCP search tool is available use it; else fetch
+`https://<domain>/llms.txt` to discover available pages, then fetch specific
+pages as needed. A general direction: add a `## Documentation` section to any
+builtin skill that has a known `llms.txt` (Express, SQLite, busboy, etc.) so
+the model has a live path to current API docs when its training data is stale.
+Note: kodr has no external skill registry yet — this applies only to builtin
+skills as they are added.
 
 ### Smoke-as-verification in the heal loop
 Phase 184 wired a smoke-driven second heal pass, but the in-loop verification
