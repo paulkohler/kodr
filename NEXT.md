@@ -6,99 +6,26 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 219): `kodr check` is a comprehensive standalone
-diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
-`--fix`, and a path argument. Eight cross-reference sensors (canonical name registry +
-`SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
-`kodr hook install/status/uninstall` manage pre-commit and pre-push gates;
-`.kodr/config.json` `hooks` block customises the baked-in command.
-Gate-skip reasons are observable via `gateSkips` in JSON output.
-`runCrossRefSensorsOnProposal` runs content-safe sensors on dry-run proposals
-(`summary.proposalSensors`). Per-sensor toggles via `.kodr/config.json` `sensors`
-block (`{ "secret-in-response": false }`) map to `options.sensorToggles`.
-Smoke-check heal integration: second heal pass on failure.
-`kodr check --fix` synthesises a targeted repair prompt via `buildFixPrompt`
-(using `formatSensorIssue` for correct per-sensor issue formatting), routes it
-into `runPrompt`, and auto-rechecks after the fix with `fix:false`.
-`kodr hook status --json` emits structured JSON output. Help text updated
-for hook subcommands, `--fix`, `--watch`, and `sensors`/`hooks` config blocks.
-`kodr hook install/uninstall --json` completes the hook JSON surface.
-`kodr check --json` includes `fixPrompt` when there are fixable issues.
-Phase 205 added thinking-model profile defaults (`wireNoStream`); phase 206
-excluded `.kodr` from the inspection file index; phase 207 encoded the five
-recurring phase-204 Node.js example pitfalls in the `lang:node` builtin skill.
-Phase 208 fixed `extractPromptFilePaths` in the deliveryNudge: strip fenced
-code blocks before scanning, require bare names (no `/`) to appear at line
-start. Eliminates `test.txt`/`files/test.txt` from code examples and bare
-module names mid-sentence. Phase 209 wired `inspectContext = false` to
-`wireNoStream` in `applyModelProfileDefaults` — thinking-model runs now
-disable inspection context automatically unless `--inspect-context` is
-explicitly passed. Phase 210 added a `lang:rust` builtin skill (reqwest 0.12
-pin, serde derive, #[tokio::test] pattern, mod declaration) and Rust workspace
-detection via Cargo.toml; `renderLanguageGuidanceBlock` now dispatches on a
-language tag, making future lang:X skills plug-in without further pipeline
-changes. Phase 211 closed the remaining deliveryNudge false positive: path
-components from HTTP route descriptions (`files/test.txt` from `GET /files/test.txt`)
-are now suppressed by a single preceding-`/` guard in `extractPromptFilePaths`.
-Phase 212 added a `cargo-duplicates` sensor that runs `cargo tree -d --color=never`
-in Rust workspaces, parses top-level duplicate crate entries, and flags any crate
-that appears at two or more distinct semver major versions. Skips when no
-`Cargo.toml` is present or `cargo` is not in PATH.
-Phase 213 added a pending-write guard to the `run_command` handler: when
-`applyMode===proposal`, `proposalDraft` is non-empty, and the command contains a
-pending-write path, returns a synthetic error+hint telling the model to return
-the JSON proposal envelope instead of retrying the command.
-Phase 214 added a no-subprocess directive and server-startup port pattern to the
-`lang:node` builtin skill's HTTP integration test patterns section. Raises the
-native-mode budget test limit to 6100 chars.
-Phase 215 added W3 draft fallback to runStagedPrompt (mirrors main pipeline) and
-extended the Phase-213 run_command guard to intercept bare test-runner commands.
-Phase 216 intercepts SafeWriteError at stageIndex > 1 in runStagedPrompt: sets a
-steering note injected into the next stage's prompt and continues the loop instead
-of breaking. SafeWriteError at stage 1 still breaks. Added "use edit_file for
-existing files" to the write_file tool description.
-Phase 217 added `ProposalDraft.clearFiles(paths)` and calls it in runStagedPrompt
-after each stage's writes are applied — removes applied file paths from the shared
-draft so subsequent read_file calls go to disk instead of returning stale
-`[pending write — not yet on disk]` labels that contradicted the SafeWriteError
-steering note.
-Phase 218 added two patterns to the lang:node skill: SQLite `:memory:` in tests
-(file-path DB persists state across runs), and the `import.meta.url` server listen
-guard (module-scope `app.listen()` binds the port on import, causing EADDRINUSE in
-before() hooks). Both patterns eliminated the recurring Grade C pitfalls in
-Node.js dogfooding runs.
-Phase 219 upgraded the repeat sentinel from a flat `repeat:true` message to a
-count-tracking escalation: after 3 consecutive identical tool calls the message
-names the count and says "Stop retrying. Return your final proposal now — the
-harness will apply writes and run verification automatically." Phase-219 dogfooding
-confirmed escalation fires correctly; a new failure class found — in staged mode,
-"return your final proposal" is ambiguous and the model writes text instead of
-calling write_file for remaining files. The fix is staged-mode-specific sentinel
-wording (see candidate below).
-Phase 220 added staged-mode repeat-sentinel wording: "Call write_file for the
-next file you need to write. Do not run tests or npm install." Phase-222
-dogfooding confirmed Phase 220 fixes the "text summary break-out" from Phase-219,
-but a new failure class emerged: when all files are already written and stage 2 is
-entered, the model loops on run_command(npm test) with nothing left to write.
-The sentinel blocks the test run but cannot redirect to a completion envelope
-(see staged completion signal candidate below).
-Phase 221 raised maxStageWrites 5→8. Phase-222 dogfooding confirmed: the 6-file
-JWT+SQLite+auth task that wrote 0 files in phase-219 now writes all 6 in one
-stage. Still hits StagedProposalTooLargeError on 10-path patch batches (unique
-paths were 6, but duplicates counted toward limit — see path dedup candidate).
-Phase 222 added inter-stage npm install: after any stage that applies package.json
-to disk, the harness checks for node_modules absence and runs npm install
-automatically. Confirmed in all 3 phase-222 dogfooding runs (interStageInstall:
-true, ok: true). Eliminated the 45-wasted-turns npm install loop from phase-219.
+## Current frontier (phase 223)
 
-Phase 223 added staged completion signal (STAGED_DONE in sentinel wording), path
-dedup in StagedProposalTooLargeError (unique paths not total ops), and lang:node
-FTS5 MATCH syntax + createDatabase factory pitfalls. Phase-223 dogfooding:
-FTS5 and createDatabase fixes graded A (no recurrence). Path dedup eliminated
-stage-7 StagedProposalTooLargeError. Completion signal NOT effective — qwen3.6
-reads the sentinel's embedded JSON example but continues making tool calls; the
-model treats tool-error messages as retry signals, not as authoritative direction.
-ProposalMissingError replaced by StagedIncompleteError (stage budget exhausted).
+`kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
+`--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
+eight cross-reference sensors (canonical `SENSOR_NAMES` / `SENSOR_SEVERITY`
+registry). `kodr hook install/status/uninstall` gate commits and pushes on it,
+with `.kodr/config.json` `hooks`/`sensors` blocks for per-project tuning.
+Per-phase detail for this surface and everything before it lives in
+`roadmap.md` and `blog/` — not here.
+
+The live work is the **staged execution pipeline** (`runStagedPrompt`). Phases
+213–223 chipped at it for local thinking models (qwen3.6): pending-write
+`run_command` guards, W3 draft fallback, `SafeWriteError` steering with
+`clearFiles`, raised `maxStageWrites` (8) with unique-path dedup, inter-stage
+`npm install`, and `lang:node` skill pitfalls. The remaining open problem from
+phase-223 dogfooding: when every target file is already written and a
+verification stage begins, the model has nothing left to `write_file` and loops
+to budget exhaustion (`StagedIncompleteError`). Embedding a `STAGED_DONE`
+envelope in a sentinel tool-error message did **not** break the loop — qwen3.6
+treats tool errors as retry signals. The top two candidates below address this.
 
 ## Candidates
 
@@ -123,6 +50,17 @@ budget exhaustion. Fix: in runStagedPrompt, after a safeWriteSteer fires and the
 next stage produces 0 new unique-path writes (all writes were blocked), treat it
 as implicit STAGED_DONE — push a done record and break the loop. This is purely
 mechanical and needs no model cooperation.
+
+### edit_file patch collisions in multi-write stages
+Phase-223 run-3 forensics: `src/server.mjs` ended with a duplicate
+`export let server;` and every test failed with "Identifier 'server' has already
+been declared." `ProposalDraft._files` dedupes `write_file` by path
+(last-write-wins), but `_patches` is append-only, so two `edit_file` calls that
+re-add the same construct both apply. Fix direction: before applying a patch in
+`prepareChanges`/`safe-writes`, skip it when its search string is no longer
+present in the current (post-prior-patch) content — and first confirm whether the
+existing "search string not found" guard silently ignores non-matching patches or
+errors. Mostly relevant once a stage emits several `edit_file` calls for one file.
 
 ### run_command pending-write guard: staged-mode wording
 Phase 220 agent noted: the run_command guard hint "Return file changes in the

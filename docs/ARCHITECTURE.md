@@ -6,8 +6,8 @@ via tools → run commands → verify → apply) and a research harness for stud
 how local models behave under that agent. The complexity feeling comes from the
 second bleeding into the first — see the proportions below.
 
-Sizes are a snapshot as of phase 147 (kodr 0.0.147): 67 `src/*.mjs` files,
-~26,600 lines. Counts are indicative of *proportion*, not exact over time.
+Sizes are a snapshot as of phase 223 (kodr 0.0.223): 74 `src/*.mjs` files,
+~27,400 lines. Counts are indicative of *proportion*, not exact over time.
 
 ## The five tiers
 
@@ -66,7 +66,7 @@ The layout now:
   session, bench, serve, compare, probe, skills, init, eval). Handlers that need
   the channel or `runPrompt` take them as injected params (extraction stays
   one-directional — no module imports `app.mjs`).
-- `run-pipeline.mjs` (~2,980 lines) — the Tier-1 core: `runPrompt`,
+- `run-pipeline.mjs` (~3,330 lines) — the Tier-1 core: `runPrompt`,
   `runStagedPrompt`, and ~35 private helpers (context discovery, executor init,
   the run/tool loop, healing, writes, summary, `maybeCommitAppliedWrites`).
 - `render.mjs` — pure CLI renderers. `cli-errors.mjs` — `CliError` /
