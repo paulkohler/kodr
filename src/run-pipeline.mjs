@@ -1915,7 +1915,7 @@ async function runStagedPrompt({
 		safeWriteSteering = null;
 
 		const completion = await completeWithToolCalls(
-			options,
+			{ ...options, inStagedPipeline: true },
 			model,
 			stagePrompt,
 			stageContext.systemPrompt,

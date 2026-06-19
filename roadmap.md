@@ -219,6 +219,9 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 217 Staged Pipeline: Clear Applied Paths from ProposalDraft
 - [x] 218 lang:node Skill: Server Listen Guard and SQLite :memory: Pattern
 - [x] 219 Repeat-Sentinel Escalation After N Identical Tool Calls
+- [x] 220 Staged-Mode Repeat-Sentinel Wording
+- [ ] 221 Staged Pipeline: Raise maxStageWrites to 8
+- [ ] 222 Staged Pipeline: Auto npm install After package.json Apply
 
 ## Phase Contract
 

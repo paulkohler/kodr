@@ -78,17 +78,6 @@ wording (see candidate below).
 
 ## Candidates
 
-### Staged-mode repeat-sentinel wording
-Phase-219 dogfooding: in staged mode, "return your final proposal now" redirected
-the model to return a plain-text summary instead of calling write_file for the
-remaining files. The sentinel message is designed for the non-staged proposal-envelope
-flow where the model holds pending files in a JSON block. In staged mode the correct
-redirect is: "You are in a staged pipeline. Call write_file for the next file you
-need to write. Do not run tests or npm install — verification runs automatically
-after all stages complete." Detect staged mode (e.g., via an `inStagedPipeline`
-context flag or a separate `sentinelMode: 'staged' | 'envelope'` parameter) and
-switch wording accordingly.
-
 ### StagedProposalTooLargeError: raise maxStageWrites or auto-split
 Phase-219 dogfooding: a 6-file task hit the 5-file per-stage limit and wrote 0
 files — hard cliff with no fallback. Either raise `maxStageWrites` to 7–8 (covers

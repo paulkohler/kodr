@@ -3250,3 +3250,243 @@ describe('run_command guard extension (Phase 215): bare test-runner', () => {
 		assert.equal(result.exitCode, 0);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Phase 220 — repeat sentinel staged-mode wording
+// ---------------------------------------------------------------------------
+
+describe('repeat sentinel — staged mode wording (Phase 220)', () => {
+	// Helper: build a fake model server that returns one real tool call followed
+	// by N repeats of the same call, then a final stop answer.
+	const buildServer = async (repeatCount) => {
+		const makeToolResponse = (id) => ({
+			method: 'POST',
+			url: '/v1/chat/completions',
+			body: {
+				choices: [
+					{
+						finish_reason: 'tool_calls',
+						message: {
+							content: null,
+							role: 'assistant',
+							tool_calls: [
+								{
+									id,
+									type: 'function',
+									function: { name: 'list_files', arguments: '{}' },
+								},
+							],
+						},
+					},
+				],
+				id: `chatcmpl_${id}`,
+				object: 'chat.completion',
+			},
+			status: 200,
+		});
+		const responses = [makeToolResponse('call_1')];
+		for (let i = 2; i <= repeatCount + 1; i++) {
+			responses.push(makeToolResponse(`call_${i}`));
+		}
+		responses.push({
+			method: 'POST',
+			url: '/v1/chat/completions',
+			body: {
+				choices: [
+					{
+						finish_reason: 'stop',
+						message: {
+							content: '{"status":"OK","files":[]}',
+							role: 'assistant',
+						},
+					},
+				],
+				id: 'chatcmpl_final',
+				object: 'chat.completion',
+			},
+			status: 200,
+		});
+		return startFakeModelServer({ responses });
+	};
+
+	it('first repeat in staged mode returns staged wording (no "Return your final proposal")', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-staged-sentinel-1-'));
+		const server = await buildServer(1);
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				stream: false,
+				timeoutMs: 5000,
+				inStagedPipeline: true,
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write a file.',
+				'You are helpful.',
+				registry,
+			);
+			const repeatMsg = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_2',
+			);
+			assert.ok(repeatMsg, 'tool result for repeat call should exist');
+			const parsed = JSON.parse(repeatMsg.content);
+			assert.equal(parsed.repeat, true);
+			assert.equal(parsed.count, 2);
+			assert.ok(
+				!parsed.message.includes('Return your final proposal'),
+				'staged first repeat must not mention final proposal',
+			);
+			assert.ok(
+				parsed.message.includes('write_file'),
+				'staged first repeat must mention write_file',
+			);
+			assert.ok(
+				!parsed.message.includes('Stop retrying'),
+				'first repeat (count=2) should not escalate',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('escalation (count >= 3) in staged mode returns staged escalation wording', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-staged-sentinel-2-'));
+		// 1 real + 3 repeats (count will reach 4, which is >= 3 threshold)
+		const server = await buildServer(3);
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 10,
+				stream: false,
+				timeoutMs: 5000,
+				inStagedPipeline: true,
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write a file.',
+				'You are helpful.',
+				registry,
+			);
+			// call_3 is the second repeat (count=3) — escalation threshold
+			const escalationMsg = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_3',
+			);
+			assert.ok(escalationMsg, 'tool result for escalation call should exist');
+			const parsed = JSON.parse(escalationMsg.content);
+			assert.equal(parsed.repeat, true);
+			assert.equal(parsed.count, 3);
+			assert.ok(
+				parsed.message.includes('Stop retrying'),
+				'staged escalation must include Stop retrying',
+			);
+			assert.ok(
+				parsed.message.includes('write_file'),
+				'staged escalation must mention write_file',
+			);
+			assert.ok(
+				!parsed.message.includes('Return your final proposal'),
+				'staged escalation must not mention final proposal',
+			);
+			assert.ok(
+				parsed.message.includes('verification runs automatically'),
+				'staged escalation must mention automatic verification',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('non-staged mode (count >= 3) still returns envelope wording', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-staged-sentinel-3-'));
+		const server = await buildServer(3);
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 10,
+				stream: false,
+				timeoutMs: 5000,
+				// inStagedPipeline absent — defaults to envelope wording
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'List files.',
+				'You are helpful.',
+				registry,
+			);
+			const escalationMsg = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_3',
+			);
+			assert.ok(escalationMsg, 'tool result for escalation call should exist');
+			const parsed = JSON.parse(escalationMsg.content);
+			assert.equal(parsed.repeat, true);
+			assert.equal(parsed.count, 3);
+			assert.ok(
+				parsed.message.includes('Return your final proposal now'),
+				'non-staged escalation must include envelope phrasing',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('inStagedPipeline absent defaults to envelope wording on first repeat', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-staged-sentinel-4-'));
+		const server = await buildServer(1);
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				stream: false,
+				timeoutMs: 5000,
+				// inStagedPipeline intentionally absent
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'List files.',
+				'You are helpful.',
+				registry,
+			);
+			const repeatMsg = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_2',
+			);
+			assert.ok(repeatMsg, 'tool result for repeat call should exist');
+			const parsed = JSON.parse(repeatMsg.content);
+			assert.equal(parsed.repeat, true);
+			assert.ok(
+				parsed.message.includes('final JSON proposal'),
+				'no inStagedPipeline should use envelope wording',
+			);
+			assert.ok(
+				!parsed.message.includes('write_file'),
+				'envelope wording must not mention write_file',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});

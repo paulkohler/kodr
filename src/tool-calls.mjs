@@ -425,20 +425,27 @@ export async function completeWithToolCalls(
 					const count = seenToolCalls.get(callKey) + 1;
 					seenToolCalls.set(callKey, count);
 					const ESCALATION_THRESHOLD = 3;
+					const staged = options.inStagedPipeline === true;
 					content =
 						count >= ESCALATION_THRESHOLD
 							? JSON.stringify({
 									repeat: true,
 									count,
-									message:
-										`You have made this identical tool call ${count} times. ` +
-										'Stop retrying. Return your final proposal now — the harness will apply writes and run verification automatically.',
+									message: staged
+										? `You have made this identical tool call ${count} times. ` +
+											'Stop retrying. Call write_file for the next file you need to write. ' +
+											'Do not run tests or npm install — verification runs automatically after all stages complete.'
+										: `You have made this identical tool call ${count} times. ` +
+											'Stop retrying. Return your final proposal now — the harness will apply writes and run verification automatically.',
 								})
 							: JSON.stringify({
 									repeat: true,
 									count,
-									message:
-										'This exact tool call was already made. Stop calling tools and return the final JSON proposal now.',
+									message: staged
+										? 'This exact tool call was already made. ' +
+											'Call write_file for the next file you need to write. ' +
+											'Do not run tests or npm install.'
+										: 'This exact tool call was already made. Stop calling tools and return the final JSON proposal now.',
 								});
 				} else {
 					seenToolCalls.set(callKey, 1);
