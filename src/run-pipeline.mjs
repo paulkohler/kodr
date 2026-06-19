@@ -2020,6 +2020,7 @@ async function runStagedPrompt({
 					appliedPaths: [],
 					proposedPaths: paths,
 					responseChars: completion.text.length,
+					writeCount: 0,
 				});
 				break;
 			}
@@ -2030,6 +2031,7 @@ async function runStagedPrompt({
 				appliedPaths: [],
 				proposedPaths: paths,
 				responseChars: completion.text.length,
+				writeCount: 0,
 			});
 			if (done) {
 				break;
@@ -2065,6 +2067,7 @@ async function runStagedPrompt({
 						appliedPaths: [],
 						proposedPaths: paths,
 						responseChars: completion.text.length,
+						writeCount: 0,
 					});
 					break;
 				}
@@ -2096,6 +2099,7 @@ async function runStagedPrompt({
 					appliedPaths: [],
 					proposedPaths: paths,
 					responseChars: completion.text.length,
+					writeCount: 0,
 				});
 				continue;
 			}
