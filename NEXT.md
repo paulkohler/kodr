@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 216): `kodr check` is a comprehensive standalone
+Current frontier (phase 219): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
 `--fix`, and a path argument. Eight cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
@@ -57,8 +57,53 @@ Phase 216 intercepts SafeWriteError at stageIndex > 1 in runStagedPrompt: sets a
 steering note injected into the next stage's prompt and continues the loop instead
 of breaking. SafeWriteError at stage 1 still breaks. Added "use edit_file for
 existing files" to the write_file tool description.
+Phase 217 added `ProposalDraft.clearFiles(paths)` and calls it in runStagedPrompt
+after each stage's writes are applied — removes applied file paths from the shared
+draft so subsequent read_file calls go to disk instead of returning stale
+`[pending write — not yet on disk]` labels that contradicted the SafeWriteError
+steering note.
+Phase 218 added two patterns to the lang:node skill: SQLite `:memory:` in tests
+(file-path DB persists state across runs), and the `import.meta.url` server listen
+guard (module-scope `app.listen()` binds the port on import, causing EADDRINUSE in
+before() hooks). Both patterns eliminated the recurring Grade C pitfalls in
+Node.js dogfooding runs.
+Phase 219 upgraded the repeat sentinel from a flat `repeat:true` message to a
+count-tracking escalation: after 3 consecutive identical tool calls the message
+names the count and says "Stop retrying. Return your final proposal now — the
+harness will apply writes and run verification automatically." Phase-219 dogfooding
+confirmed escalation fires correctly; a new failure class found — in staged mode,
+"return your final proposal" is ambiguous and the model writes text instead of
+calling write_file for remaining files. The fix is staged-mode-specific sentinel
+wording (see candidate below).
 
 ## Candidates
+
+### Staged-mode repeat-sentinel wording
+Phase-219 dogfooding: in staged mode, "return your final proposal now" redirected
+the model to return a plain-text summary instead of calling write_file for the
+remaining files. The sentinel message is designed for the non-staged proposal-envelope
+flow where the model holds pending files in a JSON block. In staged mode the correct
+redirect is: "You are in a staged pipeline. Call write_file for the next file you
+need to write. Do not run tests or npm install — verification runs automatically
+after all stages complete." Detect staged mode (e.g., via an `inStagedPipeline`
+context flag or a separate `sentinelMode: 'staged' | 'envelope'` parameter) and
+switch wording accordingly.
+
+### StagedProposalTooLargeError: raise maxStageWrites or auto-split
+Phase-219 dogfooding: a 6-file task hit the 5-file per-stage limit and wrote 0
+files — hard cliff with no fallback. Either raise `maxStageWrites` to 7–8 (covers
+standard project skeletons: server + db + auth + 3 test files), or include the
+limit in the staged system prompt so the model autonomously splits the first stage
+into ≤5 files and puts remaining files in stage 2.
+
+### npm install auto-run after package.json is applied in staged mode
+Phase-216/219 dogfooding: model kept calling run_command(npm install) across
+multiple stages; all were blocked by the pending-write guard or TEST_RUNNER_RE.
+After stage 1 applied package.json to disk, dependencies were never installed before
+stage 2 ran. Tests then failed with ERR_MODULE_NOT_FOUND. Fix: after a stage applies
+writes and package.json was among the applied files (and no node_modules exists), run
+`npm install --silent` automatically before the next stage starts — same pattern as
+the existing depInstall flow in non-staged runs.
 
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the
