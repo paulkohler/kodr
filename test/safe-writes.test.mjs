@@ -430,6 +430,164 @@ describe('safe writes', () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// Phase 226 — preparePatches duplicate-block guard
+// ---------------------------------------------------------------------------
+
+describe('preparePatches duplicate-block guard (phase 226)', () => {
+	// The multi-line block that duplicates itself in the phase-223 run-3 forensic.
+	// The guard checks: after applying the patch, does the replace text appear
+	// more than once in the resulting file?
+	const LISTEN_GUARD = [
+		'if (process.env.NODE_ENV !== "test") {',
+		'  server.listen(port, () => {',
+		'    console.log(`Listening on port ${port}`);',
+		'  });',
+		'}',
+	].join('\n');
+
+	it('case 1: reproduction — patch whose replace is an existing block is rejected', async () => {
+		// Seed file: listen guard already present once, plus a distinct anchor.
+		// Patch: search = anchor, replace = LISTEN_GUARD (model re-emits the block,
+		// dropping the anchor). After apply the guard would appear twice.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p226-repro-'));
+		const initial = `export let server;\nconst port = 3000;\n\n${LISTEN_GUARD}\n`;
+		await writeFile(join(cwd, 'server.mjs'), initial, 'utf8');
+
+		const result = await preparePatches(
+			cwd,
+			[
+				{
+					// search = unique anchor; replace = just the guard block.
+					// After apply: 'export let server;\n' + LISTEN_GUARD + '\n\n' + LISTEN_GUARD
+					path: 'server.mjs',
+					search: 'export let server;\nconst port = 3000;',
+					replace: LISTEN_GUARD,
+				},
+			],
+			{ apply: true },
+		);
+
+		// Must be rejected with duplicate_block reason.
+		assert.equal(result.failedPatches.length, 1, 'expected one failed patch');
+		assert.equal(
+			result.failedPatches[0].reason,
+			'duplicate_block',
+			'reason must be duplicate_block',
+		);
+		assert.equal(result.writes.length, 0, 'no writes should be applied');
+
+		// File on disk must be unchanged — block appears exactly once.
+		const onDisk = await readFile(join(cwd, 'server.mjs'), 'utf8');
+		assert.equal(
+			onDisk,
+			initial,
+			'on-disk content must be unchanged (block not duplicated)',
+		);
+		const blockCount = onDisk.split(LISTEN_GUARD).length - 1;
+		assert.equal(blockCount, 1, 'block must appear exactly once in file');
+	});
+
+	it('case 2: negative — single-line replace is allowed (isMultiLineBlock gate)', async () => {
+		// A patch whose replace is a single line should apply normally even if
+		// that literal already appears elsewhere in the file.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p226-singleline-'));
+		await writeFile(
+			join(cwd, 'app.mjs'),
+			'const a = 1;\nconst b = 2;\n',
+			'utf8',
+		);
+
+		const result = await preparePatches(
+			cwd,
+			[
+				{
+					path: 'app.mjs',
+					search: 'const a = 1;\n',
+					replace: 'const a = 10;\n',
+				},
+			],
+			{ apply: true },
+		);
+
+		// Single-line replace: must apply normally.
+		assert.equal(result.writes.length, 1, 'single-line replace must apply');
+		assert.equal(result.failedPatches.length, 0, 'no failed patches expected');
+	});
+
+	it('case 3: negative — normal multi-line insertion is allowed (block absent)', async () => {
+		// A multi-line replace block that does NOT already exist in the file
+		// must apply normally (appears exactly once after apply).
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p226-newblock-'));
+		await writeFile(join(cwd, 'app.mjs'), 'const a = 1;\n', 'utf8');
+
+		const newBlock = ['function greet() {', '  return "hello";', '}'].join(
+			'\n',
+		);
+
+		const result = await preparePatches(
+			cwd,
+			[
+				{
+					path: 'app.mjs',
+					search: 'const a = 1;',
+					replace: `const a = 1;\n\n${newBlock}`,
+				},
+			],
+			{ apply: true },
+		);
+
+		assert.equal(result.writes.length, 1, 'new multi-line block must apply');
+		assert.equal(result.failedPatches.length, 0, 'no failed patches expected');
+		const content = await readFile(join(cwd, 'app.mjs'), 'utf8');
+		assert.match(content, /function greet/u, 'new block must be in file');
+	});
+
+	it('case 4: compose — rejected duplicate does not corrupt target.content for a later clean patch', async () => {
+		// Two patches to the same file:
+		// Patch 1: search = anchor, replace = LISTEN_GUARD (would duplicate the guard).
+		// Patch 2: clean distinct edit (rename a variable).
+		// Assert: patch 1 is rejected (duplicate_block), patch 2 still applies.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p226-compose-'));
+		// File has the anchor and the guard once each.
+		const initial = `export let server;\nconst port = 3000;\n\n${LISTEN_GUARD}\n`;
+		await writeFile(join(cwd, 'server.mjs'), initial, 'utf8');
+
+		const result = await preparePatches(
+			cwd,
+			[
+				// Patch 1: re-adds the listen guard (duplicate_block → rejected).
+				{
+					path: 'server.mjs',
+					search: 'export let server;\nconst port = 3000;',
+					replace: LISTEN_GUARD,
+				},
+				// Patch 2: clean edit — change port value (anchor is still in file since patch 1 was rejected).
+				{
+					path: 'server.mjs',
+					search: 'const port = 3000;',
+					replace: 'const port = 8080;',
+				},
+			],
+			{ apply: true },
+		);
+
+		assert.equal(result.failedPatches.length, 1, 'one rejected patch expected');
+		assert.equal(
+			result.failedPatches[0].reason,
+			'duplicate_block',
+			'rejected reason must be duplicate_block',
+		);
+		assert.equal(result.writes.length, 1, 'clean patch must apply');
+
+		const content = await readFile(join(cwd, 'server.mjs'), 'utf8');
+		assert.match(content, /port = 8080/u, 'clean patch must have applied');
+		// Block must still appear exactly once — not duplicated by the rejected patch.
+		const blockCount = content.split(LISTEN_GUARD).length - 1;
+		assert.equal(blockCount, 1, 'block must still appear exactly once');
+	});
+});
+
 describe('makeDiff', () => {
 	const exists = (content) => ({ content, exists: true });
 

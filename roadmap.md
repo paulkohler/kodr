@@ -225,6 +225,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 223 Staged Hardening: Completion Signal, Path Dedup, FTS5 Skill
 - [x] 224 Stage Auto-Advance on Zero New Unique Writes
 - [x] 225 Stage Auto-Advance on Zero Applied Writes
+- [x] 226 Prevent edit_file Patches From Duplicating a Block
 
 ## Phase Contract
 

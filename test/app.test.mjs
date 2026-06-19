@@ -7875,6 +7875,139 @@ describe('runStagedPrompt zero-applied-write auto-advance (Phase 225)', () => {
 	});
 });
 
+// Phase 226 — duplicate-block guard: staged integration
+// ---------------------------------------------------------------------------
+
+describe('runStagedPrompt duplicate-block guard (Phase 226)', () => {
+	it('case 6: stage that re-adds an existing block is rejected; construct appears once on disk', async () => {
+		// Plan; stage 1 writes server.mjs with the listen guard once via files[].
+		// Stage 2 emits an edit_file patch whose replace re-adds the guard (duplicate_block).
+		// Stage 3 returns STAGED_DONE.
+		// Assert: server.mjs on disk has the guard exactly once (no SyntaxError duplicate);
+		// stage 2 has writeCount === 0 (phase-225 zero-applied arm).
+		const LISTEN_GUARD = [
+			'if (process.env.NODE_ENV !== "test") {',
+			'  server.listen(port, () => {',
+			'    console.log(`Listening on port ${port}`);',
+			'  });',
+			'}',
+		].join('\n');
+
+		// File written by stage 1: anchor + listen guard once.
+		const serverMjsContent = `export let server;\nconst port = 3000;\n\n${LISTEN_GUARD}\n`;
+
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p226-staged-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan: write server.mjs.', level: 'info' }],
+						scratchpad: '{"plan":["write server.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write server.mjs with the listen guard once.
+				{
+					body: proposalResponse({
+						files: [{ content: serverMjsContent, path: 'server.mjs' }],
+						messages: [{ content: 'Wrote server.mjs.', level: 'info' }],
+						scratchpad: '{"done":["server.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: patch whose replace = LISTEN_GUARD (duplicate_block → rejected).
+				// search = anchor pair; replace = just the guard block.
+				// After apply the guard would appear twice — guard rejects it.
+				{
+					body: proposalResponse({
+						patches: [
+							{
+								path: 'server.mjs',
+								search: 'export let server;\nconst port = 3000;',
+								replace: LISTEN_GUARD,
+							},
+						],
+						messages: [{ content: 'Add guard.', level: 'info' }],
+						scratchpad: '{"done":["server.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 3: STAGED_DONE.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["server.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Write server.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p226-staged-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p226-staged-out', 'summary.json'), 'utf8'),
+			);
+
+			// Stage-2 must have writeCount === 0 (zero-applied: duplicate_block rejected).
+			const stage2 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-2',
+			);
+			assert.ok(stage2, 'implement-2 stage record must exist');
+			assert.equal(
+				stage2.writeCount,
+				0,
+				'implement-2 must have writeCount === 0 (duplicate_block rejected)',
+			);
+
+			// server.mjs on disk must contain the guard exactly once.
+			const onDisk = await readFile(join(cwd, 'server.mjs'), 'utf8');
+			const blockCount = onDisk.split(LISTEN_GUARD).length - 1;
+			assert.equal(
+				blockCount,
+				1,
+				'listen guard must appear exactly once in server.mjs (no duplicate written)',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
 // Phase 215 — runStagedPrompt draft fallback
 // ---------------------------------------------------------------------------
 

@@ -1015,7 +1015,9 @@ export function createBuiltinRegistry(cwd, options = {}) {
 							? 'search text not found'
 							: fp.reason === 'multiple_matches'
 								? `search text matched ${fp.occurrences} times (must match exactly 1)`
-								: fp.reason;
+								: fp.reason === 'duplicate_block'
+									? 'the replacement block already exists in the file — applying it would create a duplicate; edit the existing occurrence or use write_file for the full file'
+									: fp.reason;
 					const regionHint = fp.region ? `\nClosest region:\n${fp.region}` : '';
 					return JSON.stringify({
 						error: `edit_file patch failed: ${reasonLabel}. Recheck your search text against the current file content.${regionHint}`,

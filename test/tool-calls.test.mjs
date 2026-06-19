@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -2961,6 +2961,68 @@ describe('edit_file proposal-mode per-edit validation (Phase 138)', () => {
 		const patch = registry.proposalDraft.patches[0];
 		assert.ok(patch, 'patch should be in draft');
 		assert.equal(patch.applied, true, 'live mode should mark patch as applied');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 226 — edit_file live-mode duplicate_block steering
+// ---------------------------------------------------------------------------
+
+describe('edit_file live-mode duplicate_block steering (phase 226)', () => {
+	// The same multi-line listen-guard block used in the safe-writes tests.
+	const LISTEN_GUARD = [
+		'if (process.env.NODE_ENV !== "test") {',
+		'  server.listen(port, () => {',
+		'    console.log(`Listening on port ${port}`);',
+		'  });',
+		'}',
+	].join('\n');
+
+	it('case 5: live edit_file returns actionable steering for duplicate_block; file unchanged', async () => {
+		// Seed: file already contains the listen guard once.
+		// Patch: search = unique anchor, replace = LISTEN_GUARD (model re-emits the
+		// block without the anchor). After apply the guard would appear twice.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p226-live-'));
+		const initial = `export let server;\nconst port = 3000;\n\n${LISTEN_GUARD}\n`;
+		await writeFile(join(cwd, 'server.mjs'), initial, 'utf8');
+
+		const registry = createBuiltinRegistry(cwd, { applyMode: 'live' });
+
+		// Patch: search = anchor pair; replace = just the guard block (would duplicate it).
+		const result = await registry.dispatch(
+			'edit_file',
+			JSON.stringify({
+				path: 'server.mjs',
+				search: 'export let server;\nconst port = 3000;',
+				replace: LISTEN_GUARD,
+			}),
+		);
+
+		// Must return a JSON error with the phase-226 steering wording.
+		const parsed = JSON.parse(result);
+		assert.ok(
+			parsed.error,
+			'edit_file must return an error for duplicate_block',
+		);
+		assert.match(
+			parsed.error,
+			/already exists in the file/u,
+			'error must contain the duplicate_block steering phrase',
+		);
+
+		// File on disk must be unchanged — the block must still appear exactly once.
+		const onDisk = await readFile(join(cwd, 'server.mjs'), 'utf8');
+		assert.equal(
+			onDisk,
+			initial,
+			'on-disk content must be unchanged (no duplicate written)',
+		);
+		const blockCount = onDisk.split(LISTEN_GUARD).length - 1;
+		assert.equal(
+			blockCount,
+			1,
+			'block must appear exactly once after rejected edit',
+		);
 	});
 });
 

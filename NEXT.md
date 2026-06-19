@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 225)
+## Current frontier (phase 226)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -17,13 +17,13 @@ Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
 The live work is the **staged execution pipeline** (`runStagedPrompt`). Phases
-213–225 chipped at it for local thinking models (qwen3.6): pending-write
+213–226 chipped at it for local thinking models (qwen3.6): pending-write
 `run_command` guards, W3 draft fallback, `SafeWriteError` steering with
 `clearFiles`, raised `maxStageWrites` (8) with unique-path dedup, inter-stage
 `npm install`, `lang:node` skill pitfalls, the phase-224 `safeWriteSteered` flag,
-and the phase-225 zero-applied-write auto-advance that generalizes phase-224 to
-cover no-op `edit_file` patches (where no `SafeWriteError` fires but the proposal
-still claims paths and `writeResult.writes` is empty).
+the phase-225 zero-applied-write auto-advance, and the phase-226 duplicate-block
+guard in `preparePatches` (`reason: 'duplicate_block'`) that prevents a patch
+whose `replace` is an existing multi-line block from writing a duplicate to disk.
 
 ## Candidates
 
@@ -40,17 +40,6 @@ This is architecturally different from Phase 223's tool-error approach: it sends
 user-role message that the model must respond to, rather than a tool result it may
 ignore. Needs careful placement in completeWithToolCalls so it fires after the tool
 result is appended but before the next request.
-
-### edit_file patch collisions in multi-write stages
-Phase-223 run-3 forensics: `src/server.mjs` ended with a duplicate
-`export let server;` and every test failed with "Identifier 'server' has already
-been declared." `ProposalDraft._files` dedupes `write_file` by path
-(last-write-wins), but `_patches` is append-only, so two `edit_file` calls that
-re-add the same construct both apply. Fix direction: before applying a patch in
-`prepareChanges`/`safe-writes`, skip it when its search string is no longer
-present in the current (post-prior-patch) content — and first confirm whether the
-existing "search string not found" guard silently ignores non-matching patches or
-errors. Mostly relevant once a stage emits several `edit_file` calls for one file.
 
 ### run_command pending-write guard: staged-mode wording
 Phase 220 agent noted: the run_command guard hint "Return file changes in the

@@ -191,6 +191,26 @@ export async function preparePatches(cwd, patches, options = {}) {
 
 		const after = target.content.replace(normalized.search, normalized.replace);
 
+		// Phase 226: if applying this patch would leave a multi-line block present
+		// verbatim more than once, it duplicates a construct (phase-223 run-3: a second
+		// `export let server;` block -> "Identifier already declared"). Reject instead
+		// of writing the duplicate. Gated to multi-line blocks (>= 2 non-blank lines) so
+		// legitimate single-token edits that repeat a literal are never rejected.
+		const replaceBlock = normalized.replace;
+		if (
+			isMultiLineBlock(replaceBlock) &&
+			countOccurrences(after, replaceBlock) > 1
+		) {
+			failedPatches.push({
+				path: patch.path,
+				reason: 'duplicate_block',
+				search: patch.search,
+				occurrences,
+				region: '',
+			});
+			continue;
+		}
+
 		writes.push({
 			backupPath: target.backupPath,
 			diff: makeDiff(
@@ -659,4 +679,11 @@ function unescapePatchString(value) {
 		.replaceAll('\\t', '\t')
 		.replaceAll('\\"', '"')
 		.replaceAll('\\\\', '\\');
+}
+
+// Phase 226: true when value has at least two non-blank lines.
+// Used to gate the duplicate-block guard so single-line edits that repeat a
+// common literal ('}', an import) never trip the guard.
+function isMultiLineBlock(value) {
+	return value.split('\n').filter((line) => line.trim() !== '').length >= 2;
 }
