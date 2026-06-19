@@ -91,7 +91,38 @@ to disk, the harness checks for node_modules absence and runs npm install
 automatically. Confirmed in all 3 phase-222 dogfooding runs (interStageInstall:
 true, ok: true). Eliminated the 45-wasted-turns npm install loop from phase-219.
 
+Phase 223 added staged completion signal (STAGED_DONE in sentinel wording), path
+dedup in StagedProposalTooLargeError (unique paths not total ops), and lang:node
+FTS5 MATCH syntax + createDatabase factory pitfalls. Phase-223 dogfooding:
+FTS5 and createDatabase fixes graded A (no recurrence). Path dedup eliminated
+stage-7 StagedProposalTooLargeError. Completion signal NOT effective — qwen3.6
+reads the sentinel's embedded JSON example but continues making tool calls; the
+model treats tool-error messages as retry signals, not as authoritative direction.
+ProposalMissingError replaced by StagedIncompleteError (stage budget exhausted).
+
 ## Candidates
+
+### Staged completion: synthetic user turn instead of embedded tool hint
+Phase-223 dogfooding: embedding STAGED_DONE JSON in a tool-error message does not
+reliably break the model's tool-calling loop. The model needs the completion
+instruction delivered as a clean user turn (not buried in error JSON). When the
+staged sentinel escalates (count >= ESCALATION_THRESHOLD) and inStagedPipeline
+is true, inject a synthetic user message after the tool result — e.g., appended
+to the `messages` array before the next iteration — that says:
+"All target files are written. Stop calling tools. Return only:
+`{\"status\":\"OK\",\"files\":[],\"messages\":[{\"level\":\"info\",\"content\":\"STAGED_DONE\"}]}`"
+This is architecturally different from Phase 223's tool-error approach: it sends a
+user-role message that the model must respond to, rather than a tool result it may
+ignore. Needs careful placement in completeWithToolCalls so it fires after the tool
+result is appended but before the next request.
+
+### Stage auto-advance on zero new unique writes (safeWriteSteer loop escape)
+Phase-223 dogfooding: in stages 3-7, safeWriteSteer fired and the model tried to
+re-write already-applied files (0 new unique writes per stage). The loop ran to
+budget exhaustion. Fix: in runStagedPrompt, after a safeWriteSteer fires and the
+next stage produces 0 new unique-path writes (all writes were blocked), treat it
+as implicit STAGED_DONE — push a done record and break the loop. This is purely
+mechanical and needs no model cooperation.
 
 ### run_command pending-write guard: staged-mode wording
 Phase 220 agent noted: the run_command guard hint "Return file changes in the
