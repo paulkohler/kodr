@@ -6,7 +6,7 @@
 // it is the pipeline's commit step (app.mjs's handleChannelRequest imports it
 // back for late-apply commits).
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { createRunArtifacts, writeJson, writeText } from './artifacts.mjs';
 import { loadConfiguredHooks, writeHookArtifact } from './command-hooks.mjs';
@@ -29,7 +29,7 @@ import {
 	listModels,
 } from './model-client.mjs';
 import { loadMemory } from './memory.mjs';
-import { jailedPath, prepareChanges } from './safe-writes.mjs';
+import { SafeWriteError, jailedPath, prepareChanges } from './safe-writes.mjs';
 import { createPermissionRequest } from './tools.mjs';
 import {
 	buildCommitMessage,
@@ -1888,6 +1888,7 @@ async function runStagedPrompt({
 		responseChars: planCompletion.text.length,
 	});
 
+	let safeWriteSteering = null;
 	for (let stageIndex = 1; stageIndex <= maxExecutionStages; stageIndex += 1) {
 		const stageContext = await buildWorkspaceContext(io.cwd, {
 			environmentFacts,
@@ -1909,7 +1910,9 @@ async function runStagedPrompt({
 				? `Previous implementation turn made no file changes. Correct that now by returning 1-${maxStageWrites} files or patches.`
 				: '',
 			scratchpad ? `\n## Current staged plan\n${scratchpad}` : '',
+			safeWriteSteering ? `\n## Harness note\n${safeWriteSteering}` : '',
 		].join('\n');
+		safeWriteSteering = null;
 
 		const completion = await completeWithToolCalls(
 			options,
@@ -2030,6 +2033,36 @@ async function runStagedPrompt({
 				protectedPaths: protectedWritePaths(options),
 			});
 		} catch (error) {
+			if (stageIndex > 1 && error instanceof SafeWriteError) {
+				// Find ALL files[] entries that already exist on disk and list them
+				// in the next stage's prompt so the model uses edit_file/patches[].
+				const conflicts = (
+					await Promise.all(
+						(proposal.files ?? []).map(async (f) => {
+							try {
+								await access(join(io.cwd, f.path));
+								return f.path;
+							} catch {
+								return null;
+							}
+						}),
+					)
+				).filter(Boolean);
+				const listed =
+					conflicts.length > 0
+						? conflicts.map((p) => `\`${p}\``).join(', ')
+						: `\`${error.message}\``;
+				safeWriteSteering =
+					`These files already exist on disk. Use \`edit_file\` or ` +
+					`\`patches[]\` to modify them — \`files[]\` is only for new files: ${listed}.`;
+				stageRecords.push({
+					name: `implement-${stageIndex}`,
+					safeWriteSteer: true,
+					paths,
+					responseChars: completion.text.length,
+				});
+				continue;
+			}
 			writeError = {
 				message: error.message,
 				name: error.name,

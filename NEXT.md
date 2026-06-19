@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 215): `kodr check` is a comprehensive standalone
+Current frontier (phase 216): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
 `--fix`, and a path argument. Eight cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
@@ -51,6 +51,12 @@ the JSON proposal envelope instead of retrying the command.
 Phase 214 added a no-subprocess directive and server-startup port pattern to the
 `lang:node` builtin skill's HTTP integration test patterns section. Raises the
 native-mode budget test limit to 6100 chars.
+Phase 215 added W3 draft fallback to runStagedPrompt (mirrors main pipeline) and
+extended the Phase-213 run_command guard to intercept bare test-runner commands.
+Phase 216 intercepts SafeWriteError at stageIndex > 1 in runStagedPrompt: sets a
+steering note injected into the next stage's prompt and continues the loop instead
+of breaking. SafeWriteError at stage 1 still breaks. Added "use edit_file for
+existing files" to the write_file tool description.
 
 ## Candidates
 
@@ -58,19 +64,6 @@ native-mode budget test limit to 6100 chars.
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
-
-### Staged pipeline: SafeWriteError steering on implement-N overwrites
-Phase-215 dogfooding: draft fallback resolved ProposalMissingError but the run hit a
-new blocker — `SafeWriteError` when implement-2 tried to overwrite existing files via
-`files[]`. The model correctly diagnosed a bug in implement-1 and produced full fixed
-rewrites, but `protectExisting` blocked them. The run ended `ok:false` despite all 5
-corrected files being ready in the draft.
-Options: (1) when implement-N (N > 1) hits SafeWriteError, feed a steering message
-to the next stage: "Files already exist — use `edit_file`/`patches[]` to modify:
-[paths]"; (2) relax `protectExisting` for subsequent staged implementation turns
-since the user explicitly invoked staged execution to iteratively improve; (3) add
-"for existing files, use `edit_file`" to the `write_file` tool description so the
-model uses patches from the start.
 
 ### lang:node skill: server module-scope listen antipattern
 Phase-214 dogfooding: model wrote `app.listen(port)` at module scope in `server.mjs`

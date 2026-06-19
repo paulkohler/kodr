@@ -6579,6 +6579,206 @@ describe('route-auto in main() (Phase 141)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase 216 — runStagedPrompt SafeWriteError steering
+// ---------------------------------------------------------------------------
+
+describe('runStagedPrompt SafeWriteError steering (Phase 216)', () => {
+	it('stage 2 SafeWriteError continues loop with steering note, does not break', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p216-steer-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/answer.mjs","done"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write a new file — lands on disk.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const answer = 42;\n',
+								path: 'src/answer.mjs',
+							},
+						],
+						messages: [{ content: 'Wrote answer.mjs.', level: 'info' }],
+						scratchpad: '{"done":["create src/answer.mjs"],"next":"done"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: tries to overwrite the same file via files[] → SafeWriteError.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const answer = 99;\n',
+								path: 'src/answer.mjs',
+							},
+						],
+						messages: [{ content: 'Fixed answer.mjs.', level: 'info' }],
+						scratchpad: '{"done":["create src/answer.mjs"],"next":"done"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 3: returns STAGED_DONE — loop should reach here.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["all"],"next":""}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create src/answer.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p216-steer-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p216-steer-out', 'summary.json'), 'utf8'),
+			);
+
+			// Stage 2 SafeWriteError must not propagate as writeError — loop should continue.
+			assert.ok(
+				!summary.writeError || summary.writeError?.name !== 'SafeWriteError',
+				`Stage 2 SafeWriteError should not be fatal, got: ${summary.writeError?.name}`,
+			);
+			// Stage 2 record must carry safeWriteSteer:true.
+			const stage2 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-2',
+			);
+			assert.ok(stage2, 'implement-2 stage record must exist');
+			assert.equal(
+				stage2.safeWriteSteer,
+				true,
+				'implement-2 must have safeWriteSteer:true',
+			);
+			// Stage 3 request body must include the steering note.
+			const stage3Request = server.recordings.find((r) =>
+				(r.requestBody?.messages ?? []).some(
+					(m) =>
+						typeof m.content === 'string' && m.content.includes('Harness note'),
+				),
+			);
+			assert.ok(stage3Request, 'stage 3 prompt must contain Harness note');
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('stage 1 SafeWriteError still breaks the loop', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p216-stage1-'));
+		// Pre-create the file so stage 1 hits SafeWriteError immediately.
+		await mkdir(join(cwd, 'src'), { recursive: true });
+		await writeFile(join(cwd, 'src', 'existing.mjs'), 'export const x = 1;\n');
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["overwrite src/existing.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: tries to overwrite the pre-existing file via files[].
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const x = 99;\n',
+								path: 'src/existing.mjs',
+							},
+						],
+						messages: [{ content: 'Overwrote existing.mjs.', level: 'info' }],
+						scratchpad: '',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Overwrite src/existing.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p216-stage1-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p216-stage1-out', 'summary.json'), 'utf8'),
+			);
+
+			// Stage 1 SafeWriteError must propagate as a fatal writeError.
+			assert.equal(
+				summary.writeError?.name,
+				'SafeWriteError',
+				`expected SafeWriteError, got: ${summary.writeError?.name}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
 // Phase 215 — runStagedPrompt draft fallback
 // ---------------------------------------------------------------------------
 

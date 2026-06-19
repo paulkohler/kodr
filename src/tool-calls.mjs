@@ -868,8 +868,8 @@ export function createBuiltinRegistry(cwd, options = {}) {
 	registry.register('write_file', {
 		description:
 			applyMode === 'live'
-				? 'Write a complete file immediately to the workspace. The path is jailed and a backup is recorded so `kodr undo` works.'
-				: 'Propose writing a complete file. Records the path and content as a proposal entry — nothing is written to disk until the task completes and the harness applies the changes.',
+				? 'Write a complete file immediately to the workspace. The path is jailed and a backup is recorded so `kodr undo` works. For files that already exist on disk, use `edit_file` instead — `write_file` will be rejected if the file exists.'
+				: 'Propose writing a complete file. Records the path and content as a proposal entry — nothing is written to disk until the task completes and the harness applies the changes. For files that already exist on disk, use `edit_file` instead — `write_file` will be rejected if the file exists.',
 		parameters: {
 			type: 'object',
 			properties: {
