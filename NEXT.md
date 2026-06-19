@@ -65,26 +65,6 @@ Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
 
-### Staged pipeline: clear applied paths from proposalDraft after each stage
-Phase-216 dogfooding: SafeWriteError steering injected the correct ## Harness note
-but the model ignored it. Root cause: stage 3 read_file calls return
-`[pending write — not yet on disk]` for all 5 files even though stage 1 already
-applied them to disk — the paths are still in `proposalDraft`. The model trusts the
-tool response over the harness note and re-issues write_file.
-Fix: after each stage's `prepareChanges` succeeds (`writeResult.applied`), call
-something like `proposalDraft.clearPaths(appliedPaths)` to remove applied file paths
-from the draft buffer. Subsequent `read_file` calls then go to disk and return actual
-content. This makes the staged pipeline's read_file state consistent with reality
-after each stage commits.
-
-### lang:node skill: server module-scope listen antipattern
-Phase-214 dogfooding: model wrote `app.listen(port)` at module scope in `server.mjs`
-which exports `{ app, server }`. When tests import the module, the side-effect
-immediately binds port 3000, causing `EADDRINUSE` when `before()` tries `app.listen(0)`.
-Fix: add to `lang:node` skill: "Never call `app.listen()` at module scope in a file
-that exports `{ app, server }`. Guard the listen call with
-`if (import.meta.url === \`file://${process.argv[1]}\`) { app.listen(port); }`."
-
 ### Repeat-sentinel escalation after N identical tool calls
 Phase-214 dogfooding: model called `node --test` 9 times consecutively. Each returned
 `repeat:true` but the model never broke out. After N consecutive repeat sentinels

@@ -216,6 +216,9 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 214 lang:node Skill Test Teardown and Port Reinforcement
 - [x] 215 runStagedPrompt Tool-Channel Draft Fallback
 - [x] 216 Staged Pipeline SafeWriteError Steering
+- [x] 217 Staged Pipeline: Clear Applied Paths from ProposalDraft
+- [x] 218 lang:node Skill: Server Listen Guard and SQLite :memory: Pattern
+- [ ] 219 Repeat-Sentinel Escalation After N Identical Tool Calls
 
 ## Phase Contract
 

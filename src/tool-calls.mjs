@@ -145,6 +145,13 @@ export class ProposalDraft {
 		const entry = this._files.get(path);
 		return entry ? entry.content : null;
 	}
+
+	// Remove file entries for already-applied paths so read_file goes to disk.
+	clearFiles(paths) {
+		for (const path of paths) {
+			this._files.delete(path);
+		}
+	}
 }
 
 // Holds named tool definitions (schema + handler) and builds the tools array
@@ -414,13 +421,27 @@ export async function completeWithToolCalls(
 				let content;
 				if (seenToolCalls.has(callKey)) {
 					// Identical repeat — skip execution and steer the model back to a proposal.
-					content = JSON.stringify({
-						repeat: true,
-						message:
-							'This exact tool call was already made. Stop calling tools and return the final JSON proposal now.',
-					});
+					// Track count and escalate after N consecutive repeats.
+					const count = seenToolCalls.get(callKey) + 1;
+					seenToolCalls.set(callKey, count);
+					const ESCALATION_THRESHOLD = 3;
+					content =
+						count >= ESCALATION_THRESHOLD
+							? JSON.stringify({
+									repeat: true,
+									count,
+									message:
+										`You have made this identical tool call ${count} times. ` +
+										'Stop retrying. Return your final proposal now — the harness will apply writes and run verification automatically.',
+								})
+							: JSON.stringify({
+									repeat: true,
+									count,
+									message:
+										'This exact tool call was already made. Stop calling tools and return the final JSON proposal now.',
+								});
 				} else {
-					seenToolCalls.set(callKey, true);
+					seenToolCalls.set(callKey, 1);
 					try {
 						const raw = await registry.dispatch(toolName, toolArgs);
 						content =

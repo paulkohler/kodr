@@ -1017,6 +1017,352 @@ describe('completeWithToolCalls', () => {
 				typeof parsed.message === 'string',
 				'synthetic message should be present',
 			);
+			// Phase 219: first repeat returns count=2 (standard message, no escalation).
+			assert.equal(parsed.count, 2, 'first repeat should have count=2');
+			assert.ok(
+				!parsed.message.includes('Stop retrying'),
+				'first repeat should not use escalation message',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('F1 repeat-call escalation: third repeat (count=3) returns escalation message', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-repeat-esc-'));
+		await writeFile(join(cwd, 'a.txt'), 'content', 'utf8');
+		// Sequence: list_files × 4 (1 real + 3 repeats), then final answer.
+		const makeToolCallResponse = (id) => ({
+			method: 'POST',
+			url: '/v1/chat/completions',
+			body: {
+				choices: [
+					{
+						finish_reason: 'tool_calls',
+						message: {
+							content: null,
+							role: 'assistant',
+							tool_calls: [
+								{
+									id,
+									type: 'function',
+									function: { name: 'list_files', arguments: '{}' },
+								},
+							],
+						},
+					},
+				],
+				id: `chatcmpl_${id}`,
+				object: 'chat.completion',
+			},
+			status: 200,
+		});
+		const server = await startFakeModelServer({
+			responses: [
+				makeToolCallResponse('call_1'), // turn 1: real call
+				makeToolCallResponse('call_2'), // turn 2: repeat (count=2)
+				makeToolCallResponse('call_3'), // turn 3: repeat (count=3) — escalation
+				makeToolCallResponse('call_4'), // turn 4: repeat (count=4) — still escalation
+				{
+					// turn 5: final answer
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: '{"files":[]}', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_5',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 10,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'List files.',
+				'You are helpful.',
+				registry,
+			);
+
+			// call_2: first repeat → count=2, standard message.
+			const repeat2 = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_2',
+			);
+			assert.ok(repeat2, 'tool result for call_2 should exist');
+			const parsed2 = JSON.parse(repeat2.content);
+			assert.equal(parsed2.repeat, true);
+			assert.equal(parsed2.count, 2, 'second call should have count=2');
+			assert.ok(
+				!parsed2.message.includes('Stop retrying'),
+				'count=2 should not escalate',
+			);
+
+			// call_3: second repeat → count=3, escalation fires.
+			const repeat3 = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_3',
+			);
+			assert.ok(repeat3, 'tool result for call_3 should exist');
+			const parsed3 = JSON.parse(repeat3.content);
+			assert.equal(parsed3.repeat, true);
+			assert.equal(parsed3.count, 3, 'third call should have count=3');
+			assert.ok(
+				parsed3.message.includes('Stop retrying'),
+				'count=3 should escalate with Stop retrying',
+			);
+			assert.ok(
+				parsed3.message.includes('3'),
+				'escalation message should contain the count number',
+			);
+
+			// call_4: third repeat → count=4, escalation still fires.
+			const repeat4 = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_4',
+			);
+			assert.ok(repeat4, 'tool result for call_4 should exist');
+			const parsed4 = JSON.parse(repeat4.content);
+			assert.equal(parsed4.repeat, true);
+			assert.equal(parsed4.count, 4, 'fourth call should have count=4');
+			assert.ok(
+				parsed4.message.includes('Stop retrying'),
+				'count=4 should still escalate',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('F1 repeat-call escalation: different tool calls have independent counts', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-tc-repeat-indep-'));
+		await writeFile(join(cwd, 'a.txt'), 'content', 'utf8');
+		// Sequence: list_files × 3 (1 real + 2 repeats), read_file × 2 (1 real + 1 repeat), final.
+		const server = await startFakeModelServer({
+			responses: [
+				// turn 1: list_files (real, count→1)
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_lf_1',
+											type: 'function',
+											function: { name: 'list_files', arguments: '{}' },
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// turn 2: list_files repeat (count→2)
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_lf_2',
+											type: 'function',
+											function: { name: 'list_files', arguments: '{}' },
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_2',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// turn 3: list_files repeat (count→3, escalation)
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_lf_3',
+											type: 'function',
+											function: { name: 'list_files', arguments: '{}' },
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_3',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// turn 4: read_file with path=a.txt (real, independent count→1)
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_rf_1',
+											type: 'function',
+											function: {
+												name: 'read_file',
+												arguments: '{"path":"a.txt"}',
+											},
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_4',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// turn 5: read_file repeat (count→2, standard message — not escalated)
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_rf_2',
+											type: 'function',
+											function: {
+												name: 'read_file',
+												arguments: '{"path":"a.txt"}',
+											},
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_5',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// turn 6: final answer
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: '{"files":[]}', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_6',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 12,
+				stream: false,
+				timeoutMs: 5000,
+			};
+
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'List files then read.',
+				'You are helpful.',
+				registry,
+			);
+
+			// list_files escalated at call_lf_3 (count=3).
+			const lfRepeat3 = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_lf_3',
+			);
+			assert.ok(lfRepeat3, 'tool result for call_lf_3 should exist');
+			const parsedLf3 = JSON.parse(lfRepeat3.content);
+			assert.equal(
+				parsedLf3.count,
+				3,
+				'list_files third call should be count=3',
+			);
+			assert.ok(
+				parsedLf3.message.includes('Stop retrying'),
+				'list_files should escalate',
+			);
+
+			// read_file first repeat has count=2 (independent from list_files count).
+			const rfRepeat2 = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_rf_2',
+			);
+			assert.ok(rfRepeat2, 'tool result for call_rf_2 should exist');
+			const parsedRf2 = JSON.parse(rfRepeat2.content);
+			assert.equal(
+				parsedRf2.count,
+				2,
+				'read_file first repeat should be count=2',
+			);
+			assert.ok(
+				!parsedRf2.message.includes('Stop retrying'),
+				'read_file first repeat should NOT escalate (count=2 < threshold)',
+			);
 		} finally {
 			await server.close();
 		}
@@ -2037,6 +2383,36 @@ describe('ProposalDraft', () => {
 		draft.recordAlias('files');
 		draft.recordAlias('create_file');
 		assert.deepEqual(draft.aliasHits, { files: 2, create_file: 1 });
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 217 — ProposalDraft.clearFiles
+// ---------------------------------------------------------------------------
+
+describe('ProposalDraft.clearFiles', () => {
+	it('clearFiles removes entries so getCapturedContent returns null for cleared paths', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'content-a');
+		draft.recordFile('src/b.mjs', 'content-b');
+		draft.clearFiles(['src/a.mjs']);
+		assert.equal(draft.getCapturedContent('src/a.mjs'), null);
+	});
+
+	it('clearFiles does not affect entries for uncleared paths', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'content-a');
+		draft.recordFile('src/b.mjs', 'content-b');
+		draft.clearFiles(['src/a.mjs']);
+		assert.equal(draft.getCapturedContent('src/b.mjs'), 'content-b');
+	});
+
+	it('clearFiles with empty array is a no-op', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'content-a');
+		draft.clearFiles([]);
+		assert.equal(draft.getCapturedContent('src/a.mjs'), 'content-a');
+		assert.equal(draft.files.length, 1);
 	});
 });
 

@@ -2077,6 +2077,10 @@ async function runStagedPrompt({
 		}
 
 		allWrites.push(...writeResult.writes);
+		// Clear applied file paths from the shared draft so read_file in the next
+		// stage reads from disk rather than returning stale pending-write labels.
+		const appliedPaths = writeResult.writes.map((w) => w.path);
+		registry?.proposalDraft?.clearFiles(appliedPaths);
 		noProgressTurns = 0;
 		stageRecords.push({
 			applied: writeResult.applied,
