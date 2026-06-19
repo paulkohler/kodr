@@ -59,6 +59,21 @@ Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
 
+### lang:node skill: server module-scope listen antipattern
+Phase-214 dogfooding: model wrote `app.listen(port)` at module scope in `server.mjs`
+which exports `{ app, server }`. When tests import the module, the side-effect
+immediately binds port 3000, causing `EADDRINUSE` when `before()` tries `app.listen(0)`.
+Fix: add to `lang:node` skill: "Never call `app.listen()` at module scope in a file
+that exports `{ app, server }`. Guard the listen call with
+`if (import.meta.url === \`file://${process.argv[1]}\`) { app.listen(port); }`."
+
+### Repeat-sentinel escalation after N identical tool calls
+Phase-214 dogfooding: model called `node --test` 9 times consecutively. Each returned
+`repeat:true` but the model never broke out. After N consecutive repeat sentinels
+(N=2 or 3) for the same tool+args, escalate the response: "You have called this N
+times with identical arguments. Stop retrying — return your final proposal now." The
+current `repeat:true` JSON object is too weak to redirect the model.
+
 ### llms.txt doc-lookup pattern for skills
 When a skill covers a library or API with online docs, encode a `llms.txt`
 index URL as the fallback documentation source. Pattern observed in
