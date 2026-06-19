@@ -6427,6 +6427,35 @@ describe('extractPromptFilePaths (Phase 139)', () => {
 			'bullet bare name should be extracted',
 		);
 	});
+
+	// Phase 211 — route-path false positive suppression
+	it('does not extract path components from HTTP route descriptions', () => {
+		const prompt =
+			'The endpoint accepts uploads:\n- GET /files/test.txt — download a file\n- POST /api/v1/upload.json — upload endpoint';
+		const paths = extractPromptFilePaths(prompt);
+		assert.ok(
+			!paths.includes('files/test.txt'),
+			'files/test.txt from GET /files/test.txt should be excluded',
+		);
+		assert.ok(
+			!paths.includes('api/v1/upload.json'),
+			'api/v1/upload.json from POST /api/v1/upload.json should be excluded',
+		);
+	});
+
+	it('still extracts a workspace path that looks like a route segment when not preceded by /', () => {
+		const prompt =
+			'Create these files:\n- src/files/test.txt: sample upload fixture\n- api/v1/upload.json: schema';
+		const paths = extractPromptFilePaths(prompt);
+		assert.ok(
+			paths.includes('src/files/test.txt'),
+			'bullet-listed workspace path should be extracted',
+		);
+		assert.ok(
+			paths.includes('api/v1/upload.json'),
+			'bullet-listed path should be extracted',
+		);
+	});
 });
 
 // Phase 141 — route-auto: model resolved from run-history in main()

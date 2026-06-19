@@ -3142,6 +3142,8 @@ export function extractPromptFilePaths(promptText) {
 		const p = m[0];
 		// Skip node: specifiers, URLs, and version strings.
 		if (p.includes(':') || /^\d/.test(p)) continue;
+		// Skip URL path components — a preceding '/' means absolute route, not a workspace path.
+		if (m.index > 0 && stripped[m.index - 1] === '/') continue;
 		const ext = p.split('.').at(-1);
 		if (p.includes('/')) {
 			// Has a directory separator — unambiguously a path.

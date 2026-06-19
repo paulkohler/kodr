@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 210): `kodr check` is a comprehensive standalone
+Current frontier (phase 211): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
 `--fix`, and a path argument. Six cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
@@ -37,8 +37,9 @@ explicitly passed. Phase 210 added a `lang:rust` builtin skill (reqwest 0.12
 pin, serde derive, #[tokio::test] pattern, mod declaration) and Rust workspace
 detection via Cargo.toml; `renderLanguageGuidanceBlock` now dispatches on a
 language tag, making future lang:X skills plug-in without further pipeline
-changes. Also added a NEXT.md candidate for a `cargo tree -d` duplicate-version
-sensor in `kodr check`.
+changes. Phase 211 closed the remaining deliveryNudge false positive: path
+components from HTTP route descriptions (`files/test.txt` from `GET /files/test.txt`)
+are now suppressed by a single preceding-`/` guard in `extractPromptFilePaths`.
 
 ## Candidates
 
@@ -57,15 +58,6 @@ reaches the test runner. Complements the lang:rust skill pin guidance with a
 verification step. Needs design: sensor should only run when `Cargo.toml` is
 present and `cargo` is in PATH; report should name the conflicting crate and
 its versions.
-
-### deliveryNudge spurious nudge turn for route path strings
-Phase 208 fixed phantom file writes. A follow-on: the nudge still fires an
-extra model turn for route-like path strings with `/` (e.g. `files/test.txt`
-from `GET /files/test.txt` in a test bullet list). `recovered: []` so no files
-are written, but the wasted turn adds latency and tokens. Fix: filter
-`extractPromptFilePaths` results against paths that look like URL routes
-(start with a well-known route segment without a file extension, or follow
-`GET`/`POST`/etc.).
 
 ### llms.txt doc-lookup pattern for skills
 When a skill covers a library or API with online docs, encode a `llms.txt`

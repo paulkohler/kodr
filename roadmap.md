@@ -210,6 +210,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 208 deliveryNudge False-Positive Path Extraction Fix
 - [x] 209 Auto-disable Inspection Context for Thinking Models
 - [x] 210 lang:rust Builtin Skill and Rust Workspace Detection
+- [x] 211 deliveryNudge Route-Path False Positive Suppression
 
 ## Phase Contract
 
