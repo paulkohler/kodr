@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 213): `kodr check` is a comprehensive standalone
+Current frontier (phase 214): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
 `--fix`, and a path argument. Eight cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
@@ -44,6 +44,13 @@ Phase 212 added a `cargo-duplicates` sensor that runs `cargo tree -d --color=nev
 in Rust workspaces, parses top-level duplicate crate entries, and flags any crate
 that appears at two or more distinct semver major versions. Skips when no
 `Cargo.toml` is present or `cargo` is not in PATH.
+Phase 213 added a pending-write guard to the `run_command` handler: when
+`applyMode===proposal`, `proposalDraft` is non-empty, and the command contains a
+pending-write path, returns a synthetic error+hint telling the model to return
+the JSON proposal envelope instead of retrying the command.
+Phase 214 added a no-subprocess directive and server-startup port pattern to the
+`lang:node` builtin skill's HTTP integration test patterns section. Raises the
+native-mode budget test limit to 6100 chars.
 
 ## Candidates
 
@@ -76,14 +83,6 @@ builtin skill that has a known `llms.txt` (Express, SQLite, busboy, etc.) so
 the model has a live path to current API docs when its training data is stale.
 Note: kodr has no external skill registry yet — this applies only to builtin
 skills as they are added.
-
-### lang:node skill: closeAllConnections inline test example
-Phase-212 dogfooding: model's scratchpad said "closeAllConnections then server.close"
-but implementation used fork()+SIGTERM subprocess, bypassing the taught pattern.
-The skill's teardown example should show closeAllConnections in an *inline* test
-(standard `before`/`after` hook, not a subprocess). Port coercion (parseInt pattern)
-was also bypassed in favour of process.argv[2]. Adding concrete inline test examples
-for both patterns may improve adherence.
 
 ### Smoke-as-verification in the heal loop
 Phase 184 wired a smoke-driven second heal pass, but the in-loop verification

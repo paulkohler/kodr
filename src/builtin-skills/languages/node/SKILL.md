@@ -49,6 +49,8 @@ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 
 ## HTTP integration test patterns
 
+Always write integration tests inline with `before`/`after` hooks — never use `child_process.fork()`, `spawn()`, or `exec()` to start the server under test. Subprocess teardown bypasses `closeAllConnections` and assertion failures inside the subprocess don't propagate as test failures.
+
 **Server teardown** — `server.close()` alone leaves keep-alive connections open; `node --test` hangs for 600 s. Call `closeAllConnections` first:
 
 ```js
@@ -63,6 +65,13 @@ after(async () => {
 ```js
 let port;
 await new Promise(r => { server = app.listen(0, () => { port = server.address().port; r(); }); });
+```
+
+**Server startup port** — `process.env.PORT || 3000` is wrong when PORT is the string `"0"` (truthy, not coerced). Always parseInt:
+
+```js
+const port = parseInt(process.env.PORT) || 3000;
+server.listen(port, () => { console.log(`Listening on ${port}`); });
 ```
 
 ## busboy v1

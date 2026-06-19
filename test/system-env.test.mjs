@@ -428,10 +428,11 @@ describe('prompt budget guard', () => {
 			toolWritesMode: 'native',
 		});
 		const promptLen = context.systemPrompt.length;
-		// Phase 207 grew lang:node; current measured size: ~5292 chars. Limit raised to 5500.
+		// Phase 207 grew lang:node; ~5292 chars → 5500 limit.
+		// Phase 214 added no-subprocess directive + server-startup port pattern; ~5849 chars → 6100 limit.
 		assert.ok(
-			promptLen < 5500,
-			`Native mode system message must stay under 5500 chars; got ${promptLen} chars`,
+			promptLen < 6100,
+			`Native mode system message must stay under 6100 chars; got ${promptLen} chars`,
 		);
 	});
 

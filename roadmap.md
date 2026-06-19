@@ -213,6 +213,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 211 deliveryNudge Route-Path False Positive Suppression
 - [x] 212 Cargo Duplicate-Version Sensor
 - [x] 213 Staged Pipeline Pending-Write run_command Guard
+- [x] 214 lang:node Skill Test Teardown and Port Reinforcement
 
 ## Phase Contract
 
