@@ -198,6 +198,7 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 		_lspSet: false,
 		_maxCostUsdSet: false,
 		_maxRetriesSet: false,
+		_maxThinkingTokensSet: false,
 		_maxTokensSet: false,
 		_maxTurnsSet: false,
 		_modelSet: false,
@@ -811,15 +812,20 @@ export function parseArgs(argv, env = {}, cwd = process.cwd()) {
 	delete options._baseUrlSet;
 	delete options._completionReserveSet;
 	delete options._contextWindowSet;
+	delete options._editFormatSet;
+	delete options._firstTokenTimeoutSet;
 	delete options._healSet;
+	delete options._idleTimeoutSet;
 	delete options._inspectContextSet;
 	delete options._lspSet;
 	delete options._maxCostUsdSet;
 	delete options._maxRetriesSet;
+	delete options._maxThinkingTokensSet;
 	delete options._maxTokensSet;
 	delete options._maxTurnsSet;
 	delete options._modelEnvSet;
 	delete options._modelSet;
+	delete options._patchRetriesSet;
 	delete options._protectExistingSet;
 	delete options._sessionContextSet;
 	delete options._streamSet;
@@ -1001,7 +1007,7 @@ Usage:
   kodr tui [--session <run-id>]
   kodr tui --continue
   kodr serve [--host 127.0.0.1] [--port 8787] [--max-active-runs 1] [--web-dir path]
-  kodr inspect [--symbol name] [--file path] [--json]
+  kodr inspect [--symbol name] [--file path] [--languages js,py] [--json]
   kodr registry [--json]
   kodr run --show-files
   kodr run --show-context
@@ -1090,6 +1096,13 @@ OpenRouter:
   --prior-scratchpad   Path to a scratchpad file to inject into the user message.
                        Use "last" to read from the most recent run's scratchpad.
                        Truncated to 2000 characters. Skipped if empty.
+  --skill NAME         Force a discovered skill into context by name. Repeatable.
+                       Without it, skills auto-activate by relevance to the prompt.
+  --skills-dir DIR     Add a directory to the skill search path. Repeatable.
+                       Built-in skills and .kodr/skills are always searched.
+  --agent NAME         Run under a discovered persona agent (its system prompt
+                       and bundled skills). Defaults to the built-in Kodr persona.
+  --agents-dir DIR     Add a directory to the agent search path. Repeatable.
   --edit-format <whole|patch|blocks>
                        How the model formats file edits. Default: patch.
                          patch  — JSON patches/files envelope (default)
@@ -1140,6 +1153,17 @@ OpenRouter:
                        stalls the first-token deadline cannot (phase 126).
   --repair-timeout-ms N  Per-turn repair model timeout. Default: min(--timeout-ms, 240000).
   --review-timeout-ms N  Reviewer model timeout. Default: min(--timeout-ms, ${DEFAULT_REVIEW_TIMEOUT_MS}).
+  --test CMD           Verification command to run after applied writes.
+                       Allowlisted (npm test, npm run test, node --test, …).
+                       run/tui auto-detect one when unset; --no-test opts out.
+  --test-cwd PATH      Directory to run the verification command in. Default: cwd.
+  --no-test            Disable verification: skip auto-detection and clear any
+                       inherited --test/config test command for this run.
+  --patch-retries N    Patch-application repair attempts before giving up on a
+                       failed patch. Default: 2. --no-patch-retries sets it to 0.
+  --protect-existing   Refuse to overwrite existing files via files[] (use
+                       patches/edit_file instead). On by default;
+                       --no-protect-existing allows full-file overwrites.
   --install            Run controlled dependency install after applied writes.
                        Uses npm ci when package-lock.json exists, otherwise npm install.
   --heal               After failed verification, run a bounded repair loop.
@@ -1236,10 +1260,9 @@ Implemented library primitives:
 `;
 }
 
-// Commit exactly the proposal-applied files when --commit was requested and
-// the run is in a committable state: writes applied, no run errors, and tests
-// (when run) passing. Returns null when --commit was not requested, otherwise
-
+// assignValue maps a "--flag value" pair onto the options object. Flags that
+// take a value are gathered into the single OR block in parseArgs above; this
+// function does the per-flag assignment (and any per-flag sentinel bookkeeping).
 function assignValue(options, flag, value) {
 	if (flag === '--base-url') {
 		options.baseUrl = value.replace(/\/+$/u, '');

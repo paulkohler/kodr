@@ -87,6 +87,17 @@ Use inspection-aware context packing for a model run when you want Kodr to send 
 ./kodr run -p "Change runPrompt validation" --inspect-context
 ```
 
+Run the deterministic gates (syntax, smoke-check, cross-reference sensors) against the workspace without a model — useful as a pre-flight or CI check — and optionally install them as a git hook:
+
+```sh
+./kodr check                   # scan the workspace
+./kodr check --changed --strict # fast, git-aware, warnings fail (alias: --ci)
+./kodr check --fix             # repair findings with the local model, then re-check
+./kodr hook install            # gate commits on kodr check
+```
+
+See [usage.md](./usage.md#check-the-workspace) for the full check, hook, watch, and run-forensics (`why`, `trends`, `route`, `evals`) commands.
+
 ## Process
 
 Use [roadmap.md](./roadmap.md) as the phase index. Each phase has a spec under [phases/](./phases). Public learning notes live under [blog/](./blog). Small append-only records live under [process/](./process).

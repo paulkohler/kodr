@@ -1003,6 +1003,89 @@ The in-memory run registry is not durable: restarting `kodr serve` loses
 active-run state, while completed runs remain inspectable through `.kodr/runs`
 and the session routes.
 
+### Check The Workspace
+
+`kodr check` runs the deterministic gates — syntax gate, executable smoke-check,
+and cross-reference sensors — against the current workspace without calling a
+model. These are the same gates the run pipeline applies after every write, so
+`kodr check` is a fast pre-flight and CI diagnostic:
+
+```sh
+./kodr check                  # scan the whole workspace
+./kodr check src              # scan a sub-directory
+./kodr check --changed        # only git-modified files (fast)
+./kodr check --ci             # shorthand for --changed --strict
+./kodr check --strict         # promote advisory warnings to failures (exit 1)
+./kodr check --deep           # follow imports transitively for cycle detection
+./kodr check --json           # structured output for CI
+./kodr check --watch          # re-run on every file change (300ms debounce)
+```
+
+By default sensor warnings and smoke-check failures are advisory and do not fail
+the command; `--strict` (and `--ci`) make any warning exit non-zero. Disable
+individual sensors per project with a `sensors` block in `.kodr/config.json`
+(see [Project Config](#project-config)), or skip families with `--no-smoke` /
+`--no-sensors`.
+
+`--fix` turns a failing check into a repair run: Kodr synthesises a targeted
+prompt from the findings, hands it to the local model, applies the writes (like
+`kodr run`), then re-checks to show whether the repair worked:
+
+```sh
+./kodr check --fix
+```
+
+### Git Hooks
+
+`kodr hook` manages a git hook that gates commits and pushes on `kodr check`,
+with no external tooling (husky, lint-staged):
+
+```sh
+./kodr hook install            # pre-commit hook: kodr check --changed --strict
+./kodr hook install --pre-push # pre-push hook: kodr check --strict
+./kodr hook status             # report pre-commit / pre-push state
+./kodr hook status --json
+./kodr hook uninstall          # remove the kodr pre-commit hook
+./kodr hook uninstall --pre-push
+```
+
+Install and uninstall refuse to touch a hook Kodr did not write unless you pass
+`--force`. Override the baked-in command per project with a `hooks` block in
+`.kodr/config.json` (`{ "hooks": { "preCommit": "...", "prePush": "..." } }`).
+
+### Watch For Changes
+
+`kodr watch` re-runs a verification command on each file change and, on failure,
+proposes a repair as a pending review — it never auto-applies:
+
+```sh
+./kodr watch --test "npm test"
+```
+
+`--test` accepts the same allowlisted commands as `--heal` (`npm test`,
+`node --test`, …). Ctrl+C or SIGTERM stops the loop.
+
+### Run Forensics
+
+Kodr archives every run under `.kodr/runs` and exposes history commands that
+read those artifacts without calling a model:
+
+```sh
+./kodr why                     # explain the most recent run's outcome
+./kodr why <run-id>            # explain a specific run
+./kodr trends                  # success rate, latency, and sensor hit-rates
+./kodr trends --html > t.html  # standalone HTML dashboard
+./kodr trends --since <run-id> # compare a window against earlier runs
+./kodr trends --last 20
+./kodr route                   # recommend a model from run history
+./kodr route --apply           # write the recommendation to .kodr/config.json
+./kodr evals                   # eval-score trends from evals/results
+```
+
+`kodr run --route-auto` applies `kodr route`'s recommendation automatically at
+run start, but only when the model was not set explicitly by flag, env var, or
+project config.
+
 ## Terminal UI
 
 Start the line-oriented terminal UI:
