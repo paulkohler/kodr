@@ -29,6 +29,11 @@
 //   password/hash/secret/token/credential appears to be serialised or returned
 //   to callers (res.json, JSON.stringify, jwt.sign, return {…}). Advisory only.
 //
+// Phase 212: Cargo duplicate-version sensor.
+//   Runs `cargo tree -d` on Rust workspaces and flags crates that appear at
+//   multiple major versions in the dependency graph. Mixing reqwest 0.11 and
+//   0.12 causes reqwest::Client type conflicts the compiler rejects.
+//
 // Design:
 // - Run only when a write was applied and the sensor's file type was written.
 // - Return { sensor, status, checked, issues, message }.
@@ -37,6 +42,7 @@
 //   'skipped' = no relevant files in write set; sensor did not run.
 // - Zero runtime dependencies; Node.js 24 built-ins only.
 
+import { execFile as _execFileCallback } from 'node:child_process';
 import {
 	access,
 	mkdir,
@@ -55,6 +61,10 @@ import {
 	posix,
 	relative,
 } from 'node:path';
+import { promisify } from 'node:util';
+
+// Promisified execFile for subprocess calls (used by cargo sensor).
+const execFilePromise = promisify(_execFileCallback);
 
 // ---------------------------------------------------------------------------
 // Canonical sensor name registry (Phase 180)
@@ -68,6 +78,7 @@ export const SENSOR_NAMES = {
 	SECRET_IN_RESPONSE: 'secret-in-response',
 	SECRETS_AT_REST: 'secrets-at-rest',
 	EXPRESS_ASYNC_ROUTE: 'express-async-route',
+	CARGO_DUPLICATES: 'cargo-duplicates',
 };
 
 // Phase 188: per-sensor default severity.
@@ -81,6 +92,7 @@ export const SENSOR_SEVERITY = {
 	[SENSOR_NAMES.SECRET_IN_RESPONSE]: 'error',
 	[SENSOR_NAMES.SECRETS_AT_REST]: 'error',
 	[SENSOR_NAMES.EXPRESS_ASYNC_ROUTE]: 'error',
+	[SENSOR_NAMES.CARGO_DUPLICATES]: 'error',
 };
 
 // ---------------------------------------------------------------------------
@@ -1322,6 +1334,145 @@ export async function runExpressAsyncRouteSensor(cwd, writePaths) {
 }
 
 // ---------------------------------------------------------------------------
+// Cargo duplicate-version sensor (Phase 212)
+// ---------------------------------------------------------------------------
+//
+// Runs `cargo tree -d --color=never` in cwd and parses top-level lines
+// (no leading tree characters) matching /^([a-z][a-z0-9_-]*) v(\d+)\./.
+// Groups by crate name; any group with ≥ 2 distinct major versions is a
+// conflict — mixing reqwest 0.11 and 0.12 (hyper 0.14 vs hyper 1.x) causes
+// type-level incompatibilities that the compiler rejects.
+
+/**
+ * Run the cargo duplicate-version sensor on a Rust workspace.
+ * Skips when no Cargo.toml exists in cwd or cargo is not in PATH.
+ * Uses an injected _execFile for testability (defaults to promisified execFile).
+ *
+ * @param {string}   cwd
+ * @param {string[]} _paths   Unused; present to match the sensor interface.
+ * @param {object}   [opts]   { _execFile?: Function }
+ * @returns {Promise<{sensor: string, status: string, checked: number, issues: object[], message: string}>}
+ */
+export async function runCargoDuplicatesSensor(cwd, _paths, opts = {}) {
+	const execFn = opts._execFile ?? execFilePromise;
+
+	// Skip if no Cargo.toml in cwd
+	try {
+		await access(join(cwd, 'Cargo.toml'));
+	} catch {
+		return {
+			sensor: SENSOR_NAMES.CARGO_DUPLICATES,
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: 'no Cargo.toml in workspace root',
+		};
+	}
+
+	// Probe cargo availability
+	try {
+		await execFn('cargo', ['--version'], { timeout: 10_000 });
+	} catch (err) {
+		if (err.code === 'ENOENT') {
+			return {
+				sensor: SENSOR_NAMES.CARGO_DUPLICATES,
+				status: 'skipped',
+				checked: 0,
+				issues: [],
+				message: 'cargo not found in PATH',
+			};
+		}
+		// cargo --version returned non-zero — still treat as found; fall through
+	}
+
+	// Run cargo tree -d
+	let stdout;
+	let stderr;
+	try {
+		const result = await execFn('cargo', ['tree', '-d', '--color=never'], {
+			cwd,
+			timeout: 30_000,
+		});
+		stdout = result.stdout ?? '';
+		stderr = result.stderr ?? '';
+	} catch (err) {
+		// execFile rejects on non-zero exit
+		const msg =
+			(err.stderr ?? '').trim() || (err.message ?? 'cargo tree -d failed');
+		return {
+			sensor: SENSOR_NAMES.CARGO_DUPLICATES,
+			status: 'skipped',
+			checked: 0,
+			issues: [],
+			message: `cargo tree exited non-zero: ${msg}`,
+		};
+	}
+
+	// Parse top-level lines (no leading tree characters, no leading whitespace)
+	// Format: "reqwest v0.11.24\n└── hyper v0.14.32\n..."
+	const TOP_LEVEL_RE = /^([a-z][a-z0-9_-]*) v(\d+)\.\d+/u;
+	/** @type {Map<string, Set<number>>} */
+	const majorsByName = new Map();
+
+	for (const line of stdout.split('\n')) {
+		// Skip lines with leading tree characters, whitespace, or brackets
+		if (/^[\s├└│\[]/u.test(line)) continue;
+		const m = TOP_LEVEL_RE.exec(line);
+		if (!m) continue;
+		const name = m[1];
+		const major = Number.parseInt(m[2], 10);
+		if (!majorsByName.has(name)) majorsByName.set(name, new Set());
+		majorsByName.get(name).add(major);
+	}
+
+	// Find conflicts: same crate at ≥ 2 distinct major versions
+	const conflicts = [];
+	for (const [name, majors] of majorsByName) {
+		if (majors.size >= 2) {
+			conflicts.push({
+				name,
+				versions: [...majors].sort((a, b) => a - b).map((v) => `v${v}`),
+			});
+		}
+	}
+
+	const checked = conflicts.length;
+
+	if (conflicts.length === 0) {
+		return {
+			checked: majorsByName.size,
+			issues: [],
+			message: `${majorsByName.size} crate${majorsByName.size !== 1 ? 's' : ''} ok — no major-version duplicates`,
+			sensor: SENSOR_NAMES.CARGO_DUPLICATES,
+			status: 'ok',
+		};
+	}
+
+	const issues = conflicts.map(({ name, versions }) => ({
+		sensor: SENSOR_NAMES.CARGO_DUPLICATES,
+		path: 'Cargo.toml',
+		line: 0,
+		message: `${name}: multiple major versions in dep graph (${versions.join(', ')})`,
+		severity: SENSOR_SEVERITY[SENSOR_NAMES.CARGO_DUPLICATES],
+	}));
+
+	const summary = conflicts
+		.slice(0, 3)
+		.map(({ name, versions }) => `${name} (${versions.join(', ')})`)
+		.join('; ');
+	const extra = conflicts.length > 3 ? ` (+${conflicts.length - 3} more)` : '';
+
+	return {
+		checked,
+		issues,
+		message: `${conflicts.length} crate${conflicts.length !== 1 ? 's' : ''} with major-version duplicates: ${summary}${extra}`,
+		sensor: SENSOR_NAMES.CARGO_DUPLICATES,
+		severity: SENSOR_SEVERITY[SENSOR_NAMES.CARGO_DUPLICATES],
+		status: 'warn',
+	};
+}
+
+// ---------------------------------------------------------------------------
 // Convenience gate: run all cross-ref sensors when a write was applied
 // ---------------------------------------------------------------------------
 
@@ -1379,6 +1530,7 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 		secrets,
 		secretsAtRest,
 		asyncRoute,
+		cargoDuplicates,
 	] = await Promise.all([
 		skip(SENSOR_NAMES.COMPOSE_DOCKERFILE) ??
 			runComposeDockerfileSensor(cwd, paths),
@@ -1391,6 +1543,7 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 		skip(SENSOR_NAMES.SECRETS_AT_REST) ?? runSecretsAtRestSensor(cwd, paths),
 		skip(SENSOR_NAMES.EXPRESS_ASYNC_ROUTE) ??
 			runExpressAsyncRouteSensor(cwd, paths),
+		skip(SENSOR_NAMES.CARGO_DUPLICATES) ?? runCargoDuplicatesSensor(cwd, paths),
 	]);
 
 	// Omit sensors that skipped (no relevant files or disabled) to keep summary lean
@@ -1402,6 +1555,7 @@ export async function runCrossRefSensors(cwd, writeResult, opts = {}) {
 		secrets,
 		secretsAtRest,
 		asyncRoute,
+		cargoDuplicates,
 	].filter((r) => r.status !== 'skipped');
 }
 

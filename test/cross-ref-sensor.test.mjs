@@ -26,6 +26,7 @@ import {
 	runSecretsAtRestSensor,
 	scanExpressAsyncRoutes,
 	runExpressAsyncRouteSensor,
+	runCargoDuplicatesSensor,
 	runCrossRefSensors,
 	runCrossRefSensorsOnProposal,
 } from '../src/cross-ref-sensor.mjs';
@@ -777,9 +778,9 @@ describe('runCrossRefSensors', () => {
 // SENSOR_NAMES registry
 // ---------------------------------------------------------------------------
 describe('SENSOR_NAMES', () => {
-	it('exports all seven canonical names', () => {
+	it('exports all eight canonical names', () => {
 		const names = Object.values(SENSOR_NAMES);
-		assert.equal(names.length, 7);
+		assert.equal(names.length, 8);
 		assert.ok(names.includes('compose-dockerfile'));
 		assert.ok(names.includes('css-selector'));
 		assert.ok(names.includes('local-import'));
@@ -787,6 +788,7 @@ describe('SENSOR_NAMES', () => {
 		assert.ok(names.includes('secret-in-response'));
 		assert.ok(names.includes('secrets-at-rest'));
 		assert.ok(names.includes('express-async-route'));
+		assert.ok(names.includes('cargo-duplicates'));
 	});
 
 	it('SENSOR_SEVERITY has error/warning entry for every sensor', () => {
@@ -1196,5 +1198,126 @@ describe('runCrossRefSensors sensorToggles (Phase 193)', () => {
 			results.some((r) => r.sensor === SENSOR_NAMES.IMPORT_CYCLES),
 			'import-cycles should still fire when toggle is true',
 		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// runCargoDuplicatesSensor (Phase 212)
+// ---------------------------------------------------------------------------
+
+describe('runCargoDuplicatesSensor', () => {
+	let cwd;
+	beforeEach(async () => {
+		cwd = await mkdtemp(join(tmpdir(), 'cargo-dup-test-'));
+	});
+	afterEach(async () => {
+		await rm(cwd, { recursive: true, force: true });
+	});
+
+	it('skips when Cargo.toml is absent', async () => {
+		// cwd has no Cargo.toml
+		const result = await runCargoDuplicatesSensor(cwd, []);
+		assert.equal(result.sensor, SENSOR_NAMES.CARGO_DUPLICATES);
+		assert.equal(result.status, 'skipped');
+		assert.ok(result.message.includes('Cargo.toml'));
+	});
+
+	it('skips when cargo is not in PATH (mock ENOENT)', async () => {
+		// Create Cargo.toml so the access check passes
+		await writeFile(join(cwd, 'Cargo.toml'), '[package]\nname = "test"\n');
+
+		// Mock execFile that throws ENOENT on `cargo --version`
+		const mockExec = async (cmd, args) => {
+			if (args[0] === '--version') {
+				const err = new Error('spawn cargo ENOENT');
+				err.code = 'ENOENT';
+				throw err;
+			}
+			return { stdout: '', stderr: '' };
+		};
+
+		const result = await runCargoDuplicatesSensor(cwd, [], {
+			_execFile: mockExec,
+		});
+		assert.equal(result.status, 'skipped');
+		assert.ok(result.message.includes('cargo not found in PATH'));
+	});
+
+	it('returns ok when cargo tree -d reports no major-version duplicates', async () => {
+		await writeFile(join(cwd, 'Cargo.toml'), '[package]\nname = "test"\n');
+
+		// Mock: cargo --version ok; cargo tree -d returns crates at one major each
+		const mockExec = async (_cmd, args) => {
+			if (args[0] === '--version')
+				return { stdout: 'cargo 1.78.0', stderr: '' };
+			// args: ['tree', '-d', '--color=never']
+			return {
+				stdout: [
+					'serde v1.0.200',
+					'└── serde_derive v1.0.200',
+					'tokio v1.38.0',
+					'└── tokio-macros v2.2.0',
+				].join('\n'),
+				stderr: '',
+			};
+		};
+
+		const result = await runCargoDuplicatesSensor(cwd, [], {
+			_execFile: mockExec,
+		});
+		assert.equal(result.status, 'ok');
+		assert.equal(result.issues.length, 0);
+	});
+
+	it('returns warn with one issue when two major versions of the same crate appear', async () => {
+		await writeFile(join(cwd, 'Cargo.toml'), '[package]\nname = "test"\n');
+
+		// Two top-level entries for hyper at different semver majors (0 vs 1).
+		// reqwest 0.11 brings in hyper 0.14; reqwest 0.12 brings in hyper 1.x —
+		// the duplicate hyper entries surface as top-level roots in `cargo tree -d`.
+		const mockExec = async (_cmd, args) => {
+			if (args[0] === '--version')
+				return { stdout: 'cargo 1.78.0', stderr: '' };
+			return {
+				stdout: [
+					'hyper v0.14.32',
+					'└── h2 v0.3.26',
+					'hyper v1.6.0',
+					'└── h2 v0.4.7',
+				].join('\n'),
+				stderr: '',
+			};
+		};
+
+		const result = await runCargoDuplicatesSensor(cwd, [], {
+			_execFile: mockExec,
+		});
+		assert.equal(result.status, 'warn');
+		assert.equal(result.issues.length, 1);
+		assert.ok(result.issues[0].message.includes('hyper'));
+		assert.ok(result.issues[0].message.includes('v0'));
+		assert.ok(result.issues[0].message.includes('v1'));
+		assert.equal(result.issues[0].path, 'Cargo.toml');
+		assert.equal(result.issues[0].severity, 'error');
+	});
+
+	it('skips with message when cargo tree -d exits non-zero', async () => {
+		await writeFile(join(cwd, 'Cargo.toml'), '[package]\nname = "test"\n');
+
+		const mockExec = async (_cmd, args) => {
+			if (args[0] === '--version')
+				return { stdout: 'cargo 1.78.0', stderr: '' };
+			// Simulate non-zero exit
+			const err = new Error('Command failed');
+			err.code = 1;
+			err.stderr = 'error[E0000]: could not find Cargo.lock';
+			throw err;
+		};
+
+		const result = await runCargoDuplicatesSensor(cwd, [], {
+			_execFile: mockExec,
+		});
+		assert.equal(result.status, 'skipped');
+		assert.ok(result.message.includes('cargo tree exited non-zero'));
 	});
 });

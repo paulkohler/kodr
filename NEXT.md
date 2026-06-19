@@ -6,9 +6,9 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 211): `kodr check` is a comprehensive standalone
+Current frontier (phase 212): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
-`--fix`, and a path argument. Six cross-reference sensors (canonical name registry +
+`--fix`, and a path argument. Eight cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
 `kodr hook install/status/uninstall` manage pre-commit and pre-push gates;
 `.kodr/config.json` `hooks` block customises the baked-in command.
@@ -40,6 +40,10 @@ language tag, making future lang:X skills plug-in without further pipeline
 changes. Phase 211 closed the remaining deliveryNudge false positive: path
 components from HTTP route descriptions (`files/test.txt` from `GET /files/test.txt`)
 are now suppressed by a single preceding-`/` guard in `extractPromptFilePaths`.
+Phase 212 added a `cargo-duplicates` sensor that runs `cargo tree -d --color=never`
+in Rust workspaces, parses top-level duplicate crate entries, and flags any crate
+that appears at two or more distinct semver major versions. Skips when no
+`Cargo.toml` is present or `cargo` is not in PATH.
 
 ## Candidates
 
@@ -47,17 +51,6 @@ are now suppressed by a single preceding-`/` guard in `extractPromptFilePaths`.
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
-
-### cargo duplicate-version sensor in kodr check
-`cargo tree -d` lists crates that appear at multiple versions in the dependency
-graph. Mixing reqwest 0.11 and 0.12 (or tokio 0.x and 1.x) in a workspace
-causes `reqwest::Client` type conflicts at crate boundaries that the compiler
-rejects. A `kodr check` sensor that runs `cargo tree -d` on Rust workspaces
-and flags multi-major duplicates would catch this before the model's output
-reaches the test runner. Complements the lang:rust skill pin guidance with a
-verification step. Needs design: sensor should only run when `Cargo.toml` is
-present and `cargo` is in PATH; report should name the conflicting crate and
-its versions.
 
 ### llms.txt doc-lookup pattern for skills
 When a skill covers a library or API with online docs, encode a `llms.txt`
