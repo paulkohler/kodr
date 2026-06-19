@@ -1019,8 +1019,14 @@ export function createBuiltinRegistry(cwd, options = {}) {
 									? 'the replacement block already exists in the file — applying it would create a duplicate; edit the existing occurrence or use write_file for the full file'
 									: fp.reason;
 					const regionHint = fp.region ? `\nClosest region:\n${fp.region}` : '';
+					// duplicate_block is a replacement-content problem, not a search
+					// miss, so the reasonLabel is self-contained — skip the recheck hint.
+					const recheckHint =
+						fp.reason === 'duplicate_block'
+							? ''
+							: ' Recheck your search text against the current file content.';
 					return JSON.stringify({
-						error: `edit_file patch failed: ${reasonLabel}. Recheck your search text against the current file content.${regionHint}`,
+						error: `edit_file patch failed: ${reasonLabel}.${recheckHint}${regionHint}`,
 					});
 				}
 				// Capture the write record (hash + backupPath) for kodr undo.
