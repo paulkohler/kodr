@@ -463,10 +463,18 @@ export async function runCheckWatch(options, io, signal) {
 	const onSigint = () => ac.abort();
 	process.once('SIGINT', onSigint);
 	if (signal) {
-		signal.addEventListener('abort', () => ac.abort(), { once: true });
+		// The caller's signal may have already fired during the initial runCheck
+		// above (which can outlast a short abort timer). addEventListener does not
+		// replay a past 'abort', so check .aborted explicitly — otherwise the
+		// watch loop below would block forever waiting for file events that never
+		// arrive, leaking the fs.watch handle and hanging the process.
+		if (signal.aborted) ac.abort();
+		else signal.addEventListener('abort', () => ac.abort(), { once: true });
 	}
 
 	try {
+		// An already-aborted signal makes fs.watch reject on first iteration
+		// (AbortError, handled below), so the guard plus this loop terminate cleanly.
 		watcher = watch(cwd, { recursive: true, signal: ac.signal });
 		for await (const event of watcher) {
 			if (ac.signal.aborted) break;

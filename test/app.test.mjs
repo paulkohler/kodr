@@ -500,10 +500,21 @@ describe('parseArgs', () => {
 		assert.equal(opts.configSources.heal, 'builtin');
 	});
 
-	it('inspectContext defaults to auto', () => {
-		const opts = parseArgs(['run', '-p', 'task'], {});
-		assert.equal(opts.inspectContext, 'auto');
-		assert.equal(opts.configSources.inspectContext, 'builtin');
+	it('inspectContext: built-in default is auto, but the default thinking model disables it', () => {
+		// The built-in default is 'auto'. The repo default model (qwen3.6) is a
+		// wireNoStream thinking profile, and phase 209 disables inspection context
+		// for those unless --inspect-context is passed. So the no-flag resolved
+		// value is false, while a non-thinking model leaves it 'auto'.
+		const dflt = parseArgs(['run', '-p', 'task'], {});
+		assert.equal(dflt.inspectContext, false);
+		assert.equal(dflt.configSources.inspectContext, 'builtin');
+
+		const streaming = parseArgs(['run', '-p', 'task', '--model', 'plain'], {});
+		assert.equal(streaming.inspectContext, 'auto');
+
+		const forced = parseArgs(['run', '-p', 'task', '--inspect-context'], {});
+		assert.equal(forced.inspectContext, true);
+		assert.equal(forced.configSources.inspectContext, 'flag');
 	});
 
 	it('--no-tools forces tools off and beats profile', () => {
@@ -1952,6 +1963,12 @@ describe('run', () => {
 					'Stream a response.',
 					'--base-url',
 					server.baseUrl,
+					// Pin a model with no profile match so the fallback profile applies
+					// (streaming wire, envelope mode). The default model qwen3.6 is a
+					// wireNoStream thinking model, which would send stream:false and
+					// reject the fake server's SSE body as invalid JSON.
+					'--model',
+					'stream-test-model',
 					'--stream',
 					'--timeout-ms',
 					'1000',
@@ -2358,6 +2375,13 @@ describe('run', () => {
 					'Update README',
 					'--base-url',
 					server.baseUrl,
+					// Envelope mode: the canned response is a JSON proposal envelope.
+					// The default qwen3.6 profile uses native tool calls, which would
+					// not treat the single envelope response as captured writes.
+					'--no-tools',
+					// README.md already exists; phase 202 protects existing files from
+					// files[] overwrites, so opt out to let the envelope rewrite it.
+					'--no-protect-existing',
 					'--dry-run',
 				],
 				{
@@ -3367,7 +3391,10 @@ describe('run', () => {
 		}
 	});
 
-	// Phase 97: stream auto-resolution; Phase 113: wire always streams
+	// Phase 97: stream auto-resolution; Phase 113: wire streams by default.
+	// Pin a model with no profile match so the streaming default applies — the
+	// repo default qwen3.6 is a wireNoStream profile (phase 205) and would send
+	// stream:false (that exception is covered by the --wire-no-stream test below).
 	it('wire always sends stream:true regardless of TTY/--no-stream (phase 113)', async () => {
 		const server = await startFakeModelServer();
 
@@ -3380,6 +3407,8 @@ describe('run', () => {
 					'task',
 					'--base-url',
 					server.baseUrl,
+					'--model',
+					'stream-test-model',
 					'--timeout-ms',
 					'1000',
 					'--no-tools',
@@ -3405,6 +3434,9 @@ describe('run', () => {
 					'task',
 					'--base-url',
 					server.baseUrl,
+					// Streaming-default model; see the phase-113 test above.
+					'--model',
+					'stream-test-model',
 					'--timeout-ms',
 					'1000',
 					'--no-tools',

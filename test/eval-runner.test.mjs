@@ -547,7 +547,16 @@ describe('runWorkspaceCase — scripted proposals', () => {
 				],
 			};
 
-			const options = makeOptions(server.baseUrl);
+			// Envelope mode: the scripted response is a JSON proposal envelope.
+			// fake-model resolves to a nativeToolCalls fallback profile, so tools
+			// default on; force them off so the envelope's files[] are applied.
+			// tests/utils.mjs already exists, so opt out of phase-202 protectExisting
+			// (files[] is otherwise refused for existing paths).
+			const options = {
+				...makeOptions(server.baseUrl),
+				tools: false,
+				protectExisting: false,
+			};
 			const result = await runWorkspaceCase(
 				evalCase,
 				fixtureDir,

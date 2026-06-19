@@ -249,7 +249,9 @@ describe('parseArgs precedence', () => {
 		// stream and heal stay 'auto' until resolved in main()
 		assert.equal(opts.stream, 'auto');
 		assert.equal(opts.heal, 'auto');
-		assert.equal(opts.inspectContext, 'auto');
+		// inspectContext starts 'auto' but phase 209 resolves it to false for the
+		// default model's wireNoStream thinking profile (unless --inspect-context).
+		assert.equal(opts.inspectContext, false);
 		assert.equal(opts.testCommand, '');
 		assert.equal(opts.maxTurns, 8);
 		assert.equal(opts.maxRetries, 7);

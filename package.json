@@ -7,7 +7,7 @@
     "kodr": "./bin/kodr.mjs"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs packages/repomap/test/*.test.mjs",
+    "test": "node --test --test-timeout=60000 test/*.test.mjs packages/repomap/test/*.test.mjs",
     "check": "node --check bin/*.mjs && node --check src/*.mjs && node --check test/*.mjs && node --check test-support/*.mjs && node --check packages/repomap/src/*.mjs && node --check packages/repomap/test/*.mjs && npm run cversion && npm run build-skills -- --check",
     "cversion": "node bin/cversion.mjs --check",
     "build-skills": "node bin/build-skills.mjs",

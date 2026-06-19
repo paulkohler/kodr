@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { runCheck, runCheckWatch } from '../src/commands/check.mjs';
+import { SENSOR_NAMES } from '../src/cross-ref-sensor.mjs';
 
 function makeIo(cwd) {
 	const chunks = [];
@@ -103,10 +104,16 @@ describe('runCheck', () => {
 		await runCheck({ smoke: false, sensors: false, json: true }, io);
 		const parsed = JSON.parse(io._output());
 		assert.ok(Array.isArray(parsed.sensorRegistry));
-		assert.equal(parsed.sensorRegistry.length, 6);
-		assert.ok(parsed.sensorRegistry.includes('compose-dockerfile'));
-		assert.ok(parsed.sensorRegistry.includes('secret-in-response'));
-		assert.ok(parsed.sensorRegistry.includes('secrets-at-rest'));
+		// Assert against the canonical registry so adding a sensor does not leave
+		// this count stale (phases 203/212 grew it from 6 to 8).
+		const canonical = Object.values(SENSOR_NAMES);
+		assert.equal(parsed.sensorRegistry.length, canonical.length);
+		for (const name of canonical) {
+			assert.ok(
+				parsed.sensorRegistry.includes(name),
+				`sensorRegistry should include ${name}`,
+			);
+		}
 	});
 
 	// Phase 200: fixPrompt included in --json when there are sensor issues
