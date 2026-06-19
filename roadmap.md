@@ -223,6 +223,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 221 Staged Pipeline: Raise maxStageWrites to 8
 - [x] 222 Staged Pipeline: Auto npm install After package.json Apply
 - [x] 223 Staged Hardening: Completion Signal, Path Dedup, FTS5 Skill
+- [x] 224 Stage Auto-Advance on Zero New Unique Writes
 
 ## Phase Contract
 

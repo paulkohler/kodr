@@ -6811,6 +6811,478 @@ describe('runStagedPrompt SafeWriteError steering (Phase 216)', () => {
 	});
 });
 
+// Phase 224 — runStagedPrompt zero-new-write auto-advance
+// ---------------------------------------------------------------------------
+
+describe('runStagedPrompt zero-new-write auto-advance (Phase 224)', () => {
+	it('safeWriteSteer then zero-write stage auto-completes without STAGED_DONE', async () => {
+		// Stage 1 writes new src/answer.mjs (applies).
+		// Stage 2 re-writes it via files[] → SafeWriteError → safeWriteSteer.
+		// Stage 3 returns zero files with no STAGED_DONE messages.
+		// Expected: harness treats stage 3 as implicitDone; staged.done===true; no StagedIncompleteError.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p224-steer-zero-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write new file — applies.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const answer = 42;\n',
+								path: 'src/answer.mjs',
+							},
+						],
+						messages: [{ content: 'Wrote answer.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: re-writes via files[] → SafeWriteError → steer fires.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const answer = 99;\n',
+								path: 'src/answer.mjs',
+							},
+						],
+						messages: [{ content: 'Update answer.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 3: zero files, no STAGED_DONE — harness must auto-complete.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'All looks good.', level: 'info' }],
+						scratchpad: '{"done":["src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Create src/answer.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p224-steer-zero-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(
+					join(cwd, 'p224-steer-zero-out', 'summary.json'),
+					'utf8',
+				),
+			);
+
+			// No StagedIncompleteError.
+			assert.ok(
+				!summary.writeError ||
+					summary.writeError?.name !== 'StagedIncompleteError',
+				`Should not produce StagedIncompleteError, got: ${summary.writeError?.name}`,
+			);
+			// staged.done must be true.
+			assert.equal(summary.staged?.done, true, 'staged.done must be true');
+			// implement-3 must carry implicitDone:true.
+			const stage3 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-3',
+			);
+			assert.ok(stage3, 'implement-3 stage record must exist');
+			assert.equal(
+				stage3.implicitDone,
+				true,
+				'implement-3 must have implicitDone:true',
+			);
+			// src/answer.mjs must contain stage-1 content (stage-2 steer did not overwrite).
+			const content = await readFile(join(cwd, 'src', 'answer.mjs'), 'utf8');
+			assert.equal(
+				content,
+				'export const answer = 42;\n',
+				'src/answer.mjs must keep stage-1 content',
+			);
+			// Loop must not have reached maxExecutionStages.
+			const stageCount = summary.staged?.stages?.length ?? 0;
+			assert.ok(
+				stageCount < (summary.staged?.maxExecutionStages ?? 8) + 1,
+				`stages count (${stageCount}) should be below the cap`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('two consecutive safeWriteSteer stages auto-complete (second steer triggers implicitDone)', async () => {
+		// Stage 1 writes new src/a.mjs.
+		// Stage 2 re-writes via files[] → first steer (safeWriteSteered=true).
+		// Stage 3 re-writes via files[] again → second steer → implicitDone triggered immediately.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p224-dbl-steer-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/a.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write new file.
+				{
+					body: proposalResponse({
+						files: [{ content: 'export const a = 1;\n', path: 'src/a.mjs' }],
+						messages: [{ content: 'Wrote a.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/a.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: re-writes via files[] → first steer.
+				{
+					body: proposalResponse({
+						files: [{ content: 'export const a = 2;\n', path: 'src/a.mjs' }],
+						messages: [{ content: 'Update a.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/a.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 3: re-writes via files[] again → second steer → implicitDone.
+				{
+					body: proposalResponse({
+						files: [{ content: 'export const a = 3;\n', path: 'src/a.mjs' }],
+						messages: [{ content: 'Update a.mjs again.', level: 'info' }],
+						scratchpad: '{"done":["src/a.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Create src/a.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p224-dbl-steer-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p224-dbl-steer-out', 'summary.json'), 'utf8'),
+			);
+
+			// No StagedIncompleteError.
+			assert.ok(
+				!summary.writeError ||
+					summary.writeError?.name !== 'StagedIncompleteError',
+				`Should not produce StagedIncompleteError, got: ${summary.writeError?.name}`,
+			);
+			// implement-2 must have safeWriteSteer:true.
+			const stage2 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-2',
+			);
+			assert.ok(stage2, 'implement-2 stage record must exist');
+			assert.equal(
+				stage2.safeWriteSteer,
+				true,
+				'implement-2 must have safeWriteSteer:true',
+			);
+			// implement-3 must have implicitDone:true.
+			const stage3 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-3',
+			);
+			assert.ok(stage3, 'implement-3 stage record must exist');
+			assert.equal(
+				stage3.implicitDone,
+				true,
+				'implement-3 must have implicitDone:true',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('real write between steers resets flag — does NOT auto-complete on next zero-path stage', async () => {
+		// Stage 1 writes src/a.mjs.
+		// Stage 2 re-writes it → steer (safeWriteSteered=true).
+		// Stage 3 writes new src/b.mjs → real write resets flag (safeWriteSteered=false).
+		// Stage 4 returns zero paths, no STAGED_DONE.
+		// Expected: stage 4 is noProgress:true (not implicitDone), src/b.mjs exists.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p224-reset-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/a.mjs","create src/b.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write src/a.mjs.
+				{
+					body: proposalResponse({
+						files: [{ content: 'export const a = 1;\n', path: 'src/a.mjs' }],
+						messages: [{ content: 'Wrote a.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/a.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: re-writes src/a.mjs via files[] → steer.
+				{
+					body: proposalResponse({
+						files: [{ content: 'export const a = 2;\n', path: 'src/a.mjs' }],
+						messages: [{ content: 'Update a.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/a.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 3: write new src/b.mjs → real write resets safeWriteSteered.
+				{
+					body: proposalResponse({
+						files: [{ content: 'export const b = 2;\n', path: 'src/b.mjs' }],
+						messages: [{ content: 'Wrote b.mjs.', level: 'info' }],
+						scratchpad: '{"done":["src/a.mjs","src/b.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 4: zero paths, no STAGED_DONE — flag was reset so NO implicitDone.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Nothing left.', level: 'info' }],
+						scratchpad: '{"done":["all"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 5: STAGED_DONE to cleanly exit (avoid StagedIncompleteError from cap).
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["all"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Create src/a.mjs and src/b.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p224-reset-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p224-reset-out', 'summary.json'), 'utf8'),
+			);
+
+			// Stage 4 must be noProgress:true, NOT implicitDone.
+			const stage4 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-4',
+			);
+			assert.ok(stage4, 'implement-4 stage record must exist');
+			assert.equal(
+				stage4.noProgress,
+				true,
+				'implement-4 must have noProgress:true',
+			);
+			assert.ok(!stage4.implicitDone, 'implement-4 must NOT have implicitDone');
+			// src/b.mjs must exist (stage 3 applied).
+			const bContent = await readFile(join(cwd, 'src', 'b.mjs'), 'utf8');
+			assert.equal(
+				bContent,
+				'export const b = 2;\n',
+				'src/b.mjs must exist with stage-3 content',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('zero-write stage with no prior steer records noProgress, not implicitDone', async () => {
+		// Stage 1 returns zero paths, no STAGED_DONE, no prior steer.
+		// Expected: noProgress:true, no implicitDone, done stays false.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p224-no-prior-steer-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create something"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: zero paths, no STAGED_DONE, no prior steer.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Thinking...', level: 'info' }],
+						scratchpad: '{"plan":["create something"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 2: STAGED_DONE to cleanly exit (avoids StagedIncompleteError).
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Create something',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p224-no-prior-steer-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(
+					join(cwd, 'p224-no-prior-steer-out', 'summary.json'),
+					'utf8',
+				),
+			);
+
+			// Stage 1 must be noProgress:true, NOT implicitDone.
+			const stage1 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-1',
+			);
+			assert.ok(stage1, 'implement-1 stage record must exist');
+			assert.equal(
+				stage1.noProgress,
+				true,
+				'implement-1 must have noProgress:true',
+			);
+			assert.ok(!stage1.implicitDone, 'implement-1 must NOT have implicitDone');
+		} finally {
+			await server.close();
+		}
+	});
+});
+
 // Phase 215 — runStagedPrompt draft fallback
 // ---------------------------------------------------------------------------
 

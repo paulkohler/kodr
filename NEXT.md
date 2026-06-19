@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 223)
+## Current frontier (phase 224)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -17,15 +17,12 @@ Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
 The live work is the **staged execution pipeline** (`runStagedPrompt`). Phases
-213–223 chipped at it for local thinking models (qwen3.6): pending-write
+213–224 chipped at it for local thinking models (qwen3.6): pending-write
 `run_command` guards, W3 draft fallback, `SafeWriteError` steering with
 `clearFiles`, raised `maxStageWrites` (8) with unique-path dedup, inter-stage
-`npm install`, and `lang:node` skill pitfalls. The remaining open problem from
-phase-223 dogfooding: when every target file is already written and a
-verification stage begins, the model has nothing left to `write_file` and loops
-to budget exhaustion (`StagedIncompleteError`). Embedding a `STAGED_DONE`
-envelope in a sentinel tool-error message did **not** break the loop — qwen3.6
-treats tool errors as retry signals. The top two candidates below address this.
+`npm install`, `lang:node` skill pitfalls, and the phase-224 `safeWriteSteered`
+flag that terminates the loop when the model has nothing new to apply. The
+budget-exhaustion open problem from phase-223 is now closed.
 
 ## Candidates
 
@@ -42,14 +39,6 @@ This is architecturally different from Phase 223's tool-error approach: it sends
 user-role message that the model must respond to, rather than a tool result it may
 ignore. Needs careful placement in completeWithToolCalls so it fires after the tool
 result is appended but before the next request.
-
-### Stage auto-advance on zero new unique writes (safeWriteSteer loop escape)
-Phase-223 dogfooding: in stages 3-7, safeWriteSteer fired and the model tried to
-re-write already-applied files (0 new unique writes per stage). The loop ran to
-budget exhaustion. Fix: in runStagedPrompt, after a safeWriteSteer fires and the
-next stage produces 0 new unique-path writes (all writes were blocked), treat it
-as implicit STAGED_DONE — push a done record and break the loop. This is purely
-mechanical and needs no model cooperation.
 
 ### edit_file patch collisions in multi-write stages
 Phase-223 run-3 forensics: `src/server.mjs` ended with a duplicate

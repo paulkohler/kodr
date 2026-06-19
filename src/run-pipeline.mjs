@@ -1889,6 +1889,7 @@ async function runStagedPrompt({
 	});
 
 	let safeWriteSteering = null;
+	let safeWriteSteered = false;
 	for (let stageIndex = 1; stageIndex <= maxExecutionStages; stageIndex += 1) {
 		const stageContext = await buildWorkspaceContext(io.cwd, {
 			environmentFacts,
@@ -2006,6 +2007,21 @@ async function runStagedPrompt({
 			done = stageMessages.some((message) =>
 				message.content?.includes('STAGED_DONE'),
 			);
+			// Phase 224: prior safeWriteSteer + zero-write stage = implicit completion.
+			// The model has nothing new to apply; treat as STAGED_DONE without model
+			// cooperation. Only triggers when safeWriteSteered is already true (i.e. at
+			// least one steer fired earlier in this run).
+			if (!done && safeWriteSteered) {
+				done = true;
+				stageRecords.push({
+					done,
+					implicitDone: true,
+					name: `implement-${stageIndex}`,
+					paths,
+					responseChars: completion.text.length,
+				});
+				break;
+			}
 			stageRecords.push({
 				done,
 				name: `implement-${stageIndex}`,
@@ -2035,6 +2051,20 @@ async function runStagedPrompt({
 			});
 		} catch (error) {
 			if (stageIndex > 1 && error instanceof SafeWriteError) {
+				// Phase 224: second consecutive safeWriteSteer means the model will
+				// never converge — it keeps re-emitting files[] for already-existing
+				// paths. Treat as implicit completion.
+				if (safeWriteSteered) {
+					done = true;
+					stageRecords.push({
+						done,
+						implicitDone: true,
+						name: `implement-${stageIndex}`,
+						paths,
+						responseChars: completion.text.length,
+					});
+					break;
+				}
 				// Find ALL files[] entries that already exist on disk and list them
 				// in the next stage's prompt so the model uses edit_file/patches[].
 				const conflicts = (
@@ -2056,6 +2086,7 @@ async function runStagedPrompt({
 				safeWriteSteering =
 					`These files already exist on disk. Use \`edit_file\` or ` +
 					`\`patches[]\` to modify them — \`files[]\` is only for new files: ${listed}.`;
+				safeWriteSteered = true;
 				stageRecords.push({
 					name: `implement-${stageIndex}`,
 					safeWriteSteer: true,
@@ -2083,6 +2114,9 @@ async function runStagedPrompt({
 		const appliedPaths = writeResult.writes.map((w) => w.path);
 		registry?.proposalDraft?.clearFiles(appliedPaths);
 		noProgressTurns = 0;
+		// Phase 224: real write clears the steer flag so write→steer→write→steer
+		// never false-completes (only consecutive steered/zero stages trigger).
+		safeWriteSteered = false;
 		stageRecords.push({
 			applied: writeResult.applied,
 			name: `implement-${stageIndex}`,
