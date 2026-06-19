@@ -1941,6 +1941,14 @@ async function runStagedPrompt({
 
 		lastProposal = proposal;
 		if (!proposal) {
+			// W3 fallback (mirrors main pipeline): if tool-channel writes captured
+			// the stage's files, synthesize the proposal from the draft.
+			const capturedDraft = completion.proposalDraft ?? null;
+			if (capturedDraft && !capturedDraft.isEmpty) {
+				proposal = mergeProposalWithDraft(capturedDraft, null);
+			}
+		}
+		if (!proposal) {
 			writeError = {
 				message: 'Staged response did not include a proposal',
 				name: 'ProposalMissingError',

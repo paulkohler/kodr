@@ -820,9 +820,19 @@ export function createBuiltinRegistry(cwd, options = {}) {
 			// exist only as pending writes in proposalDraft, not yet on disk.
 			// Running the command would fail or hang, burning tool budget.
 			// Return a synthetic error+hint so the model returns the final envelope.
+			//
+			// Phase 215 extension: also intercept bare test-runner commands (e.g.
+			// `node --test` with no explicit path) when the draft is non-empty —
+			// these slipped through the Phase-213 path check since they contain
+			// no path string that matches a pending-write path.
+			const TEST_RUNNER_RE =
+				/^(node\s+--test|npm\s+(run\s+)?test|yarn\s+test|pnpm\s+test|pytest|python3?\s+-m\s+unittest|go\s+test|cargo\s+test)\b/u;
 			if (applyMode === 'proposal' && proposalDraft && !proposalDraft.isEmpty) {
 				const pendingPaths = proposalDraft.files.map((f) => f.path);
-				if (pendingPaths.some((p) => command.includes(p))) {
+				if (
+					pendingPaths.some((p) => command.includes(p)) ||
+					TEST_RUNNER_RE.test(command.trim())
+				) {
 					return {
 						error:
 							'Files have not been applied to disk yet — run_command cannot access pending writes.',

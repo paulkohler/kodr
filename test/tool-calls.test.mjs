@@ -2756,12 +2756,121 @@ describe('run_command pending-write guard (Phase 213)', () => {
 			'{"path":"src/unrelated.mjs","content":"// pending\\n"}',
 		);
 		assert.ok(!registry.proposalDraft.isEmpty, 'draft must be non-empty');
-		// Command references a different path — guard must not fire
+		// Non-test-runner allowlisted command — guard must not fire.
+		// Phase 215 intercepts test-runner invocations (node --test, npm test, etc.)
+		// when draft is non-empty, but node --check is an allowlisted syntax-check
+		// command, not a test runner, so it must pass through the guard.
 		const result = await registry.dispatch(
 			'run_command',
-			'{"command":"node --test test/other.test.mjs"}',
+			'{"command":"node --check src/prebuilt.mjs"}',
 		);
 		assert.ok(commandRan, 'commandRunner must be called when no path match');
+		assert.equal(result.exitCode, 0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 215 — run_command guard extension: bare test-runner interception
+// ---------------------------------------------------------------------------
+
+describe('run_command guard extension (Phase 215): bare test-runner', () => {
+	it('fires guard for bare `node --test` when draft is non-empty', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-rc-bare-test-'));
+		const registry = createBuiltinRegistry(cwd, {
+			commandRunner: async () => ({
+				exitCode: 0,
+				stdout: 'ran',
+				stderr: '',
+				timedOut: false,
+			}),
+		});
+		// Populate draft with a pending write (no path that matches the command)
+		await registry.dispatch(
+			'write_file',
+			JSON.stringify({ path: 'src/index.mjs', content: '// pending\n' }),
+		);
+		assert.ok(!registry.proposalDraft.isEmpty, 'draft must be non-empty');
+		// Bare `node --test` with no path — guard must fire
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"node --test"}',
+		);
+		assert.equal(typeof result, 'object', 'guard should return an object');
+		assert.ok(result.error, 'result must have an error key');
+		assert.match(result.error, /pending writes/u);
+		assert.ok(result.hint, 'result must include a hint');
+	});
+
+	it('does NOT fire guard for bare `node --test` when draft is empty', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-rc-bare-test-empty-'));
+		let commandRan = false;
+		const registry = createBuiltinRegistry(cwd, {
+			commandRunner: async () => {
+				commandRan = true;
+				return { exitCode: 0, stdout: 'ran', stderr: '', timedOut: false };
+			},
+		});
+		assert.ok(registry.proposalDraft.isEmpty, 'draft must start empty');
+		// Bare `node --test` — guard must NOT fire when draft is empty
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"node --test"}',
+		);
+		assert.ok(commandRan, 'commandRunner must be called when draft is empty');
+		assert.equal(result.exitCode, 0);
+	});
+
+	it('fires guard for `npm test` when draft is non-empty', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-rc-npm-test-'));
+		const registry = createBuiltinRegistry(cwd, {
+			commandRunner: async () => ({
+				exitCode: 0,
+				stdout: 'ran',
+				stderr: '',
+				timedOut: false,
+			}),
+		});
+		await registry.dispatch(
+			'write_file',
+			JSON.stringify({ path: 'lib/util.mjs', content: '// util\n' }),
+		);
+		assert.ok(!registry.proposalDraft.isEmpty, 'draft must be non-empty');
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"npm test"}',
+		);
+		assert.equal(typeof result, 'object');
+		assert.ok(result.error);
+		assert.match(result.error, /pending writes/u);
+	});
+
+	it('does NOT fire guard for `node --test` in live mode even with draft', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-rc-bare-test-live-'));
+		let commandRan = false;
+		const { mkdir: mkdirLive } = await import('node:fs/promises');
+		await mkdirLive(join(cwd, 'src'), { recursive: true });
+		const registry = createBuiltinRegistry(cwd, {
+			applyMode: 'live',
+			commandRunner: async () => {
+				commandRan = true;
+				return { exitCode: 0, stdout: 'ran', stderr: '', timedOut: false };
+			},
+		});
+		// In live mode write_file applies to disk immediately
+		await registry.dispatch(
+			'write_file',
+			JSON.stringify({
+				path: 'src/live.mjs',
+				content: 'export const x = 1;\n',
+			}),
+		);
+		assert.ok(!registry.proposalDraft.isEmpty, 'draft records live writes too');
+		// Guard must NOT fire in live mode — files are already on disk
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"node --test"}',
+		);
+		assert.ok(commandRan, 'commandRunner must be called in live mode');
 		assert.equal(result.exitCode, 0);
 	});
 });

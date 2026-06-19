@@ -6577,3 +6577,150 @@ describe('route-auto in main() (Phase 141)', () => {
 		assert.ok(output.length > 0, 'show-config output still produced');
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Phase 215 — runStagedPrompt draft fallback
+// ---------------------------------------------------------------------------
+
+describe('Phase 215 — runStagedPrompt tool-channel draft fallback', () => {
+	it('synthesises proposal from tool-channel draft when stage returns no JSON envelope', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p215-draft-fallback-'));
+		// Write a native model profile so tool_calls are recognised.
+		await writeNativeProfile(cwd, 'http://fake-placeholder.local/v1');
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Stage 0: plan turn — return a scratchpad envelope.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad:
+							'{"plan":["create src/answer.mjs"],"next":"create src/answer.mjs"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1 turn 1: model writes the file via write_file tool call.
+				makeWriteFileTurn({
+					id: 'call_p215',
+					path: 'src/answer.mjs',
+					content: 'export const answer = 42;\n',
+					chatId: 'chatcmpl_p215_1',
+				}),
+				// Stage 1 turn 2: model returns plain stop with no JSON envelope.
+				makeStopTurn('Done — wrote src/answer.mjs.', 'chatcmpl_p215_2'),
+			],
+		});
+
+		// Patch the native profile to use the real server's baseUrl.
+		await writeNativeProfile(cwd, server.baseUrl);
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create src/answer.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'test-model',
+					'--out',
+					'p215-out',
+					'--timeout-ms',
+					'10000',
+					'--tools',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p215-out', 'summary.json'), 'utf8'),
+			);
+
+			// Draft fallback must have synthesised a proposal — no ProposalMissingError.
+			assert.ok(
+				!summary.writeError ||
+					summary.writeError?.name !== 'ProposalMissingError',
+				`must not be ProposalMissingError, got: ${summary.writeError?.name}`,
+			);
+			// The staged run wrote at least one file.
+			assert.ok(
+				summary.writeCount >= 1,
+				`writeCount should be >= 1, got: ${summary.writeCount}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('still returns ProposalMissingError when draft is empty and no envelope', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p215-empty-draft-'));
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Implementation stage: no tool calls, no JSON envelope — plain text only.
+				makeStopTurn('I could not implement anything.', 'chatcmpl_p215_empty'),
+			],
+		});
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create something',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p215-empty-out',
+					'--timeout-ms',
+					'5000',
+					'--tools',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p215-empty-out', 'summary.json'), 'utf8'),
+			);
+
+			// Empty draft + no envelope must still produce ProposalMissingError.
+			assert.equal(
+				summary.writeError?.name,
+				'ProposalMissingError',
+				`expected ProposalMissingError, got: ${summary.writeError?.name}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
