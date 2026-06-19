@@ -101,4 +101,4 @@ sensors if one exists, else design it cleanly).
 - [x] `process/decisions.jsonl` entry added.
 - [x] Blog post exists.
 - [x] Roadmap entry marked done.
-- [ ] Commit made.
+- [x] Commit made.
