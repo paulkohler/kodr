@@ -93,35 +93,6 @@ true, ok: true). Eliminated the 45-wasted-turns npm install loop from phase-219.
 
 ## Candidates
 
-### Staged completion signal: STAGED_DONE in sentinel wording
-Phase-222 dogfooding: in all 3 runs, stage 2 entered a loop on run_command(npm test)
-after all target files were already written. The sentinel "Call write_file for the
-next file" is correct when writing remains, but when all files are done the model
-has nothing to write and falls back to test runs. Fix: when the staged sentinel
-fires and `count >= ESCALATION_THRESHOLD`, append a second branch:
-"If all files have been written, return `{\"status\":\"OK\",\"files\":[],\"messages\":[{\"level\":\"info\",\"content\":\"STAGED_DONE\"}]}` to complete this stage."
-This gives the model a concrete exit action when it has nothing left to write.
-Alternatively, detect in runStagedPrompt when stageIndex > 1 and no new writes
-have been captured in this stage's draft, then auto-inject the completion option
-into the stage prompt before calling completeWithToolCalls.
-
-### StagedProposalTooLargeError: deduplicate path count
-Phase-222 dogfooding run 3: stage 7 hit the 8-file limit with 10 path mentions of
-only 6 unique files (model proposed patches for db.mjs and upload.mjs twice each
-in a repair pass). The limit should count unique paths, not total write+patch
-operations. Fix: in the StagedProposalTooLargeError check, use
-`new Set(paths).size` instead of `paths.length`.
-
-### lang:node skill: SQLite FTS5 MATCH syntax and createDatabase factory pattern
-Phase-222 dogfooding run 3: two recurring code bugs in generated db.mjs:
-(1) FTS5 query used `WHERE f MATCH ?` (alias) — must be `WHERE articles_fts MATCH ?`
-(table name). FTS5 MATCH requires the virtual table name, not a column alias.
-(2) `createDatabase('data.sqlite')` at module scope — file-path DB shared across
-test files causes "database is locked" and dirty initial state. Fix: add to the
-`## node:sqlite pitfalls` section: FTS5 syntax rule and createDatabase factory
-pattern (`function createDatabase(path = ':memory:') { ... }` so tests can pass
-`:memory:` as the argument).
-
 ### run_command pending-write guard: staged-mode wording
 Phase 220 agent noted: the run_command guard hint "Return file changes in the
 final JSON proposal" has the same staged/envelope ambiguity as the sentinel

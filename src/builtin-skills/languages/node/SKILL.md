@@ -54,6 +54,32 @@ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 const db = new DatabaseSync(':memory:');
 ```
 
+**FTS5 MATCH syntax** — the MATCH operator requires the virtual table name, not a column alias. Using an alias produces "fts5: syntax error near '.'":
+
+```sql
+-- Wrong: f is an alias, not a name MATCH accepts
+SELECT f.rowid, f.title FROM articles_fts f WHERE f MATCH ?
+
+-- Correct: use the virtual table name directly
+SELECT rowid, title FROM articles_fts WHERE articles_fts MATCH ?
+```
+
+**createDatabase factory** — never open a database with a fixed file path at module scope. When multiple test files import the same module, they share the same file-based DB, causing "database is locked" and dirty initial state. Use a factory that accepts a `path` argument defaulting to `':memory:'`:
+
+```js
+// db.mjs — accept path so tests can pass :memory:
+export function createDatabase(path = ':memory:') {
+    const db = new DatabaseSync(path);
+    db.exec(`CREATE TABLE IF NOT EXISTS items (id INTEGER PRIMARY KEY, ...)`);
+    return db;
+}
+```
+
+In tests, always pass `':memory:'` explicitly:
+```js
+const db = createDatabase(':memory:');
+```
+
 ## HTTP integration test patterns
 
 Always write integration tests inline with `before`/`after` hooks — never use `child_process.fork()`, `spawn()`, or `exec()` to start the server under test. Subprocess teardown bypasses `closeAllConnections` and assertion failures inside the subprocess don't propagate as test failures.

@@ -434,7 +434,8 @@ export async function completeWithToolCalls(
 									message: staged
 										? `You have made this identical tool call ${count} times. ` +
 											'Stop retrying. Call write_file for the next file you need to write. ' +
-											'Do not run tests or npm install — verification runs automatically after all stages complete.'
+											'Do not run tests or npm install — verification runs automatically after all stages complete. ' +
+											'If all files are already written, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]} to complete this stage.'
 										: `You have made this identical tool call ${count} times. ` +
 											'Stop retrying. Return your final proposal now — the harness will apply writes and run verification automatically.',
 								})
@@ -444,7 +445,8 @@ export async function completeWithToolCalls(
 									message: staged
 										? 'This exact tool call was already made. ' +
 											'Call write_file for the next file you need to write. ' +
-											'Do not run tests or npm install.'
+											'Do not run tests or npm install. ' +
+											'If all files are already written, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]} to complete this stage.'
 										: 'This exact tool call was already made. Stop calling tools and return the final JSON proposal now.',
 								});
 				} else {

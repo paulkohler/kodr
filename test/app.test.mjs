@@ -7094,6 +7094,178 @@ describe('Phase 221 — runStagedPrompt maxStageWrites boundary', () => {
 	});
 });
 
+// Phase 223 — StagedProposalTooLargeError path dedup
+// ---------------------------------------------------------------------------
+
+describe('Phase 223 — StagedProposalTooLargeError path dedup', () => {
+	it('staged proposal with 9 ops on 6 unique paths does NOT throw StagedProposalTooLargeError', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p223-dedup-ok-'));
+
+		// 6 unique paths but 9 total entries (3 paths appear twice).
+		// proposalPaths returns all 9, but uniquePaths deduplicates to 6 — under the 8-limit.
+		const sixUniquePaths = [
+			'src/a.mjs',
+			'src/b.mjs',
+			'src/c.mjs',
+			'src/d.mjs',
+			'src/e.mjs',
+			'src/f.mjs',
+		];
+		const nineOpsFiles = [
+			...sixUniquePaths.map((path, i) => ({
+				content: `export const v${i} = ${i};\n`,
+				path,
+			})),
+			// 3 duplicates (same paths as a/b/c — second write wins)
+			{ content: `export const va2 = 'updated';\n`, path: 'src/a.mjs' },
+			{ content: `export const vb2 = 'updated';\n`, path: 'src/b.mjs' },
+			{ content: `export const vc2 = 'updated';\n`, path: 'src/c.mjs' },
+		];
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad:
+							'{"plan":["write 6 unique files"],"next":"write files"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: 9 ops on 6 unique paths — must NOT trigger StagedProposalTooLargeError.
+				{
+					body: proposalResponse({
+						files: nineOpsFiles,
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["write 6 unique files"],"next":""}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Write 6 unique files (9 total ops)',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p223-dedup-ok-out',
+					'--timeout-ms',
+					'5000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p223-dedup-ok-out', 'summary.json'), 'utf8'),
+			);
+
+			// 6 unique paths must NOT trigger StagedProposalTooLargeError.
+			assert.notEqual(
+				summary.writeError?.name,
+				'StagedProposalTooLargeError',
+				`unexpected StagedProposalTooLargeError at 6 unique paths (9 total ops)`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('staged proposal with 9 ops on 9 unique paths DOES throw StagedProposalTooLargeError', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p223-dedup-err-'));
+
+		// 9 unique paths — all distinct, so uniquePaths.length === 9 > 8 === maxStageWrites.
+		const nineUniqueFiles = Array.from({ length: 9 }, (_, i) => ({
+			content: `export const u${i} = ${i};\n`,
+			path: `src/u${i}.mjs`,
+		}));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad:
+							'{"plan":["write 9 unique files"],"next":"write files"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: 9 unique paths — must trigger StagedProposalTooLargeError.
+				{
+					body: proposalResponse({
+						files: nineUniqueFiles,
+						messages: [{ content: 'All files written.', level: 'info' }],
+						scratchpad: '{"done":["write 9 unique files"],"next":""}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Write 9 unique files',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p223-dedup-err-out',
+					'--timeout-ms',
+					'5000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p223-dedup-err-out', 'summary.json'), 'utf8'),
+			);
+
+			// 9 unique paths must trigger StagedProposalTooLargeError.
+			assert.equal(
+				summary.writeError?.name,
+				'StagedProposalTooLargeError',
+				`expected StagedProposalTooLargeError at 9 unique paths, got: ${summary.writeError?.name}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
 // Phase 222 — runStagedPrompt inter-stage npm install
 // ---------------------------------------------------------------------------
 

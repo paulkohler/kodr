@@ -3351,6 +3351,10 @@ describe('repeat sentinel — staged mode wording (Phase 220)', () => {
 				!parsed.message.includes('Stop retrying'),
 				'first repeat (count=2) should not escalate',
 			);
+			assert.ok(
+				parsed.message.includes('STAGED_DONE'),
+				'staged first repeat must include STAGED_DONE completion option',
+			);
 		} finally {
 			await server.close();
 		}
@@ -3403,6 +3407,10 @@ describe('repeat sentinel — staged mode wording (Phase 220)', () => {
 			assert.ok(
 				parsed.message.includes('verification runs automatically'),
 				'staged escalation must mention automatic verification',
+			);
+			assert.ok(
+				parsed.message.includes('STAGED_DONE'),
+				'staged escalation must include STAGED_DONE completion option',
 			);
 		} finally {
 			await server.close();

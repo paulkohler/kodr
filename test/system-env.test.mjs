@@ -375,9 +375,10 @@ describe('prompt budget guard', () => {
 		const promptLen = context.systemPrompt.length;
 		// Phase 207 grew lang:node pitfall sections; phase 210 added lang:rust.
 		// Phase 218 added SQLite :memory: and server listen guard patterns; ~8078 chars. Limit raised to 8500.
+		// Phase 223 added FTS5 MATCH syntax and createDatabase factory patterns; ~9115 chars. Limit raised to 9500.
 		assert.ok(
-			promptLen < 8500,
-			`Node/ESM system message must stay under 8500 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 9500,
+			`Node/ESM system message must stay under 9500 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
@@ -431,9 +432,10 @@ describe('prompt budget guard', () => {
 		// Phase 207 grew lang:node; ~5292 chars → 5500 limit.
 		// Phase 214 added no-subprocess directive + server-startup port pattern; ~5849 chars → 6100 limit.
 		// Phase 218 added SQLite :memory: and server listen guard patterns; ~7003 chars → 7200 limit.
+		// Phase 223 added FTS5 MATCH syntax and createDatabase factory patterns; ~8040 chars → 8500 limit.
 		assert.ok(
-			promptLen < 7200,
-			`Native mode system message must stay under 7200 chars; got ${promptLen} chars`,
+			promptLen < 8500,
+			`Native mode system message must stay under 8500 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -824,9 +826,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 		});
 		// Phase 204/207 grew lang:node; phase 210 added lang:rust. Current: ~6133. Limit raised to 7000.
 		// Phase 218 added SQLite :memory: and server listen guard patterns; ~8076 chars. Limit raised to 8500.
+		// Phase 223 added FTS5 MATCH syntax and createDatabase factory patterns; ~9113 chars. Limit raised to 9500.
 		assert.ok(
-			context.systemPrompt.length < 8500,
-			`System message must stay under 8500 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 9500,
+			`System message must stay under 9500 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });

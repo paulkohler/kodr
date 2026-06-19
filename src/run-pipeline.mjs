@@ -1987,15 +1987,16 @@ async function runStagedPrompt({
 		}
 
 		const paths = proposalPaths(proposal);
-		if (paths.length > maxStageWrites) {
+		const uniquePaths = [...new Set(paths)];
+		if (uniquePaths.length > maxStageWrites) {
 			writeError = {
-				message: `Staged proposal touched ${paths.length} paths; limit is ${maxStageWrites}`,
+				message: `Staged proposal touched ${uniquePaths.length} unique paths; limit is ${maxStageWrites}`,
 				name: 'StagedProposalTooLargeError',
 			};
 			stageRecords.push({
 				error: writeError,
 				name: `implement-${stageIndex}`,
-				paths,
+				paths: uniquePaths,
 				responseChars: completion.text.length,
 			});
 			break;
