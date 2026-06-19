@@ -7432,6 +7432,21 @@ describe('runStagedPrompt zero-applied-write auto-advance (Phase 225)', () => {
 				['src/notes.mjs'],
 				'implement-3 proposedPaths must be [src/notes.mjs]',
 			);
+			// The first zero-applied stage must be a nudge (noProgress), not done.
+			const stage2 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-2',
+			);
+			assert.ok(stage2, 'implement-2 stage record must exist');
+			assert.equal(stage2.noProgress, true, 'implement-2 must be noProgress');
+			assert.equal(stage2.writeCount, 0, 'implement-2 writeCount must be 0');
+			assert.ok(!stage2.implicitDone, 'implement-2 must not be implicitDone');
+			// Implicit completion with applied writes and no test still surfaces
+			// StagedUnverifiedError (parity with explicit STAGED_DONE).
+			assert.equal(
+				summary.runError?.name,
+				'StagedUnverifiedError',
+				'implicit-done run with writes and no test must surface StagedUnverifiedError',
+			);
 			// Loop must not have reached the cap.
 			const stageCount = summary.staged?.stages?.length ?? 0;
 			assert.ok(

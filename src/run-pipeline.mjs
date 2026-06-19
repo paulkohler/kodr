@@ -1997,7 +1997,7 @@ async function runStagedPrompt({
 			stageRecords.push({
 				error: writeError,
 				name: `implement-${stageIndex}`,
-				paths: uniquePaths,
+				proposedPaths: uniquePaths,
 				responseChars: completion.text.length,
 			});
 			break;
