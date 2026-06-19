@@ -52,6 +52,20 @@ Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
 
+### runStagedPrompt: accept tool-channel draft as stage proposal
+Phase-213 dogfooding confirmed the guard fires correctly but the run still fails.
+Root cause: `runStagedPrompt` (run-pipeline.mjs ~line 1928) calls
+`extractProposal(completion.text)` and on null falls directly to `ProposalMissingError`.
+It never checks `completion.proposalDraft`. The main pipeline (line 948) has a
+`draftNonEmpty` fallback that synthesizes a proposal from tool-channel writes when
+the text envelope is absent. The staged path is missing this fallback.
+Fix: after `extractProposal` returns null, check `completion.proposalDraft` — if
+`draftNonEmpty`, call `mergeProposalWithDraft(capturedDraft, null)` and use that as
+the stage proposal. This mirrors lines 1068-1078 of the main pipeline.
+Secondary: the guard should also intercept bare test-runner invocations (`node --test`
+with no explicit path) when `proposalDraft` is non-empty — the bare form slipped
+through in the Phase-213 validation run.
+
 ### llms.txt doc-lookup pattern for skills
 When a skill covers a library or API with online docs, encode a `llms.txt`
 index URL as the fallback documentation source. Pattern observed in
