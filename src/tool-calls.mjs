@@ -814,11 +814,27 @@ export function createBuiltinRegistry(cwd, options = {}) {
 			required: ['command'],
 			additionalProperties: false,
 		},
-		handler: async ({ command, timeoutMs }) =>
-			runVerification(cwd, command, {
+		handler: async ({ command, timeoutMs }) => {
+			// Phase 213: pending-write guard.
+			// In proposal mode the model may call run_command to verify files that
+			// exist only as pending writes in proposalDraft, not yet on disk.
+			// Running the command would fail or hang, burning tool budget.
+			// Return a synthetic error+hint so the model returns the final envelope.
+			if (applyMode === 'proposal' && proposalDraft && !proposalDraft.isEmpty) {
+				const pendingPaths = proposalDraft.files.map((f) => f.path);
+				if (pendingPaths.some((p) => command.includes(p))) {
+					return {
+						error:
+							'Files have not been applied to disk yet — run_command cannot access pending writes.',
+						hint: 'Return the final JSON proposal envelope now. The harness will apply your writes and run verification automatically.',
+					};
+				}
+			}
+			return runVerification(cwd, command, {
 				runner: options.commandRunner || null,
 				timeoutMs,
-			}),
+			});
+		},
 	});
 
 	// W1: capture tools — record proposed file changes without touching disk.

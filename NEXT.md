@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-Current frontier (phase 212): `kodr check` is a comprehensive standalone
+Current frontier (phase 213): `kodr check` is a comprehensive standalone
 diagnostic with `--json`, `--strict`, `--changed`, `--watch`, `--deep`, `--ci`,
 `--fix`, and a path argument. Eight cross-reference sensors (canonical name registry +
 `SENSOR_NAMES` / `SENSOR_SEVERITY` exports; sensors run on applied writes).
@@ -62,19 +62,6 @@ builtin skill that has a known `llms.txt` (Express, SQLite, busboy, etc.) so
 the model has a live path to current API docs when its training data is stale.
 Note: kodr has no external skill registry yet — this applies only to builtin
 skills as they are added.
-
-### Staged pipeline: force final envelope turn after write_file calls
-Phase-212 dogfooding showed both Node.js runs failing with `stopReason:staged /
-ProposalMissingError`. The model writes all files correctly via `write_file` tool
-calls, then enters a `run_command` loop trying to verify tests against files not yet
-on disk. Model reasoning explicitly says "return the final JSON proposal" but the
-tool-result continuation biases it toward another tool call instead of `stop`.
-Two candidate fixes: (1) after all `write_file` calls complete and no other pending
-tool actions remain, inject a user/system message telling the model to return the JSON
-envelope now rather than run commands; (2) intercept `run_command` calls that
-reference pending-write paths (not yet on disk) and return a synthetic error:
-"File not yet applied — return the JSON proposal first." Either approach needs
-careful scoping to avoid blocking legitimate run_command use during the tool loop.
 
 ### lang:node skill: closeAllConnections inline test example
 Phase-212 dogfooding: model's scratchpad said "closeAllConnections then server.close"

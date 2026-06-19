@@ -2655,3 +2655,113 @@ describe('resolveProposalFromCompletion (phase 152 — orchestration parity)', (
 		assert.equal(proposal, null);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Phase 213 — run_command pending-write guard
+// ---------------------------------------------------------------------------
+
+describe('run_command pending-write guard (Phase 213)', () => {
+	it('returns synthetic error when command references a pending-write path in proposal mode', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-rc-guard-'));
+		// Default applyMode is 'proposal'
+		const registry = createBuiltinRegistry(cwd, {
+			commandRunner: async () => ({
+				exitCode: 0,
+				stdout: 'ok',
+				stderr: '',
+				timedOut: false,
+			}),
+		});
+		// Populate the draft with a pending write
+		await registry.dispatch(
+			'write_file',
+			'{"path":"test/foo.test.mjs","content":"// pending test\\n"}',
+		);
+		assert.ok(
+			!registry.proposalDraft.isEmpty,
+			'draft must be non-empty before guard fires',
+		);
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"node --test test/foo.test.mjs"}',
+		);
+		assert.equal(typeof result, 'object', 'guard should return an object');
+		assert.ok(result.error, 'result must have an error key');
+		assert.match(result.error, /pending writes/u);
+		assert.ok(result.hint, 'result must include a hint');
+	});
+
+	it('does NOT fire when applyMode is live (draft has files but mode is live)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-rc-live-'));
+		// Write the file to disk so live apply works
+		await writeFile(join(cwd, 'test/bar.test.mjs'), '// real file\n').catch(
+			() => {},
+		);
+		const { mkdir: mkdirFs } = await import('node:fs/promises');
+		await mkdirFs(join(cwd, 'test'), { recursive: true });
+		await writeFile(join(cwd, 'test', 'bar.test.mjs'), '// real file\n');
+		let commandRan = false;
+		const registry = createBuiltinRegistry(cwd, {
+			applyMode: 'live',
+			commandRunner: async () => {
+				commandRan = true;
+				return { exitCode: 0, stdout: 'ran', stderr: '', timedOut: false };
+			},
+		});
+		// In live mode write_file applies to disk immediately
+		await registry.dispatch(
+			'write_file',
+			'{"path":"test/bar.test.mjs","content":"// live-written\\n"}',
+		);
+		assert.ok(!registry.proposalDraft.isEmpty, 'draft records live writes too');
+		// run_command must NOT be intercepted in live mode
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"node --test test/bar.test.mjs"}',
+		);
+		assert.ok(commandRan, 'commandRunner must be called in live mode');
+		assert.equal(result.exitCode, 0);
+	});
+
+	it('does NOT fire when draft is empty (no pending writes)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-rc-empty-'));
+		let commandRan = false;
+		const registry = createBuiltinRegistry(cwd, {
+			commandRunner: async () => {
+				commandRan = true;
+				return { exitCode: 0, stdout: 'ran', stderr: '', timedOut: false };
+			},
+		});
+		assert.ok(registry.proposalDraft.isEmpty, 'draft must start empty');
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"node --test test/some.test.mjs"}',
+		);
+		assert.ok(commandRan, 'commandRunner must be called when draft is empty');
+		assert.equal(result.exitCode, 0);
+	});
+
+	it('does NOT fire when command does not reference any pending path', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-rc-nomatch-'));
+		let commandRan = false;
+		const registry = createBuiltinRegistry(cwd, {
+			commandRunner: async () => {
+				commandRan = true;
+				return { exitCode: 0, stdout: 'ran', stderr: '', timedOut: false };
+			},
+		});
+		// Populate draft with a path that does NOT appear in the command
+		await registry.dispatch(
+			'write_file',
+			'{"path":"src/unrelated.mjs","content":"// pending\\n"}',
+		);
+		assert.ok(!registry.proposalDraft.isEmpty, 'draft must be non-empty');
+		// Command references a different path — guard must not fire
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"node --test test/other.test.mjs"}',
+		);
+		assert.ok(commandRan, 'commandRunner must be called when no path match');
+		assert.equal(result.exitCode, 0);
+	});
+});
