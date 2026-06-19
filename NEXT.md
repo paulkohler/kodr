@@ -70,6 +70,27 @@ the model has a live path to current API docs when its training data is stale.
 Note: kodr has no external skill registry yet — this applies only to builtin
 skills as they are added.
 
+### Staged pipeline: force final envelope turn after write_file calls
+Phase-212 dogfooding showed both Node.js runs failing with `stopReason:staged /
+ProposalMissingError`. The model writes all files correctly via `write_file` tool
+calls, then enters a `run_command` loop trying to verify tests against files not yet
+on disk. Model reasoning explicitly says "return the final JSON proposal" but the
+tool-result continuation biases it toward another tool call instead of `stop`.
+Two candidate fixes: (1) after all `write_file` calls complete and no other pending
+tool actions remain, inject a user/system message telling the model to return the JSON
+envelope now rather than run commands; (2) intercept `run_command` calls that
+reference pending-write paths (not yet on disk) and return a synthetic error:
+"File not yet applied — return the JSON proposal first." Either approach needs
+careful scoping to avoid blocking legitimate run_command use during the tool loop.
+
+### lang:node skill: closeAllConnections inline test example
+Phase-212 dogfooding: model's scratchpad said "closeAllConnections then server.close"
+but implementation used fork()+SIGTERM subprocess, bypassing the taught pattern.
+The skill's teardown example should show closeAllConnections in an *inline* test
+(standard `before`/`after` hook, not a subprocess). Port coercion (parseInt pattern)
+was also bypassed in favour of process.argv[2]. Adding concrete inline test examples
+for both patterns may improve adherence.
+
 ### Smoke-as-verification in the heal loop
 Phase 184 wired a smoke-driven second heal pass, but the in-loop verification
 still uses `options.testCommand`. When no testCommand is set, smoke failures
