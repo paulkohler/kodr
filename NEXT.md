@@ -59,6 +59,19 @@ Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its
 own.
 
+### Staged pipeline: SafeWriteError steering on implement-N overwrites
+Phase-215 dogfooding: draft fallback resolved ProposalMissingError but the run hit a
+new blocker — `SafeWriteError` when implement-2 tried to overwrite existing files via
+`files[]`. The model correctly diagnosed a bug in implement-1 and produced full fixed
+rewrites, but `protectExisting` blocked them. The run ended `ok:false` despite all 5
+corrected files being ready in the draft.
+Options: (1) when implement-N (N > 1) hits SafeWriteError, feed a steering message
+to the next stage: "Files already exist — use `edit_file`/`patches[]` to modify:
+[paths]"; (2) relax `protectExisting` for subsequent staged implementation turns
+since the user explicitly invoked staged execution to iteratively improve; (3) add
+"for existing files, use `edit_file`" to the `write_file` tool description so the
+model uses patches from the start.
+
 ### lang:node skill: server module-scope listen antipattern
 Phase-214 dogfooding: model wrote `app.listen(port)` at module scope in `server.mjs`
 which exports `{ app, server }`. When tests import the module, the side-effect
