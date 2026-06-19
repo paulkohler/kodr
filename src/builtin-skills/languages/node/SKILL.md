@@ -47,9 +47,37 @@ const id = Number(stmt.run(a, b).lastInsertRowid);
 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
 
+**SQLite in tests** — use `:memory:` for the test database; a file-path database persists state across test runs and causes "returns empty array initially" to fail on second invocation:
+
+```js
+// In tests — pass :memory: so state resets each time
+const db = new DatabaseSync(':memory:');
+```
+
 ## HTTP integration test patterns
 
 Always write integration tests inline with `before`/`after` hooks — never use `child_process.fork()`, `spawn()`, or `exec()` to start the server under test. Subprocess teardown bypasses `closeAllConnections` and assertion failures inside the subprocess don't propagate as test failures.
+
+**Server listen guard** — never call `app.listen()` at module scope in a file that exports `{ app, server }`. When tests import the module the call fires immediately and binds the port, causing `EADDRINUSE` when `before()` tries `app.listen(0)`. Guard it so the listen only runs when executed directly:
+
+```js
+// server.mjs — guard the listen call so tests can import safely
+export const app = express();
+export let server;
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+    const port = parseInt(process.env.PORT) || 3000;
+    server = app.listen(port, () => console.log(`Listening on ${port}`));
+}
+```
+
+In tests, start the server explicitly in `before()`:
+```js
+before(async () => {
+    const { app } = await import('../src/server.mjs');
+    await new Promise(r => { server = app.listen(0, () => { port = server.address().port; r(); }); });
+});
+```
 
 **Server teardown** — `server.close()` alone leaves keep-alive connections open; `node --test` hangs for 600 s. Call `closeAllConnections` first:
 
