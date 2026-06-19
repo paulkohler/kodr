@@ -6811,6 +6811,20 @@ describe('Phase 215 — runStagedPrompt tool-channel draft fallback', () => {
 				}),
 				// Stage 1 turn 2: model returns plain stop with no JSON envelope.
 				makeStopTurn('Done — wrote src/answer.mjs.', 'chatcmpl_p215_2'),
+				// Stage 2: clearFiles (Phase 217) clears the draft after stage 1 applies.
+				// Provide STAGED_DONE so the loop exits rather than hitting ProposalMissingError.
+				makeEnvelopeTurn(
+					{
+						status: 'OK',
+						files: [],
+						patches: [],
+						messages: [
+							{ level: 'info', content: 'All files written. STAGED_DONE' },
+						],
+						scratchpad: '',
+					},
+					'chatcmpl_p215_3',
+				),
 			],
 		});
 
