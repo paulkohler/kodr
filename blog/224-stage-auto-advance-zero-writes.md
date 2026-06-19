@@ -75,3 +75,23 @@ already written and a verification stage begins, the model has nothing left to
 `write_file` and loops to budget exhaustion (`StagedIncompleteError`)." That
 loop now terminates as soon as the harness observes a prior steer and either a
 zero-write stage or a second consecutive `SafeWriteError`.
+
+## Dogfooding: a sibling stall the fix does *not* catch
+
+A live run against qwen3.6 (Express + SQLite notes API, staged + `--install` +
+`--test`) showed the limit of this fix. The model wrote all four files in stage
+1, fixed two real bugs with `edit_file` **patches** in stage 2, then in stages
+3–7 re-read the files, judged them correct, and looped on rejected `run_command`
+calls. Crucially it never threw a `SafeWriteError` — using `edit_file` patches on
+existing files is exactly right — so `safeWriteSteered` stayed `false` and
+phase-224's arm never fired. Each of stages 3–7 recorded `applied:true` but
+`writeCount:0` (no-op patches), and because the proposal still *claimed* paths
+the `paths.length===0` branch never fired either. The run ground to the 7-stage
+budget and only ended `ok:true` because the tests happened to pass first
+(`staged.done:false`).
+
+So phase 224 closes the `files[]`-vs-existing variant but not the no-op-patch
+variant. The lesson — recorded in `process/failures.jsonl` (224-dogfood) and
+queued as the top NEXT.md candidate — is to key no-progress on *applied* writes
+(`writeResult.writes.length === 0`), not on proposed `paths.length`. That
+generalization is phase 225.
