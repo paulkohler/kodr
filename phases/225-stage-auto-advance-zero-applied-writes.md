@@ -147,7 +147,7 @@ Keep the phase-216 and phase-224 blocks intact and green.
 - [x] NEXT.md FIFO: delete the shipped "Stage auto-advance on zero *applied*
       writes (no-op patch stall)" candidate; update the frontier note.
 - [x] `roadmap.md`: `- [x] 225 Stage Auto-Advance on Zero Applied Writes`.
-- [ ] Commit (small, focused; do not push).
+- [x] Commit (small, focused; do not push).
 
 ## Risks / things to watch
 
