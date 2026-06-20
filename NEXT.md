@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 237)
+## Current frontier (phase 238)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -56,13 +56,29 @@ heal-only cap scope (the honored `max_tokens:completionReserve` cap is now gated
 `completionCapMode:'heal'` in the options bag; the main loop and staged path carry no
 marker and revert to the known-good pre-234 uncapped wire shape — a ground-truth probe
 showed the 4096 cap starved a realistic two-file generation task to 0 answer chars),
-and the phase-237 staged `clearFiles` patch leak fix (`ProposalDraft.clearPatches(paths)`
+the phase-237 staged `clearFiles` patch leak fix (`ProposalDraft.clearPatches(paths)`
 added symmetric to `clearFiles`, called alongside `clearFiles(appliedPaths)` at
 `run-pipeline.mjs:2195` — closing the staged half of the phase-235 draft-carryover
 asymmetry: an applied `edit_file` patch no longer leaks into every subsequent staged
-stage via `proposalPaths` and `mergeProposalWithDraft`).
+stage via `proposalPaths` and `mergeProposalWithDraft`), and the phase-238 `lang:node`
+ESM cache-bust pitfall (`import('./mod.mjs?t='+Date.now())` does NOT bust Node's ESM
+cache for local files — query string is ignored, same cached module instance returned;
+fix: export a factory and call it in `beforeEach` per test; surfaced in phase-236 dogfood
+with 5/27 failures; confirmed effective in phase-238 dogfood where the model named
+the anti-pattern it avoided).
 
 ## Candidates
+
+### `--skill` flag does not resolve builtin skills (workspace-only discovery)
+Surfaced in phase-238 dogfood: `kodr run --skill lang:node` from a test workspace
+returns "No SKILL.md matched: lang:node" because `--skill` searches for SKILL.md
+files in the workspace directory tree, not the builtin-skills registry. Builtin
+skills auto-inject correctly via `detectNodeEsm()` (fires on `.mjs` in the prompt)
+and are confirmed by `languageGuidance.source: "builtin"` in summary.json — but a
+user who tries to force a builtin via `--skill` gets a confusing error. Fix
+direction: when `--skill <id>` is passed and workspace discovery yields nothing,
+fall through to the builtin registry before erroring. Low-risk additive; the
+auto-detect path stays unchanged.
 
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the

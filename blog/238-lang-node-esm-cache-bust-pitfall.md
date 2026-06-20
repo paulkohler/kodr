@@ -113,3 +113,31 @@ Four new assertions in `test/builtin-skills.test.mjs`:
 - `/beforeEach/` — the call site
 
 Test count: 1889 → 1890.
+
+## Dogfood: A direct confirm
+
+Two phase-238 dogfood runs at `~/src/kodr-testing/phase-238/`:
+
+**esm-isolation-1** (counter module): kodr generated `src/counter.mjs` exporting
+`createCounter()` with closure-private state and `test/counter.test.mjs` with 5
+tests, each calling `createCounter()` for a fresh instance. Zero query-string
+imports. 5/5 pass, no heal turns.
+
+**esm-isolation-2** (registry with global Map): More targeted — the prompt asked
+for "a global Map of items" and "isolated state per test," which maximally invites
+the anti-pattern. The model wrote `src/registry.mjs` exporting `createRegistry()`
+with the `Map` inside the factory closure (never module-scope) and
+`test/registry.test.mjs` with 5 tests, each calling `createRegistry()`. The
+model's own scratchpad named the choice explicitly: "Isolation approach: The
+factory pattern (not ESM re-import with query-string cache-busting) ensures each
+test gets independent state." 5/5 pass.
+
+Grep of all generated `.mjs` files: zero occurrences of `Date.now`, `?t=`, or
+cache-bust import patterns.
+
+**Side note on `--skill`:** `--skill lang:node` passed from a test workspace with
+no SKILL.md files returns a "No SKILL.md matched" error — the flag searches for
+workspace SKILL.md files, not builtins. Builtin skills auto-inject via
+`detectNodeEsm()` (fires on `.mjs` in the prompt). The `--skill` flag is a
+workspace-only path; builtin skills are auto, not flag-selectable. Both runs
+confirmed `languageGuidance.source: "builtin"` in `summary.json`.
