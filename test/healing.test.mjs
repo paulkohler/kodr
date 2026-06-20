@@ -1470,6 +1470,90 @@ describe('reasoning-token runaway (phase 231)', () => {
 		assert.equal(result.stopReason, 'healed');
 		assert.notEqual(result.stopReason, 'reasoning_runaway');
 	});
+
+	// (f) Runaway on turn 2, after a real (but failing) turn 1: detection is
+	// index-independent and still stops the loop the moment the runaway appears.
+	it('runaway on turn 2 (after a real failing turn 1) stops with reasoning_runaway', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-231f-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		let repairCallCount = 0;
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			contextWindow: 32768,
+			maxTurns: 3,
+			repairTurn: async () => {
+				repairCallCount += 1;
+				if (repairCallCount === 1) {
+					// Turn 1 writes a real change to the failing path that is still a
+					// syntax error: snapshot changes (no-progress resets), tests fail.
+					return {
+						text: JSON.stringify({
+							files: [{ path: 'bad.mjs', content: 'export const x = ;\n' }],
+						}),
+						raw: {
+							finishReasons: ['stop'],
+							loopBudget: { stopReason: 'finish_stop' },
+						},
+					};
+				}
+				// Turn 2 runs away.
+				return {
+					text: '',
+					raw: {
+						finishReasons: ['length'],
+						loopBudget: {
+							completionTokens: 21693,
+							promptTokens: 11075,
+							tokens: 32768,
+							stopReason: 'finish_length',
+						},
+					},
+				};
+			},
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.stopReason, 'reasoning_runaway');
+		assert.equal(repairCallCount, 2, 'runaway detected on the second turn');
+		assert.equal(result.repairs.at(-1).stopReason, 'reasoning_runaway');
+	});
+
+	// (g) raw present but loopBudget absent: still a runaway (finishReasons signal
+	// alone), evidence fields degrade to null without throwing.
+	it('runaway with raw but no loopBudget captures null token evidence', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-231g-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 2,
+			repairTurn: async () => ({
+				text: '',
+				raw: { finishReasons: ['length'] },
+			}),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.stopReason, 'reasoning_runaway');
+		assert.equal(result.repairs.length, 1);
+		const ev = result.repairs[0].runaway;
+		assert.equal(ev.finishReason, 'length');
+		assert.equal(ev.completionTokens, null);
+		assert.equal(ev.totalTokens, null);
+		// contextWindow omitted when options.contextWindow is not finite
+		assert.ok(!('contextWindow' in ev));
+	});
 });
 
 function repairText(path) {

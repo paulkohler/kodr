@@ -82,6 +82,10 @@ describe('classifyRunFailure', () => {
 			'wrong-path',
 		);
 		assert.equal(
+			classifyRunFailure({ ok: false, healStopReason: 'reasoning_runaway' }),
+			'reasoning-runaway',
+		);
+		assert.equal(
 			classifyRunFailure({ ok: false, tested: true }),
 			'verification-failed',
 		);
