@@ -69,6 +69,26 @@ the anti-pattern it avoided).
 
 ## Candidates
 
+### Reasoning-then-silence in staged implement turns (completion cap gap)
+Phase 231 detected reasoning-runaway fast-fail in heal turns; phases 234/236
+scoped the completion cap to heal-only. The **staged implement turns are still
+uncapped**. Phase-238-audit (rest-api-sqlite-2) observed exactly the same
+failure mode in an implement turn: `finish_reason=length`, `content_len=0`,
+23k completion tokens consumed on qwen3.6 extended thinking, 0 tool_calls,
+`ProposalMissingError` aborted the stage. Turn 11, prompt=9709, in a 32768
+context — the model had 23k token budget and spent every one on CoT.
+Fix direction: apply the same `completionCapMode` gate to staged implement
+turns via a `completionCapMode: 'staged'` marker, or detect
+`finish_reason=length` + `content_len=0` in the staged loop and emit a
+`StagedReasoningSilenceError` with auto-retry at lower `max_tokens`. A new
+`isReasoningRunaway` call in the staged turn handler (analogous to the heal
+turn handler) could reuse the existing predicate. Probe first: confirm that a
+lower `max_tokens` (e.g. `completionReserve:4096`) on staged implement turns
+does not starve legitimate large file generation — the probe for phase 236
+showed the issue on generate turns, so calibrate carefully.
+Evidence: `phase-238-audit/rest-api-sqlite-2/.kodr/runs/2026-06-20T22-03-43.228Z/`
+conversation.json turn 11, summary.json staged.stages[1].
+
 ### `--skill` flag does not resolve builtin skills (workspace-only discovery)
 Surfaced in phase-238 dogfood: `kodr run --skill lang:node` from a test workspace
 returns "No SKILL.md matched: lang:node" because `--skill` searches for SKILL.md
