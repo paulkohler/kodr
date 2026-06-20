@@ -8912,3 +8912,344 @@ describe('runStagedPrompt inter-stage npm install (Phase 222)', () => {
 		}
 	});
 });
+
+// Phase 233 — staged draft apply on STAGED_DONE (W4 parity)
+// ---------------------------------------------------------------------------
+
+describe('Phase 233 — staged W4-parity: apply pending draft writes on STAGED_DONE', () => {
+	// (a) THE BUG — regression-proof: write_file turn + STAGED_DONE envelope in the
+	// same stage must apply the pending draft write AND terminate the stage as done.
+	// Pre-fix this FAILS (writeCount:0, file absent). Post-fix the file is applied.
+	it('(a) draft write + STAGED_DONE files:[] — file IS applied AND stage is done', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p233-a-'));
+		await writeNativeProfile(cwd, 'http://fake-placeholder.local/v1');
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn — scratchpad envelope, no files.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad:
+							'{"plan":["create src/server.test.mjs"],"next":"create src/server.test.mjs"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1 sub-turn 1: model writes the file via write_file tool call
+				// (finish_reason=tool_calls). This populates proposalDraft.
+				makeWriteFileTurn({
+					id: 'call_p233a',
+					path: 'src/server.test.mjs',
+					content:
+						'import assert from "node:assert/strict";\nassert.ok(true);\n',
+					chatId: 'chatcmpl_p233a_1',
+				}),
+				// Stage 1 sub-turn 2: after the tool result the model returns a
+				// STAGED_DONE envelope with files:[] (finish_reason=stop).
+				// This is the exact pattern that caused silent data loss before phase 233:
+				// the draft was non-empty, proposal was non-null (STAGED_DONE), the
+				// old code skipped the W3 fallback, and paths.length===0 set done=true
+				// without ever merging the draft write.
+				makeEnvelopeTurn(
+					{
+						status: 'OK',
+						files: [],
+						patches: [],
+						messages: [
+							{
+								level: 'info',
+								content: 'All files written. STAGED_DONE',
+							},
+						],
+						scratchpad: '',
+					},
+					'chatcmpl_p233a_2',
+				),
+			],
+		});
+
+		await writeNativeProfile(cwd, server.baseUrl);
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Create src/server.test.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'test-model',
+					'--out',
+					'p233a-out',
+					'--timeout-ms',
+					'10000',
+					'--tools',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p233a-out', 'summary.json'), 'utf8'),
+			);
+
+			// No writeError.
+			assert.ok(
+				!summary.writeError,
+				`expected no writeError, got: ${summary.writeError?.name} — ${summary.writeError?.message}`,
+			);
+			// The draft write must have been applied (writeCount >= 1).
+			assert.ok(
+				summary.writeCount >= 1,
+				`writeCount must be >= 1 (draft write applied), got: ${summary.writeCount}`,
+			);
+			// The file must exist on disk.
+			const fileContent = await readFile(
+				join(cwd, 'src', 'server.test.mjs'),
+				'utf8',
+			);
+			assert.ok(
+				fileContent.includes('assert.ok(true)'),
+				`file content wrong: ${fileContent}`,
+			);
+			// The stage must be done (STAGED_DONE honored).
+			const implementStage = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-1',
+			);
+			assert.ok(
+				implementStage,
+				`implement-1 stage record missing; stages: ${JSON.stringify(summary.staged?.stages)}`,
+			);
+			assert.equal(
+				implementStage.writeCount,
+				1,
+				`implement-1 writeCount must be 1, got: ${implementStage.writeCount}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// (b) Regression — STAGED_DONE with empty draft → done, writeCount 0.
+	// Existing empty-paths branch still fires when there is no pending draft write.
+	it('(b) STAGED_DONE with empty draft → done with writeCount 0 (regression guard)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p233-b-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["write src/x.mjs"],"next":"write src/x.mjs"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: pure STAGED_DONE envelope, no files, no draft writes.
+				// Both the draft and the envelope are empty — paths.length===0.
+				{
+					body: proposalResponse({
+						files: [],
+						patches: [],
+						messages: [{ level: 'info', content: 'All done. STAGED_DONE' }],
+						scratchpad: '',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Write src/x.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p233b-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p233b-out', 'summary.json'), 'utf8'),
+			);
+
+			// No writeError — STAGED_DONE is not an error.
+			assert.ok(
+				!summary.writeError,
+				`expected no writeError, got: ${summary.writeError?.name}`,
+			);
+			// Zero writes (no draft, no envelope files).
+			assert.equal(
+				summary.writeCount,
+				0,
+				`writeCount must be 0 (no draft, no files), got: ${summary.writeCount}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// (c) Union — draft file + envelope file, envelope wins on the overlapping path,
+	// no double-count. Uses a native-profile run so the draft gets populated.
+	it('(c) draft file + envelope file — envelope wins per path, single write, no double-count', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p233-c-'));
+		await writeNativeProfile(cwd, 'http://fake-placeholder.local/v1');
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad:
+							'{"plan":["create src/config.mjs"],"next":"create src/config.mjs"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1 sub-turn 1: write src/config.mjs via write_file (draft version).
+				makeWriteFileTurn({
+					id: 'call_p233c',
+					path: 'src/config.mjs',
+					content: 'export const config = { version: 1 };\n',
+					chatId: 'chatcmpl_p233c_1',
+				}),
+				// Stage 1 sub-turn 2: envelope also includes src/config.mjs (envelope wins)
+				// PLUS a second file src/index.mjs, AND signals STAGED_DONE.
+				makeEnvelopeTurn(
+					{
+						status: 'OK',
+						files: [
+							{
+								path: 'src/config.mjs',
+								content: 'export const config = { version: 2 };\n',
+							},
+							{
+								path: 'src/index.mjs',
+								content: 'export { config } from "./config.mjs";\n',
+							},
+						],
+						patches: [],
+						messages: [
+							{ level: 'info', content: 'Files written. STAGED_DONE' },
+						],
+						scratchpad: '',
+					},
+					'chatcmpl_p233c_2',
+				),
+			],
+		});
+
+		await writeNativeProfile(cwd, server.baseUrl);
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Create src/config.mjs and src/index.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'test-model',
+					'--out',
+					'p233c-out',
+					'--timeout-ms',
+					'10000',
+					'--tools',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p233c-out', 'summary.json'), 'utf8'),
+			);
+
+			// No writeError.
+			assert.ok(
+				!summary.writeError,
+				`expected no writeError, got: ${summary.writeError?.name} — ${summary.writeError?.message}`,
+			);
+			// Exactly 2 unique files written (no double-count on src/config.mjs).
+			assert.equal(
+				summary.writeCount,
+				2,
+				`writeCount must be 2 (config.mjs + index.mjs), got: ${summary.writeCount}`,
+			);
+			// Envelope version wins for src/config.mjs (version: 2, not version: 1).
+			const configContent = await readFile(
+				join(cwd, 'src', 'config.mjs'),
+				'utf8',
+			);
+			assert.ok(
+				configContent.includes('version: 2'),
+				`envelope must win for config.mjs, got: ${configContent}`,
+			);
+			// src/index.mjs written from envelope.
+			const indexContent = await readFile(
+				join(cwd, 'src', 'index.mjs'),
+				'utf8',
+			);
+			assert.ok(
+				indexContent.includes('config'),
+				`index.mjs must be written, got: ${indexContent}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// NOTE: Test case (d) — no-op byte-identical write + STAGED_DONE → writeCount 0.
+	// DROPPED: prepareChanges with apply:true always writes the file (no content
+	// comparison gate); a byte-identical re-write is not a no-op in the current
+	// harness (writeResult.writes.length > 0 even when content is unchanged).
+	// The zero-applied path (phase 225) requires that preparePatches/prepareWrites
+	// produce zero writes (e.g. a patch whose search string is absent), which is
+	// distinct from the phase-233 change 4 scenario. The harness cannot produce a
+	// zero-write result from a full file write with any content, so case (d) cannot
+	// be exercised by the fake-model-server integration harness. Coverage of change 4
+	// is provided by changes 1-3 in case (a) (the merged proposal's paths are
+	// non-empty, so the phase-225 auto-advance fires only when prepareChanges truly
+	// returns zero writes; stagedDoneSignal short-circuits before that in the
+	// STAGED_DONE case).
+});

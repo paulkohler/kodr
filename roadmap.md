@@ -232,6 +232,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 230 Per-test timeout for package-manager-delegated node --test verification
 - [x] 231 Detect Heal Reasoning-Token Runaway and Fast-Fail
 - [x] 232 Staged Completion: Synthetic User Turn Over Embedded Tool Hint
+- [x] 233 Staged Pipeline: Apply Pending Draft Writes on STAGED_DONE (W4 Parity)
 
 ## Phase Contract
 

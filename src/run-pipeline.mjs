@@ -1952,14 +1952,20 @@ async function runStagedPrompt({
 		}
 
 		lastProposal = proposal;
+		// Phase 233: merge the captured draft into a VALID envelope too (W4 parity with
+		// the main pipeline ~1080-1088), not only the null-envelope W3 fallback. A
+		// STAGED_DONE envelope (files:[]) is non-null, so without this the draft's
+		// pending write_file is silently dropped at the empty-paths check below.
+		const capturedDraft = completion.proposalDraft ?? null;
+		const draftNonEmpty = capturedDraft !== null && !capturedDraft.isEmpty;
 		if (!proposal) {
-			// W3 fallback (mirrors main pipeline): if tool-channel writes captured
-			// the stage's files, synthesize the proposal from the draft.
-			const capturedDraft = completion.proposalDraft ?? null;
-			if (capturedDraft && !capturedDraft.isEmpty) {
+			if (draftNonEmpty) {
 				proposal = mergeProposalWithDraft(capturedDraft, null);
 			}
+		} else if (draftNonEmpty) {
+			proposal = mergeProposalWithDraft(capturedDraft, proposal);
 		}
+		lastProposal = proposal; // reflect the merged result in the run summary
 		if (!proposal) {
 			writeError = {
 				message: 'Staged response did not include a proposal',
@@ -1973,6 +1979,12 @@ async function runStagedPrompt({
 			break;
 		}
 		const stageMessages = proposal?.messages || [];
+		// Phase 233: capture STAGED_DONE before the empty-paths branch — after a W4 merge
+		// the merged proposal has paths > 0, so that branch (which used to honor
+		// STAGED_DONE) no longer fires; we honor it after apply instead.
+		const stagedDoneSignal = stageMessages.some((m) =>
+			m.content?.includes('STAGED_DONE'),
+		);
 		proposalMessages.push(...stageMessages);
 		if (proposal?.scratchpad) {
 			scratchpad = proposal.scratchpad;
@@ -2131,6 +2143,18 @@ async function runStagedPrompt({
 		// consecutive such stages gated on allWrites.length > 0, auto-complete
 		// (implicitDone) instead of grinding to StagedIncompleteError.
 		if (writeResult.writes.length === 0) {
+			if (stagedDoneSignal) {
+				done = true;
+				stageRecords.push({
+					done,
+					name: `implement-${stageIndex}`,
+					appliedPaths: [],
+					proposedPaths: paths,
+					responseChars: completion.text.length,
+					writeCount: 0,
+				});
+				break;
+			}
 			if (!done && allWrites.length > 0 && noProgressTurns + 1 >= 2) {
 				done = true;
 				stageRecords.push({
@@ -2179,6 +2203,13 @@ async function runStagedPrompt({
 			responseChars: completion.text.length,
 			writeCount: writeResult.writes.length,
 		});
+		// Phase 233: the model signaled STAGED_DONE in the SAME response that carried the
+		// pending draft write. The write is now applied (and cleared from the draft), so
+		// honor completion in this stage instead of burning another to re-signal.
+		if (stagedDoneSignal) {
+			done = true;
+			break;
+		}
 
 		// Inter-stage npm install: if this stage applied package.json and
 		// node_modules does not yet exist, install dependencies before the next

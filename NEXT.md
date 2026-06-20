@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 232)
+## Current frontier (phase 233)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -38,7 +38,13 @@ length` with zero answer tokens, break immediately, accurate `reasoning_runaway`
 stop reason), and the phase-232 synthetic staged-completion user turn (when the
 staged repeat-escalation sentinel fires, a `user`-role message is injected after
 all tool results, offering the dual-exit: write the next file or return
-`STAGED_DONE`; tools remain available; fire-once per `completeWithToolCalls` call).
+`STAGED_DONE`; tools remain available; fire-once per `completeWithToolCalls` call),
+and the phase-233 W4-parity merge in `runStagedPrompt` (a `write_file` draft
+captured in `proposalDraft` is now merged into a valid STAGED_DONE envelope before
+the empty-paths check, so pending draft writes are applied and the stage terminates
+done in one turn — fixing the silent-data-loss bug discovered in `final-audit-2`
+where `server.test.mjs` was captured in the draft but discarded when the STAGED_DONE
+envelope had `files:[]`).
 
 ## Candidates
 
