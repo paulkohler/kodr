@@ -124,3 +124,27 @@ Tests (a) through (c) use the native model profile (`writeNativeProfile`) with
 `--tools` and `--yes`, staging a `write_file` main run followed by a broken-syntax
 test command that triggers heal. Each asserts against the `repairs/turn-1/`
 artifacts written by `runSelfHealingLoop`.
+
+## Dogfood: one run, three phases proven
+
+The phase-235 dogfood (`phase-235/carryover-1`) re-ran the exact scenario that
+exposed the bug in phase 234 — a small unicode text-stats CLI whose generated
+tests fail, triggering a read-only heal turn that runs away on reasoning. The
+single live run validated the whole heal-robustness arc at once:
+
+- **Stale carryover gone (phase 235):** the heal turn-1 directory has *no
+  `writes.json` at all*. Pre-fix, the same scenario (`phase-234/cap-wiring-1`)
+  produced a `writes.json` with three stale `modify` entries — every main-run file
+  re-emitted with an empty diff. `registry.proposalDraft.clear()` made that
+  disappear cleanly.
+- **`reasoning_runaway` restored (phase 231):** the turn wrote `runaway.json`,
+  `repairs.json` carries `stopReason: "reasoning_runaway"`, and the console said
+  `not healed (reasoning_runaway)`. Pre-fix this same turn was mislabeled
+  `no-progress-exhausted` with no runaway artifact — because the stale proposal
+  made `proposalNonEmpty` true and suppressed the predicate.
+- **Honored cap working (phase 234):** the runaway sub-turn hit exactly 4096
+  completion tokens with `finish_reason: length` — the cap that turns a 200–330s
+  grind into a sub-second fast-fail.
+
+The main run itself was unaffected (all three files written, tests run). Three
+phases (231 → 234 → 235), one decisive live run, each visible in the artifacts.
