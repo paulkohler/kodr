@@ -267,25 +267,23 @@ describe('completion cap request shaping', () => {
 		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
 	});
 
-	it('repairOptions heal marker: completionCapMode is "heal" (heal plumbing assertion)', () => {
-		// Confirms the marker value the run-pipeline sets on repairOptions is exactly
-		// the string that applyCompletionCap gates on. No run-pipeline import needed —
-		// the contract is: repairOptions carries completionCapMode:'heal', and
-		// applyCompletionCap gates on options.completionCapMode !== 'heal'. This test
-		// asserts the gate value matches the marker by exercising both sides directly.
-		const healOptions = { completionReserve: 4096, completionCapMode: 'heal' };
-		const mainOptions = { completionReserve: 4096 };
-
-		const healRequest = buildChatRequestBody(healOptions, { messages, model });
-		const mainRequest = buildChatRequestBody(mainOptions, { messages, model });
-
-		assert.equal(healRequest.max_tokens, 4096, 'heal path sets cap');
-		assert.equal(
-			Object.hasOwn(mainRequest, 'max_tokens'),
-			false,
-			'main path has no cap',
+	it('heal mode + unset completionReserve — no max_tokens (positive-integer guard still applies on the heal path)', () => {
+		// The marker gate passes for heal, but the positive-integer guard must still
+		// bail when there is no reserve to cap on. Closes the heal+unset case (the
+		// heal+0 and heal+negative cases are covered above).
+		const request = buildChatRequestBody(
+			{ completionCapMode: 'heal' },
+			{ messages, model },
 		);
+
+		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
 	});
+
+	// NOTE: this suite proves applyCompletionCap RESPONDS to the marker. That the
+	// run-pipeline repairOptions bag actually SETS completionCapMode:'heal' (and the
+	// main loop does not) is a wiring fact proven LIVE by the phase-236 dogfood,
+	// which inspects raw-request.json: max_tokens present on a heal turn, absent on a
+	// main-loop turn. A hand-built options bag here cannot catch that wiring no-op.
 });
 
 describe('prompt cache request shaping', () => {
