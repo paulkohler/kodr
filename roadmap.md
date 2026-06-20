@@ -237,6 +237,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 235 Clear the Proposal Draft Before Each Heal Turn (Stale Carryover Fix)
 - [x] 236 Scope the Honored Completion Cap to HEAL Turns Only (Un-Starve Main Generation)
 - [x] 237 Clear Applied Patches Between Staged Stages (Staged clearFiles Patch Leak)
+- [x] 238 lang:node skill: ESM cache-bust import does not reset module state
 
 ## Phase Contract
 

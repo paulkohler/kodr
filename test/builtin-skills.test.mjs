@@ -105,4 +105,12 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /createDatabase\(\)/);
 		assert.match(body, /import\.meta\.url/);
 	});
+
+	it('lang:node warns ESM cache-bust import does not reset module state', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /ESM cache-bust import does not reset module state/);
+		assert.match(body, /query string is ignored for local files/);
+		assert.match(body, /createInventory\(\)/);
+		assert.match(body, /beforeEach/);
+	});
 });

@@ -378,9 +378,10 @@ describe('prompt budget guard', () => {
 		// Phase 223 added FTS5 MATCH syntax and createDatabase factory patterns; ~9115 chars. Limit raised to 9500.
 		// Phase 227 added node:sqlite import-name, check-status-before-parse, and
 		// module-scope-side-effects pitfalls; ~11317 chars. Limit raised to 12000.
+		// Phase 238 added ESM cache-bust pitfall; ~12626 chars. Limit raised to 14000.
 		assert.ok(
-			promptLen < 12000,
-			`Node/ESM system message must stay under 12000 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 14000,
+			`Node/ESM system message must stay under 14000 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
@@ -437,9 +438,10 @@ describe('prompt budget guard', () => {
 		// Phase 223 added FTS5 MATCH syntax and createDatabase factory patterns; ~8040 chars → 8500 limit.
 		// Phase 227 added node:sqlite import-name, check-status-before-parse, and
 		// module-scope-side-effects pitfalls; ~10242 chars. Limit raised to 11000.
+		// Phase 238 added ESM cache-bust pitfall; ~11551 chars. Limit raised to 13000.
 		assert.ok(
-			promptLen < 11000,
-			`Native mode system message must stay under 11000 chars; got ${promptLen} chars`,
+			promptLen < 13000,
+			`Native mode system message must stay under 13000 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -833,9 +835,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 		// Phase 223 added FTS5 MATCH syntax and createDatabase factory patterns; ~9113 chars. Limit raised to 9500.
 		// Phase 227 added node:sqlite import-name, check-status-before-parse, and
 		// module-scope-side-effects pitfalls; ~11315 chars. Limit raised to 12000.
+		// Phase 238 added ESM cache-bust pitfall; ~12624 chars. Limit raised to 14000.
 		assert.ok(
-			context.systemPrompt.length < 12000,
-			`System message must stay under 12000 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 14000,
+			`System message must stay under 14000 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });

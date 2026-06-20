@@ -184,6 +184,36 @@ assert.match(found.headers.get('content-type') ?? '', /application\/json/);
 const item = await found.json();
 ```
 
+## Test isolation — no ESM cache-bust re-import
+
+**ESM cache-bust import does not reset module state** — do not try to get fresh
+module state per test with `import('./mod.mjs?t=' + Date.now())`. Node caches ESM
+modules by canonical file path; the query string is ignored for local files, so
+every `import()` returns the SAME cached instance and any module-scope `Map`,
+array, or counter stays shared across tests. State accumulates and assertions
+fail with counts off by prior-test totals. Test isolation must come from a
+FACTORY the test calls in `beforeEach`/per test — never from re-importing the
+module:
+
+```js
+// Wrong — query string is ignored; same cached module, shared state leaks
+async function freshInventory() {
+  const mod = await import('../src/inventory.mjs?t=' + Date.now());
+  return mod;
+}
+
+// Correct — export a factory; construct fresh state per test
+// inventory.mjs
+export function createInventory() {
+  const items = new Map(); // fresh per call, never module-scope
+  return { add(x) { items.set(x.id, x); }, count() { return items.size; } };
+}
+
+// inventory.test.mjs
+let inv;
+beforeEach(() => { inv = createInventory(); });
+```
+
 ## busboy v1
 
 busboy v1 is a factory function, not a class. `new Busboy({...})` throws `TypeError: Busboy is not a constructor`. Call it without `new`:

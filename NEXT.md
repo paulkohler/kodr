@@ -89,22 +89,6 @@ model-callable registry — itself a network-egress security boundary (SSRF /
 private-IP / size guards, permission-gated, real integration run per AGENTS.md).
 Do not ship the llms.txt docs until that prerequisite lands.
 
-### lang:node skill: ESM cache-bust import does not reset module state
-Surfaced by the phase-236 dogfood (`phase-236/uncap-main-1`). The model wrote a
-test helper `freshInventory()` using `import(url + '?t=' + Date.now())` to try to
-get a fresh module instance per test — but Node.js caches ESM modules by
-canonical file path, so the query string does NOT bust the cache for a local
-`.mjs`. The module-scope `Map` stayed shared across all tests, contaminating state
-and causing 5/27 assertion failures (counts off by accumulated prior-test state).
-This is the SAME class of pitfall already encoded in the `lang:node` skill
-(module-scope side effects, `:memory:` SQLite per test): test isolation must come
-from a FACTORY the test calls (`createInventory()`), never from re-importing the
-module. Add a short pitfall to `builtin-skills.json` `lang:node`: "Do not rely on
-`import('./mod.mjs?t='+Date.now())` to get fresh module state — Node caches ESM by
-path, the query string is ignored for local files. Export a factory and construct
-fresh state in `beforeEach`/per test instead." Deterministically testable against
-the skill content; pure additive skill copy.
-
 ### Smoke-as-verification in the heal loop
 Phase 184 wired a smoke-driven second heal pass, but the in-loop verification
 still uses `options.testCommand`. When no testCommand is set, smoke failures
