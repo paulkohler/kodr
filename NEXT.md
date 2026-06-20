@@ -73,46 +73,30 @@ can't drive repairs. Full smoke-as-verification requires pluggable verification
 backends: callers pass a `verify` function instead of a `testCommand` string.
 Significant architecture change — not yet plannable without an interface sketch.
 
-### Heal-turn empty completions: reasoning-token runaway on wireNoStream models
-**Decisive root cause, from the 2026-06-20 ambitious final-audit dogfood
-(`final-audit/blog-platform`).** Heal turns on qwen3.6 (wireNoStream) fail because
-the model **burns its entire completion budget on reasoning tokens and hits
-`finish_reason: "length"` with ZERO answer content** before it ever emits a
-repair. Raw evidence from a heal turn's `raw-response.json`: `content` length 0,
-`reasoning_tokens` 21,691, `total_tokens` 32,768 (= the profile `contextWindow`),
-`finish_reason: "length"`. The model reasoned until it exhausted the 32K window
-and was cut off mid-thought. The profile sets `maxThinkingTokens: 4096`, but the
-wire produced 21,691 reasoning tokens — **so that cap is NOT being honored on heal
-requests** (kodr may not send it, or LM Studio ignores it for this model).
+### Bound the reasoning budget on heal turns (follow-up to phase 231)
 
-This supersedes BOTH earlier framings, which were wrong: (1) "context overflow /
-accumulated turn-log" — the heal prompt is built **fresh** (`renderLoopRepairPrompt`
-= tests.json + repair-context files) and the prompt here was only 11,075 tokens;
-(2) "the heal turn just needs more wall-clock time" — phase 228 raised the cap
-240s→600s, yet these turns returned at ~335s (well under 600s) with empty content.
-There are two distinct failure modes and the data conflated them: **(A) client
-timeout** — the older 240s cap aborted a still-generating request (`durationMs ==
-240000`); **(B) reasoning runaway** — the model returns `finish_reason: length`
-with 0 content because reasoning ate the whole window. Phase 228 fixed (A) (heal
-budget == main budget) and, usefully, **let (B) become diagnosable** by running the
-request to its natural finish instead of an opaque abort. But (A) was largely a
-symptom of (B): give the runaway more time and it still returns empty.
+**Detection and fast-fail shipped in phase 231.** When qwen3.6 (wireNoStream)
+exhausts its 32K context window on reasoning and returns `finish_reason: "length"`
+with zero answer tokens, the heal loop now breaks immediately with
+`stopReason: 'reasoning_runaway'` and an accurate diagnostic. The open problem is
+the mitigation: making the model leave room for an answer.
 
-**Primary direction (new, highest confidence):** cap the heal request's
-reasoning/completion budget so the model MUST leave room for an answer. Options to
-investigate: enforce `maxThinkingTokens` on the wire (find why 4096 isn't applied —
-does the heal path send it? does LM Studio honor a thinking cap or need
-`max_tokens`/`reasoning_effort`?); or send a `max_completion_tokens` that reserves
-answer room under the 32K window; or detect `finish_reason: "length"` + empty
-content and retry with a tighter thinking budget. Deterministically testable once
-the honored wire param is identified — the request builder is a pure function.
-**Secondary:** (b) trim the heal prompt's verbatim file embeds (one prompt embedded
-a 228-line test file) — frees window for reasoning+answer, marginal on its own;
-(c) stream heal turns so a partial answer survives and the runaway is detectable
-early (still useful, but the token cap is the real lever). Note heal frequency has
-dropped (staged maturity + phase-227 skill mean complex tasks often pass
-first-pass), so this bites less often — but when a hard repair IS needed, it
-reliably produces nothing. Evidence: `final-audit/blog-platform` heal
-`raw-response.json` + `turn-meta.json`, and heal `turn-meta.json` across
-phase-201/204/216/219/225/226/228 runs in `~/src/kodr-testing`.
+**The lever:** kodr sends `max_thinking_tokens: 4096` in heal requests but LM
+Studio / qwen3.6 produced 21,693 reasoning tokens in the verified failure artifact
+(`final-audit/blog-platform`, 2026-06-20) — so the cap is being ignored. Before
+building any mitigation, determine which parameter LM Studio actually honors for
+qwen3.6: `max_thinking_tokens`? `max_tokens`? `max_completion_tokens`?
+`reasoning_effort`? This needs empirical testing against the running model — the
+request builder is a pure function and deterministically testable once the honored
+wire param is identified.
+
+**Once the param is known:** reserve answer room by setting that param to
+`contextWindow - promptTokens - answerBudget` on heal requests, so the model
+cannot consume the entire window with reasoning. Secondary options (trimming
+verbatim file embeds in the heal prompt; streaming heal turns so a partial answer
+survives) remain open but are less impactful than the token-cap fix.
+
+Evidence: `final-audit/blog-platform/.kodr/runs/2026-06-20T04-45-40.838Z/repairs/`
+`turn-1/raw-response.json` + `turn-meta.json`. See also phase-231 `failures.jsonl`
+entry and `blog/231-heal-reasoning-runaway-fast-fail.md`.
 

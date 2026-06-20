@@ -74,6 +74,8 @@ export function classifyRunFailure(summary) {
 	if (summary.healStopReason === 'nothing-generated')
 		return 'nothing-generated';
 	if (summary.healStopReason === 'wrong_path_exhausted') return 'wrong-path';
+	if (summary.healStopReason === 'reasoning_runaway')
+		return 'reasoning-runaway';
 	// Verification ran (or was configured) but the run is not ok.
 	if (summary.tested === true) return 'verification-failed';
 	if (summary.healStopReason === 'max_turns') return 'heal-exhausted';

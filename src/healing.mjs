@@ -141,6 +141,25 @@ export function renderWrongPathWarning(writes, failurePaths) {
 	return `Warning: you wrote to [${actual}] but the failure is in [${expected}]. Fix the correct file.`;
 }
 
+// Phase 231: pure predicate for reasoning-token runaway detection.
+// Guards (each load-bearing):
+// - proposalNonEmpty first: a native tool-channel repair (empty text, valid draft) is
+//   never misclassified.
+// - text.trim().length > 0: any real answer means not a runaway.
+// - !raw: keeps every existing injected-repairTurn test (which returns { text } with no
+//   raw) on its current no-progress/invalid_proposal path.
+// - finishLength gate: FALSE on 'stop' with empty content (a legit decline keeps the
+//   existing no-progress handling).
+export function isReasoningRunaway(text, raw, proposalNonEmpty) {
+	if (proposalNonEmpty) return false;
+	if ((text || '').trim().length > 0) return false;
+	if (!raw) return false;
+	const finishLength =
+		raw.finishReasons?.at(-1) === 'length' ||
+		raw.loopBudget?.stopReason === 'finish_length';
+	return finishLength === true;
+}
+
 export class HealingTimeoutError extends Error {
 	constructor(message) {
 		super(message);
@@ -333,6 +352,40 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			((Array.isArray(turnProposal.files) && turnProposal.files.length > 0) ||
 				(Array.isArray(turnProposal.patches) &&
 					turnProposal.patches.length > 0));
+
+		// Phase 231: fast-fail on reasoning-token runaway BEFORE the proposal-parse
+		// try. This guarantees a runaway is classified 'reasoning_runaway' and never
+		// 'invalid_proposal'. Short-circuit also prevents a doomed escalation second
+		// turn (verified: a 3402-char escalation prompt also ran away to empty).
+		if (
+			isReasoningRunaway(completion.text, completion.raw, turnProposalNonEmpty)
+		) {
+			const lb = completion.raw?.loopBudget || {};
+			const runawayEvidence = {
+				finishReason: completion.raw?.finishReasons?.at(-1) ?? null,
+				completionTokens: lb.completionTokens ?? null,
+				promptTokens: lb.promptTokens ?? null,
+				totalTokens: lb.tokens ?? null,
+				...(Number.isFinite(options.contextWindow)
+					? { contextWindow: options.contextWindow }
+					: {}),
+			};
+			await writeJson(join(turnDir, 'runaway.json'), runawayEvidence);
+			stopReason = 'reasoning_runaway';
+			repairs.push({
+				completionChars,
+				durationMs,
+				index,
+				ok: false,
+				promptChars,
+				runaway: runawayEvidence,
+				stopReason,
+				timeoutMs: turnTimeoutMs,
+				usage,
+			});
+			break;
+		}
+
 		try {
 			if (turnProposalNonEmpty) {
 				proposal = normalizeRepairProposal(turnProposal);

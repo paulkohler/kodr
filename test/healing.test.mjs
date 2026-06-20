@@ -11,6 +11,7 @@ import {
 	healRepairTurnBudget,
 	HealingTimeoutError,
 	isNothingGenerated,
+	isReasoningRunaway,
 	oneShotHeal,
 	renderEscalationPrompt,
 	renderWrongPathWarning,
@@ -1237,6 +1238,237 @@ describe('heal tool-channel parity (phase 135)', () => {
 
 		assert.equal(result.healed, false);
 		assert.equal(result.stopReason, 'invalid_proposal');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 231 — Detect Heal Reasoning-Token Runaway and Fast-Fail
+// ---------------------------------------------------------------------------
+
+describe('reasoning-token runaway (phase 231)', () => {
+	// (e) Pure-predicate truth table
+	it('isReasoningRunaway: truth table', () => {
+		// True: empty text, no proposal, finishReasons: ['length']
+		assert.equal(
+			isReasoningRunaway(
+				'',
+				{
+					finishReasons: ['length'],
+					loopBudget: {
+						stopReason: 'finish_length',
+						completionTokens: 21693,
+						promptTokens: 11075,
+						tokens: 32768,
+					},
+				},
+				false,
+			),
+			true,
+		);
+		// True: stopReason: 'finish_length' also qualifies
+		assert.equal(
+			isReasoningRunaway(
+				'',
+				{
+					finishReasons: ['stop'],
+					loopBudget: { stopReason: 'finish_length' },
+				},
+				false,
+			),
+			true,
+		);
+		// False: proposalNonEmpty short-circuits
+		assert.equal(
+			isReasoningRunaway('', { finishReasons: ['length'] }, true),
+			false,
+		);
+		// False: non-empty text short-circuits
+		assert.equal(
+			isReasoningRunaway('{"files":[]}', { finishReasons: ['length'] }, false),
+			false,
+		);
+		// False: !raw short-circuits (keeps existing test paths unchanged)
+		assert.equal(isReasoningRunaway('', undefined, false), false);
+		assert.equal(isReasoningRunaway('', null, false), false);
+		// False: finish_reason 'stop' with empty content is NOT a runaway
+		assert.equal(
+			isReasoningRunaway(
+				'',
+				{ finishReasons: ['stop'], loopBudget: { stopReason: 'finish_stop' } },
+				false,
+			),
+			false,
+		);
+		// False: whitespace-only text is empty, but 'stop' reason means not runaway
+		assert.equal(
+			isReasoningRunaway('   \n', { finishReasons: ['stop'] }, false),
+			false,
+		);
+		// True: whitespace-only text + length is still a runaway
+		assert.equal(
+			isReasoningRunaway('   \n', { finishReasons: ['length'] }, false),
+			true,
+		);
+	});
+
+	// (a) Runaway stops after ONE turn, repairs.length === 1, stopReason: 'reasoning_runaway'
+	it('runaway stops after ONE turn, repairs.length===1, stopReason reasoning_runaway', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-231a-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		let repairCallCount = 0;
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			contextWindow: 32768,
+			maxTurns: 3,
+			repairTurn: async () => {
+				repairCallCount += 1;
+				// Provenance: final-audit/blog-platform/.kodr/runs/2026-06-20T04-45-40.838Z/repairs/turn-1/raw-response.json
+				return {
+					text: '',
+					raw: {
+						finishReasons: ['length'],
+						loopBudget: {
+							completionTokens: 21693,
+							promptTokens: 11075,
+							tokens: 32768,
+							stopReason: 'finish_length',
+						},
+					},
+				};
+			},
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.stopReason, 'reasoning_runaway');
+		assert.equal(result.healed, false);
+		assert.equal(result.repairs.length, 1, 'must stop after ONE turn');
+		assert.equal(repairCallCount, 1, 'repairTurn called exactly once');
+	});
+
+	// (b) Runaway repair record carries token evidence
+	it('runaway repair record carries token evidence in runaway field', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-231b-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			contextWindow: 32768,
+			maxTurns: 2,
+			repairTurn: async () => ({
+				text: '',
+				raw: {
+					finishReasons: ['length'],
+					loopBudget: {
+						completionTokens: 21693,
+						promptTokens: 11075,
+						tokens: 32768,
+						stopReason: 'finish_length',
+					},
+				},
+			}),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		const entry = result.repairs[0];
+		assert.equal(entry.stopReason, 'reasoning_runaway');
+		assert.ok(entry.runaway, 'repair entry must have runaway field');
+		assert.equal(entry.runaway.finishReason, 'length');
+		assert.equal(entry.runaway.completionTokens, 21693);
+		assert.equal(entry.runaway.promptTokens, 11075);
+		assert.equal(entry.runaway.totalTokens, 32768);
+		assert.equal(entry.runaway.contextWindow, 32768);
+
+		// runaway.json should be written to disk
+		const runawayJson = JSON.parse(
+			await readFile(
+				join(cwd, '.kodr-repairs', 'turn-1', 'runaway.json'),
+				'utf8',
+			),
+		);
+		assert.equal(runawayJson.finishReason, 'length');
+		assert.equal(runawayJson.completionTokens, 21693);
+	});
+
+	// (c) Regression: empty text + finish 'stop' keeps no-progress→escalate→exhaust (2 turns)
+	it('regression: empty text + stop finish does NOT trigger runaway (no-progress path)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-231c-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		let repairCallCount = 0;
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			maxTurns: 3,
+			repairTurn: async () => {
+				repairCallCount += 1;
+				// A thinking model that declined: finish_reason 'stop', empty text
+				return {
+					text: JSON.stringify({ scratchpad: 'thinking' }),
+					raw: {
+						finishReasons: ['stop'],
+						loopBudget: { stopReason: 'finish_stop' },
+					},
+				};
+			},
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 1000,
+		});
+
+		// Must NOT be reasoning_runaway — should be no-progress-exhausted after 2 turns
+		assert.equal(result.stopReason, 'no-progress-exhausted');
+		assert.equal(result.repairs.length, 2);
+		assert.equal(
+			repairCallCount,
+			2,
+			'repairTurn called twice (escalate then exhaust)',
+		);
+	});
+
+	// (d) Empty text + NON-EMPTY proposal heals (not a runaway)
+	it('empty text + non-empty proposal heals normally (not classified as runaway)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-231d-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			maxTurns: 2,
+			repairTurn: async () => ({
+				// Pre-built proposal (tool-call channel), empty text, but finish_reason 'length'
+				// proposalNonEmpty=true must prevent runaway classification
+				text: '',
+				raw: {
+					finishReasons: ['length'],
+					loopBudget: { stopReason: 'finish_length', completionTokens: 100 },
+				},
+				proposal: {
+					files: [{ path: 'bad.mjs', content: 'export const value = 1;\n' }],
+					patches: [],
+				},
+			}),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.healed, true);
+		assert.equal(result.stopReason, 'healed');
+		assert.notEqual(result.stopReason, 'reasoning_runaway');
 	});
 });
 

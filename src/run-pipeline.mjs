@@ -3096,6 +3096,24 @@ function renderRunSummary(result) {
 			lines.push(
 				`Repairs: not healed (timeout) — repair turn timed out after ${elapsedSec} (limit ${limitSec}). Raise with --repair-timeout-ms.`,
 			);
+		} else if (hr.stopReason === 'reasoning_runaway') {
+			// Phase 231: reasoning-token runaway — model exhausted its context window
+			// on chain-of-thought and returned zero answer tokens.
+			const runaway = hr.repairs?.find(
+				(r) => r.stopReason === 'reasoning_runaway',
+			);
+			const rw = runaway?.runaway || {};
+			const reasoningTokens =
+				rw.completionTokens != null ? rw.completionTokens : '?';
+			const contextSize =
+				rw.contextWindow != null
+					? rw.contextWindow
+					: rw.totalTokens != null
+						? rw.totalTokens
+						: '?';
+			lines.push(
+				`Repairs: not healed (reasoning_runaway) — the model exhausted its context window on reasoning without emitting a repair (finish_reason: length, ${reasoningTokens} reasoning tokens / ${contextSize} context). Its thinking budget is not being honored; try a smaller task or a model with an effective thinking cap.`,
+			);
 		} else {
 			lines.push(
 				`Repairs: ${hr.healed ? 'healed' : 'not healed'} (${hr.stopReason})`,
