@@ -210,6 +210,7 @@ export function createInventory() {
 }
 
 // inventory.test.mjs
+import { describe, it, beforeEach } from 'node:test';
 let inv;
 beforeEach(() => { inv = createInventory(); });
 ```
