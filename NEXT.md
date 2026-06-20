@@ -70,39 +70,56 @@ can't drive repairs. Full smoke-as-verification requires pluggable verification
 backends: callers pass a `verify` function instead of a `testCommand` string.
 Significant architecture change — not yet plannable without an interface sketch.
 
-### Heal-turn timeouts on wireNoStream thinking models
-Heal turns on the qwen3.6 (wireNoStream) profile hit the per-turn timeout in
-~1/3 of cases and lose the entire turn (0 captured chars). **The earlier
-"context overflow / accumulated turn-log" framing was wrong** — re-derived from
-36 heal-turn `turn-meta.json` artifacts (2026-06-15..20): outcome is
-**uncorrelated with prompt size**. A 4,730-char heal prompt timed out at 240s
-with 0 chars while a 4,977-char one returned 1,190 chars in 14s; an 18,127-char
-prompt returned 7,289 chars in 116s while an 18,253-char one timed out. Same-size
-prompts both succeed and fail. The heal prompt is also built **fresh**
-(`renderLoopRepairPrompt` = tests.json + repair-context files), so it never
-carries the staged turn-log; the "378k cumulative tokens" figure was the whole
-run, not the heal request. Real mechanism: (1) the heal per-turn cap is
-`min(timeoutMs, 240_000)` = 240s while main turns get the full 600s, yet the
-same slow wireNoStream thinking model is generating (successes ran up to 116s, so
-the tail past 240s is plausibly just-slow, not hung); (2) wireNoStream returns
-nothing until the full response lands, so any timeout is a total loss (0 captured
-chars) and we cannot tell slow from hung (no first-token signal). Design
-directions, in order of confidence: **(a) shipped in phase 228** — make the heal
-per-turn timeout profile-aware by giving wireNoStream profiles a budget aligned
-with their main-loop per-turn budget (`min(timeoutMs, 600_000)`) instead of the
-tight 240s default cap; (b) trim the heal prompt's verbatim file embeds (real
-waste — one prompt embedded a 228-line test file — but proven NOT to fix the
-timeout, so ship it as a quality fix, not the cure); (c) stream heal turns even
-for wireNoStream so partial output survives a timeout and first-token detection
-can distinguish slow from hung (highest value, highest risk — wireNoStream exists
-because streaming tool-calls was unreliable for this model; needs live
-validation). Efficacy of (a) on the >240s tail is **still unmeasured**: the
-phase-228 dogfood could not trigger it — two complex tasks (FTS5 catalog; the
-final-audit JWT-auth shape that previously timed out a 240s heal) both passed
-first-pass with NO heal turn at all, because upstream quality (staged maturity +
-phase-227 skill) has cut heal frequency. That also **lowers (c)'s urgency** — heal
-runs less, so a 240s total-loss bites less often. Capture the measurement
-opportunistically from future heal turns' `turn-meta.json` (does the raised cap
-convert a 240s loss into a 240–600s completion?). Evidence: heal `turn-meta.json`
-across phase-201/204/216/219/225/226, final-audit, and phase-228 runs in
-`~/src/kodr-testing`.
+### Heal-turn empty completions: reasoning-token runaway on wireNoStream models
+**Decisive root cause, from the 2026-06-20 ambitious final-audit dogfood
+(`final-audit/blog-platform`).** Heal turns on qwen3.6 (wireNoStream) fail because
+the model **burns its entire completion budget on reasoning tokens and hits
+`finish_reason: "length"` with ZERO answer content** before it ever emits a
+repair. Raw evidence from a heal turn's `raw-response.json`: `content` length 0,
+`reasoning_tokens` 21,691, `total_tokens` 32,768 (= the profile `contextWindow`),
+`finish_reason: "length"`. The model reasoned until it exhausted the 32K window
+and was cut off mid-thought. The profile sets `maxThinkingTokens: 4096`, but the
+wire produced 21,691 reasoning tokens — **so that cap is NOT being honored on heal
+requests** (kodr may not send it, or LM Studio ignores it for this model).
+
+This supersedes BOTH earlier framings, which were wrong: (1) "context overflow /
+accumulated turn-log" — the heal prompt is built **fresh** (`renderLoopRepairPrompt`
+= tests.json + repair-context files) and the prompt here was only 11,075 tokens;
+(2) "the heal turn just needs more wall-clock time" — phase 228 raised the cap
+240s→600s, yet these turns returned at ~335s (well under 600s) with empty content.
+There are two distinct failure modes and the data conflated them: **(A) client
+timeout** — the older 240s cap aborted a still-generating request (`durationMs ==
+240000`); **(B) reasoning runaway** — the model returns `finish_reason: length`
+with 0 content because reasoning ate the whole window. Phase 228 fixed (A) (heal
+budget == main budget) and, usefully, **let (B) become diagnosable** by running the
+request to its natural finish instead of an opaque abort. But (A) was largely a
+symptom of (B): give the runaway more time and it still returns empty.
+
+**Primary direction (new, highest confidence):** cap the heal request's
+reasoning/completion budget so the model MUST leave room for an answer. Options to
+investigate: enforce `maxThinkingTokens` on the wire (find why 4096 isn't applied —
+does the heal path send it? does LM Studio honor a thinking cap or need
+`max_tokens`/`reasoning_effort`?); or send a `max_completion_tokens` that reserves
+answer room under the 32K window; or detect `finish_reason: "length"` + empty
+content and retry with a tighter thinking budget. Deterministically testable once
+the honored wire param is identified — the request builder is a pure function.
+**Secondary:** (b) trim the heal prompt's verbatim file embeds (one prompt embedded
+a 228-line test file) — frees window for reasoning+answer, marginal on its own;
+(c) stream heal turns so a partial answer survives and the runaway is detectable
+early (still useful, but the token cap is the real lever). Note heal frequency has
+dropped (staged maturity + phase-227 skill mean complex tasks often pass
+first-pass), so this bites less often — but when a hard repair IS needed, it
+reliably produces nothing. Evidence: `final-audit/blog-platform` heal
+`raw-response.json` + `turn-meta.json`, and heal `turn-meta.json` across
+phase-201/204/216/219/225/226/228 runs in `~/src/kodr-testing`.
+
+### Heal/test hang: generated test that hangs ~300s blocks verification
+Side finding from the same ambitious run: the model-generated `test/api.test.mjs`
+had a test (`pagination returns the right page size`) that hung ~300s (a leaked
+server/connection or an await that never resolves). A single hanging generated
+test stalls the whole verification + heal loop. `node --test` has no default
+per-test timeout, so the run leans on kodr's verification timeout. Worth a small
+guard: pass `--test-timeout` to the generated/auto-detected `node --test` command
+(the harness already uses `--test-timeout=60000` for its OWN suite — extend the
+same default to verification runs) so one hung test fails fast instead of
+consuming the run. Cheap, deterministic, and independent of the model.
