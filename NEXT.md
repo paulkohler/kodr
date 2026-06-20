@@ -88,10 +88,13 @@ Significant architecture change — not yet plannable without an interface sketc
 Three rounds of large thinking-model responses exhaust the 32 K context budget
 before healing completes, producing an empty final output. This is the
 highest-impact systemic issue from phase 204 (`--no-heal` is the current
-workaround). The 225-dogfood re-confirmed it bites now that staged runs reliably
-reach verification: a repair turn timed out at 240s with **0 completion chars**
-(`healStopReason: timeout`) — the model never emitted a token before the cap,
-i.e. the heal request is too large for it to make progress. Fix options: cap heal
-turns when `wireNoStream`, drop prior heal turns from context before each retry,
-or compress the turn log. Now the strongest systemic candidate, but still needs a
-design sketch before it becomes a phase.
+workaround). The 225- and final-audit dogfoods re-confirmed it bites now that
+staged runs reliably reach verification: a repair turn timed out at 240s with
+**0 completion chars** (`healStopReason: timeout`) — the model never emitted a
+token before the cap. The final-audit run pinned the cause: the heal prompt was
+25.5k chars after ~41 main turns / 378k cumulative prompt tokens, so the **staged
+run's accumulated turn-log tail** is what pushes the heal request past what the
+model can service. Design direction: before a heal request on a staged run, drop
+or compress the accumulated prior staged turns (not just cap the heal response
+size); optionally cap heal turns when `wireNoStream`. Now the strongest systemic
+candidate, but still needs a design sketch before it becomes a phase.
