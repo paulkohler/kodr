@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 226)
+## Current frontier (phase 227)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -16,14 +16,15 @@ with `.kodr/config.json` `hooks`/`sensors` blocks for per-project tuning.
 Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
-The live work is the **staged execution pipeline** (`runStagedPrompt`). Phases
-213–226 chipped at it for local thinking models (qwen3.6): pending-write
-`run_command` guards, W3 draft fallback, `SafeWriteError` steering with
-`clearFiles`, raised `maxStageWrites` (8) with unique-path dedup, inter-stage
-`npm install`, `lang:node` skill pitfalls, the phase-224 `safeWriteSteered` flag,
-the phase-225 zero-applied-write auto-advance, and the phase-226 duplicate-block
-guard in `preparePatches` (`reason: 'duplicate_block'`) that prevents a patch
-whose `replace` is an existing multi-line block from writing a duplicate to disk.
+The live work is the **staged execution pipeline** (`runStagedPrompt`) and
+the `lang:node` builtin skill. Phases 213–227 chipped at both for local
+thinking models (qwen3.6): pending-write `run_command` guards, W3 draft
+fallback, `SafeWriteError` steering with `clearFiles`, raised `maxStageWrites`
+(8) with unique-path dedup, inter-stage `npm install`, the phase-224
+`safeWriteSteered` flag, the phase-225 zero-applied-write auto-advance, the
+phase-226 duplicate-block guard in `preparePatches` (`reason: 'duplicate_block'`),
+and the phase-227 `lang:node` pitfall trio (node:sqlite `DatabaseSync` import
+name, check-status-before-parse, module-scope side effects).
 
 ## Candidates
 
@@ -40,19 +41,6 @@ This is architecturally different from Phase 223's tool-error approach: it sends
 user-role message that the model must respond to, rather than a tool result it may
 ignore. Needs careful placement in completeWithToolCalls so it fires after the tool
 result is appended but before the next request.
-
-### lang:node skill pitfalls from 224–226 dogfooding
-Three live staged runs (Express + node:sqlite notes API, qwen3.6) produced
-recurring, addressable code-quality bugs the `lang:node` builtin skill does not
-yet name: (a) `import { Database } from 'node:sqlite'` — the export is
-`DatabaseSync`, a parse/runtime failure; (b) integration tests that `JSON.parse`
-a response without checking status/content-type, so an HTML 404 page surfaces as
-`SyntaxError: Unexpected token '<'`; (c) module-scope side effects in server.mjs
-(`createDatabase()` / `createServer()` running at import, not behind the
-`import.meta.url` guard). Add named pitfall entries (correct vs wrong) like the
-phase-218/223 SQLite entries. Cheap, deterministic to add, and directly improves
-example quality — the project's measurement goal. Evidence in
-`process/failures.jsonl` (224-dogfood, 225-dogfood, 226-dogfood).
 
 ### run_command pending-write guard: staged-mode wording
 Phase 220 agent noted: the run_command guard hint "Return file changes in the
@@ -84,17 +72,32 @@ can't drive repairs. Full smoke-as-verification requires pluggable verification
 backends: callers pass a `verify` function instead of a `testCommand` string.
 Significant architecture change — not yet plannable without an interface sketch.
 
-### Heal-loop context overflow on thinking models
-Three rounds of large thinking-model responses exhaust the 32 K context budget
-before healing completes, producing an empty final output. This is the
-highest-impact systemic issue from phase 204 (`--no-heal` is the current
-workaround). The 225- and final-audit dogfoods re-confirmed it bites now that
-staged runs reliably reach verification: a repair turn timed out at 240s with
-**0 completion chars** (`healStopReason: timeout`) — the model never emitted a
-token before the cap. The final-audit run pinned the cause: the heal prompt was
-25.5k chars after ~41 main turns / 378k cumulative prompt tokens, so the **staged
-run's accumulated turn-log tail** is what pushes the heal request past what the
-model can service. Design direction: before a heal request on a staged run, drop
-or compress the accumulated prior staged turns (not just cap the heal response
-size); optionally cap heal turns when `wireNoStream`. Now the strongest systemic
-candidate, but still needs a design sketch before it becomes a phase.
+### Heal-turn timeouts on wireNoStream thinking models
+Heal turns on the qwen3.6 (wireNoStream) profile hit the per-turn timeout in
+~1/3 of cases and lose the entire turn (0 captured chars). **The earlier
+"context overflow / accumulated turn-log" framing was wrong** — re-derived from
+36 heal-turn `turn-meta.json` artifacts (2026-06-15..20): outcome is
+**uncorrelated with prompt size**. A 4,730-char heal prompt timed out at 240s
+with 0 chars while a 4,977-char one returned 1,190 chars in 14s; an 18,127-char
+prompt returned 7,289 chars in 116s while an 18,253-char one timed out. Same-size
+prompts both succeed and fail. The heal prompt is also built **fresh**
+(`renderLoopRepairPrompt` = tests.json + repair-context files), so it never
+carries the staged turn-log; the "378k cumulative tokens" figure was the whole
+run, not the heal request. Real mechanism: (1) the heal per-turn cap is
+`min(timeoutMs, 240_000)` = 240s while main turns get the full 600s, yet the
+same slow wireNoStream thinking model is generating (successes ran up to 116s, so
+the tail past 240s is plausibly just-slow, not hung); (2) wireNoStream returns
+nothing until the full response lands, so any timeout is a total loss (0 captured
+chars) and we cannot tell slow from hung (no first-token signal). Design
+directions, in order of confidence: (a) make the heal per-turn timeout
+profile-aware — give wireNoStream profiles a budget aligned with their main-loop
+per-turn budget instead of the tight 240s default cap (deterministic, low-risk;
+efficacy on the >240s tail is unmeasured — the loop's dogfood step is the
+measurement); (b) trim the heal prompt's verbatim file embeds (real waste — one
+prompt embedded a 228-line test file — but proven NOT to fix the timeout, so ship
+it as a quality fix, not the cure); (c) stream heal turns even for wireNoStream
+so partial output survives a timeout and first-token detection can distinguish
+slow from hung (highest value, highest risk — wireNoStream exists because
+streaming tool-calls was unreliable for this model; needs live validation).
+Evidence: heal `turn-meta.json` across phase-201/204/216/219/225/226 and
+final-audit runs in `~/src/kodr-testing`.

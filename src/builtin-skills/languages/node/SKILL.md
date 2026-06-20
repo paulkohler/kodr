@@ -35,6 +35,20 @@ function truncateVisible(str, width, ellipsis = '') {
 
 ## node:sqlite pitfalls (Node.js 24)
 
+**Import name** — the `node:sqlite` export is `DatabaseSync`, not `Database`.
+`import { Database } from 'node:sqlite'` fails (`Database` is undefined; `new
+Database(...)` throws `TypeError: Database is not a constructor`). Import the real
+name:
+
+```js
+// Wrong — there is no `Database` export
+import { Database } from 'node:sqlite';
+
+// Correct
+import { DatabaseSync } from 'node:sqlite';
+const db = new DatabaseSync(':memory:');
+```
+
 **BigInt bind** — `stmt.run().lastInsertRowid` is a `BigInt`; passing it as a SQL parameter throws `TypeError: Provided value cannot be bound`. Cast with `Number()` before any bind:
 
 ```js
@@ -105,6 +119,26 @@ before(async () => {
 });
 ```
 
+**Module-scope side effects** — the listen guard above is one instance of a
+general rule: run no side-effectful startup at import time. Do not call
+`createDatabase()`, `createServer()`, `app.listen()`, or any bootstrap at module
+scope — only define and export. Importing the module for tests must do nothing
+observable (no DB file opened, no port bound). Put every side effect behind the
+same `import.meta.url` guard so it fires only when the file is run directly:
+
+```js
+// db.mjs / server.mjs — export factories; run nothing on import
+export function createDatabase(path = ':memory:') { /* ... */ }
+export const app = express();
+
+// Only this block runs side effects, and only when executed directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const db = createDatabase(process.env.DB_PATH ?? 'data.sqlite');
+  const port = parseInt(process.env.PORT) || 3000;
+  app.listen(port, () => console.log(`Listening on ${port}`));
+}
+```
+
 **Server teardown** — `server.close()` alone leaves keep-alive connections open; `node --test` hangs for 600 s. Call `closeAllConnections` first:
 
 ```js
@@ -126,6 +160,26 @@ await new Promise(r => { server = app.listen(0, () => { port = server.address().
 ```js
 const port = parseInt(process.env.PORT) || 3000;
 server.listen(port, () => { console.log(`Listening on ${port}`); });
+```
+
+**Check status before parsing JSON** — assert `res.ok` / `res.status` (and, when
+unsure, the `content-type`) before `JSON.parse(await res.text())` or `await
+res.json()`. A 404/500 returns an HTML error page, so parsing it throws
+`SyntaxError: Unexpected token '<', "<!DOCTYPE "...` and masks the real failure
+(the wrong status) behind a parse error:
+
+```js
+// Wrong — parses an HTML 404 page, throws SyntaxError: Unexpected token '<'
+const res = await fetch(`http://localhost:${port}/items/999`);
+const body = await res.json();
+
+// Correct — assert status first; only parse JSON on a JSON response
+const res = await fetch(`http://localhost:${port}/items/999`);
+assert.equal(res.status, 404);
+if (res.ok) {
+  assert.match(res.headers.get('content-type') ?? '', /application\/json/);
+  const body = await res.json();
+}
 ```
 
 ## busboy v1

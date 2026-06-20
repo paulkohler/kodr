@@ -84,4 +84,25 @@ describe('builtin skills bundle', () => {
 		const { body } = getBuiltinSkill('role:planner');
 		assert.doesNotMatch(body, /write_file|edit_file/);
 	});
+
+	it('lang:node names the node:sqlite import as DatabaseSync, not Database', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /import \{ Database \} from 'node:sqlite'/);
+		assert.match(body, /DatabaseSync/);
+		assert.match(body, /not `Database`|not a constructor/i);
+	});
+
+	it('lang:node warns to check response status before JSON.parse', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /Check status before parsing JSON/);
+		assert.match(body, /Unexpected token '<'/);
+		assert.match(body, /res\.status|res\.ok/);
+	});
+
+	it('lang:node bans module-scope side effects', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /Module-scope side effects/);
+		assert.match(body, /createDatabase\(\)/);
+		assert.match(body, /import\.meta\.url/);
+	});
 });
