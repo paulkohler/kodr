@@ -93,6 +93,103 @@ describe('firstAssistantMessage', () => {
 	});
 });
 
+describe('completion cap request shaping', () => {
+	const messages = [{ role: 'user', content: 'hi' }];
+	const model = 'test-model';
+
+	it('adds max_tokens when completionReserve is a positive integer', () => {
+		const body = { messages, model };
+		const request = buildChatRequestBody({ completionReserve: 4096 }, body);
+
+		assert.equal(request.max_tokens, 4096);
+		// Input body must not be mutated
+		assert.equal(Object.hasOwn(body, 'max_tokens'), false);
+	});
+
+	it('value equals options.completionReserve, not a hardcoded constant', () => {
+		const request = buildChatRequestBody(
+			{ completionReserve: 2048 },
+			{ messages, model },
+		);
+
+		assert.equal(request.max_tokens, 2048);
+	});
+
+	it('does not add max_tokens when caller body already has max_tokens', () => {
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096 },
+			{ messages, model, max_tokens: 99 },
+		);
+
+		assert.equal(request.max_tokens, 99);
+	});
+
+	it('does not add max_tokens when caller body already has max_completion_tokens', () => {
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096 },
+			{ messages, model, max_completion_tokens: 200 },
+		);
+
+		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
+		assert.equal(request.max_completion_tokens, 200);
+	});
+
+	it('does not add max_tokens when completionReserve is unset', () => {
+		const request = buildChatRequestBody({}, { messages, model });
+
+		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
+	});
+
+	it('does not add max_tokens when completionReserve is 0 (guards empty-completion footgun)', () => {
+		const request = buildChatRequestBody(
+			{ completionReserve: 0 },
+			{ messages, model },
+		);
+
+		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
+	});
+
+	it('coexists with max_thinking_tokens', () => {
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096, maxThinkingTokens: 512 },
+			{ messages, model },
+		);
+
+		assert.equal(request.max_tokens, 4096);
+		assert.equal(request.max_thinking_tokens, 512);
+	});
+
+	it('coexists with cache_control (Anthropic remote model)', () => {
+		const request = buildChatRequestBody(
+			{
+				provider: 'openrouter',
+				promptCache: 'auto',
+				completionReserve: 8192,
+			},
+			{ messages, model: 'anthropic/claude-sonnet-4.5' },
+		);
+
+		assert.equal(request.max_tokens, 8192);
+		assert.deepEqual(request.cache_control, { type: 'ephemeral' });
+	});
+
+	it('composition-order invariant: all three injectors produce disjoint keys without clobbering', () => {
+		const request = buildChatRequestBody(
+			{
+				completionReserve: 4096,
+				maxThinkingTokens: 512,
+				provider: 'openrouter',
+				promptCache: 'auto',
+			},
+			{ messages, model: 'anthropic/claude-sonnet-4.5' },
+		);
+
+		assert.equal(request.max_tokens, 4096);
+		assert.equal(request.max_thinking_tokens, 512);
+		assert.deepEqual(request.cache_control, { type: 'ephemeral' });
+	});
+});
+
 describe('prompt cache request shaping', () => {
 	it('adds root Anthropic cache control for remote Anthropic model ids', () => {
 		const body = {

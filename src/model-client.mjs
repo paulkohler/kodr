@@ -151,8 +151,40 @@ export async function createChatCompletion(options, body) {
 export function buildChatRequestBody(options, body) {
 	return applyPromptCacheControl(
 		options,
-		applyRequestParameters(options, body),
+		applyCompletionCap(options, applyRequestParameters(options, body)),
 	);
+}
+
+// Phase 234: inject a HONORED wire-level completion cap. Probe (2026-06-20)
+// against qwen3.6 showed max_thinking_tokens / reasoning_effort / nested
+// reasoning.max_tokens are ALL ignored; only max_tokens / max_completion_tokens
+// are honored, and they bound the SUM (reasoning + answer). The cap does not
+// reserve answer room (a runaway can still spend it all on reasoning) — its value
+// is that a runaway hits it in ~1s and returns finish_reason:length, which the
+// phase-231 heal runaway detector already fast-fails on, instead of grinding the
+// full context window over 200-330s. Healthy heal answers (~1601 tokens in the
+// probe) fit well under completionReserve, so the cap is invisible to them.
+function applyCompletionCap(options, body) {
+	const cap = options.completionReserve;
+	// Only a positive integer is a usable cap. '', undefined, 0, non-integers →
+	// no cap (don't break non-profile callers / tests that omit it).
+	if (!Number.isInteger(cap) || cap <= 0) {
+		return body;
+	}
+	// Caller override wins: if the request body already pins either honored cap,
+	// leave it untouched.
+	if (
+		Object.hasOwn(body, 'max_tokens') ||
+		Object.hasOwn(body, 'max_completion_tokens')
+	) {
+		return body;
+	}
+	// max_tokens is the more universally honored OpenAI field (probe shows it and
+	// max_completion_tokens are identical for qwen3.6); prefer max_tokens.
+	return {
+		...body,
+		max_tokens: cap,
+	};
 }
 
 function applyRequestParameters(options, body) {

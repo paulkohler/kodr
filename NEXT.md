@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 233)
+## Current frontier (phase 234)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -71,38 +71,34 @@ can't drive repairs. Full smoke-as-verification requires pluggable verification
 backends: callers pass a `verify` function instead of a `testCommand` string.
 Significant architecture change — not yet plannable without an interface sketch.
 
-### Bound the reasoning budget on heal turns (follow-up to phase 231)
+### Completion cap tightness on thinking models (follow-up to phase 234)
 
-**Detection and fast-fail shipped in phase 231.** When qwen3.6 (wireNoStream)
-exhausts its 32K context window on reasoning and returns `finish_reason: "length"`
-with zero answer tokens, the heal loop now breaks immediately with
-`stopReason: 'reasoning_runaway'` and an accurate diagnostic. The open problem is
-the mitigation: making the model leave room for an answer.
+**Detection (phase 231) and honored cap (phase 234) both shipped.** The `max_tokens`
+cap at `completionReserve` (4096 for qwen3.6) converts reasoning runaway from a
+200–330s grind into a sub-second `finish_reason:length` fast-fail, caught immediately
+by the phase-231 `isReasoningRunaway` predicate.
 
-**The lever:** kodr sends `max_thinking_tokens: 4096` in heal requests but LM
-Studio / qwen3.6 produced 21,693 reasoning tokens in the verified failure artifact
-(`final-audit/blog-platform`, 2026-06-20) — so the cap is being ignored. Before
-building any mitigation, determine which parameter LM Studio actually honors for
-qwen3.6: `max_thinking_tokens`? `max_tokens`? `max_completion_tokens`?
-`reasoning_effort`? This needs empirical testing against the running model — the
-request builder is a pure function and deterministically testable once the honored
-wire param is identified.
+**Corrected understanding (from the 2026-06-20 probe):** `max_thinking_tokens`,
+`reasoning_effort`, and nested `reasoning.max_tokens` are all IGNORED by qwen3.6 on
+LM Studio. Only `max_tokens` / `max_completion_tokens` are honored, and they cap the
+SUM (reasoning + answer combined). The cap does NOT reserve answer room — a runaway
+can still spend the entire cap on reasoning and return `finish_reason:length` with
+zero answer tokens. The benefit is fast-fail speed, not answer preservation.
 
-**Once the param is known:** reserve answer room by setting that param to
-`contextWindow - promptTokens - answerBudget` on heal requests, so the model
-cannot consume the entire window with reasoning. Secondary options (trimming
-verbatim file embeds in the heal prompt; streaming heal turns so a partial answer
-survives) remain open but are less impactful than the token-cap fix.
+**Residual open question:** whether a `completionReserve:4096` cap is too tight for
+large multi-file heal answers on thinking models. The 2026-06-20 probe baseline used
+only 1601 tokens total (1425 reasoning + 176 answer), well under 4096. But a
+legitimate large-file heal answer that needs >4096 reasoning+answer tokens would hit
+`finish_reason:length` and be misread as runaway by the phase-231 predicate. Watch
+for false-positive `reasoning_runaway` stop reasons in ambitious dogfood — if
+observed, raise `completionReserve` for the affected profile or add a token-count
+heuristic to the predicate.
 
-**Phase-231 dogfood (2026-06-20, `phase-231/heal-runaway-3`) — two findings:**
-(1) The runaway is **probabilistic in the agentic tool-call heal channel**: the
-detection fires on `finishReasons[-1] === 'length'` (the reference run reasoned to
-the window limit on sub-turn 1 before emitting any tool call — `turns:1`,
-`finish_length`, 0 content), but on the dogfood the model instead emitted tool
-calls each sub-turn and exhausted the 8-sub-turn budget (`turn_budget_exhausted`,
-NOT a runaway). So phase-231's predicate is correctly scoped, but live runaways
-recur only when the model reasons-to-length on sub-turn 1 — the limit-pushing
-ambitious dogfood is the reliable trigger.
+**Phase-231 dogfood note:** the runaway is probabilistic in the agentic tool-call
+heal channel — the detection fires on `finishReasons[-1] === 'length'` but on
+live runs the model sometimes emits tool calls each sub-turn and exhausts the
+sub-turn budget instead (`turn_budget_exhausted`). Ambitious dogfood is the reliable
+trigger for genuine runaways.
 
 ### Heal request HTTP-400 "Context size exceeded" after a heavy main loop (diagnose-first)
 A heal/repair request returns `HTTP 400 "Context size has been exceeded"`
