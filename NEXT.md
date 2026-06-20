@@ -96,21 +96,29 @@ the window limit on sub-turn 1 before emitting any tool call — `turns:1`,
 calls each sub-turn and exhausted the 8-sub-turn budget (`turn_budget_exhausted`,
 NOT a runaway). So phase-231's predicate is correctly scoped, but live runaways
 recur only when the model reasons-to-length on sub-turn 1 — the limit-pushing
-ambitious dogfood is the reliable trigger. (2) A **distinct** heal failure mode
-showed up: heal turn-3 hit `HTTP 400 "Context size has been exceeded"`
-(`stopReason: 'repair_error'`) **after 238s** — NOT from an oversized initial heal
-prompt. Re-derived from turn-meta: turn-2's initial prompt was 30,501 chars and
-SUCCEEDED; turn-3's initial prompt was SMALLER (25,756 chars) yet FAILED mid-turn.
-So the cause is **tool-call sub-turn context accumulation** inside the agentic
-heal loop (`completeWithToolCalls` appends each `read_file`/tool result until one
-sub-turn request crosses the 32K window), not the initial embed size. The fix is
-in the heal tool-loop's context management (does the heal path get the same
-trimming/compaction the main tool loop has? — diagnose first), not "trim the
-initial embeds." This is a diagnose-first candidate; do not assume the initial
-prompt is the lever.
+ambitious dogfood is the reliable trigger.
+
+### Heal request HTTP-400 "Context size exceeded" after a heavy main loop (diagnose-first)
+A heal/repair request returns `HTTP 400 "Context size has been exceeded"`
+(`stopReason: 'repair_error'`) after a long delay (~200–240s) following a
+context-heavy staged run — observed in TWO dogfoods (`phase-231/heal-runaway-3`
+turn-3, and `final-audit-2/content-api` turn-1). **The cause is NOT kodr
+over-sending the repair prompt.** Re-derived from `final-audit-2` turn-1: the
+repair-context was EMPTY (`repair-context.json` `files:[]`), the prompt was small
+(~14k chars), there was NO `raw-response.json` (it 400'd on the FIRST request,
+zero sub-turns), yet it still 400'd after 207s. A 14k prompt cannot exceed a 32k
+window — so the lever is the **LM Studio session/KV-cache state carrying over from
+the heavy main loop** (77k cumulative prompt tokens), not the heal prompt size.
+(This SUPERSEDES the earlier "tool-call sub-turn accumulation" framing — that did
+not hold for the empty-context turn-1 case.) Fix direction: detect the
+`repair_error` HTTP-400 and retry the heal with a fresh session / cache reset, or
+ensure the heal request starts a clean server session rather than appending to the
+main loop's context. Diagnose first: confirm whether kodr reuses a session id /
+KV cache between the main loop and the heal request, and whether a reset clears
+the 400.
 
 Evidence: `final-audit/blog-platform/.kodr/runs/2026-06-20T04-45-40.838Z/repairs/`
-`turn-1/raw-response.json` + `turn-meta.json`; `phase-231/heal-runaway-3` run
-artifacts. See also phase-231 `failures.jsonl` entries and
-`blog/231-heal-reasoning-runaway-fast-fail.md`.
+`turn-1/raw-response.json` + `turn-meta.json`; `phase-231/heal-runaway-3` and
+`final-audit-2/content-api` run artifacts. See also phase-231 + `final-audit-2`
+`failures.jsonl` entries and `blog/231-heal-reasoning-runaway-fast-fail.md`.
 
