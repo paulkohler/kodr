@@ -111,3 +111,29 @@ Nine new pure-function cases in `test/model-client.test.mjs` under
 The existing `'passes opt-in thinking-token caps through request bodies'` streaming
 test passes unchanged — it omits `completionReserve`, so no `max_tokens` is added.
 All 1860 pre-existing tests pass unchanged.
+
+## Dogfood: the wire carried it, and a runaway revealed a sibling bug
+
+A unit test proves the pure function; only a live run proves the cap reaches the
+real wire. The phase-234 dogfood (`phase-234/cap-wiring-1`) ran a small CLI
+generation against qwen3.6 and inspected the persisted `raw-request.json` (built
+via `buildChatRequestBody`, so it mirrors the HTTP body): top-level keys included
+both `max_thinking_tokens: 4096` *and* `max_tokens: 4096`. **Wiring confirmed
+live.** The generated tests then failed on two unicode edge cases, the heal loop
+engaged, and the model ran away on reasoning — hitting **exactly 4096 completion
+tokens** with `finish_reason: length` and returning in ~35s and ~8s, where the
+uncapped grind to the 32K window had taken ~200–330s. The payoff is real.
+
+But the runaway was *not* labelled `reasoning_runaway` — it was classified
+`no-progress-exhausted`. Re-deriving from the raw artifacts (not trusting the
+operator's first guess): the runaway sub-turn carried a **non-empty proposal of
+three empty-content file entries** (`writes.json`: `contentLen: 0`, no-op diffs),
+even though the model only ever called `read_file`. Because the proposal was
+non-empty, phase-231's `isReasoningRunaway` first guard
+(`if (proposalNonEmpty) return false`) correctly suppressed the runaway label —
+the predicate is doing exactly what it was scoped to do. The real bug is upstream:
+the agentic heal channel fabricates empty-content file stubs for the failing paths,
+which both mask a genuine runaway as no-progress and apply spurious no-op writes.
+Phase 234's cap didn't cause this — it made `finish_reason: length` routine enough
+to *surface* it. Recorded in `failures.jsonl` and queued in `NEXT.md` as a
+diagnose-first follow-up.

@@ -100,6 +100,27 @@ live runs the model sometimes emits tool calls each sub-turn and exhausts the
 sub-turn budget instead (`turn_budget_exhausted`). Ambitious dogfood is the reliable
 trigger for genuine runaways.
 
+### Heal channel fabricates empty-content file proposals (masks runaway as no-progress)
+Surfaced by the phase-234 dogfood (`phase-234/cap-wiring-1`, recorded in
+`failures.jsonl`). When the agentic tool-call heal channel runs away on reasoning
+in a LATER sub-turn (sub-turn 0 = `read_file` only, sub-turn 1 = pure-reasoning to
+`finish_length`, 0 content, NO `write_file` ever called), the forwarded proposal
+still contains **3 empty-content file entries** (`writes.json`: `contentLen:0`,
+no-op diffs for the failing paths). Because `turnProposalNonEmpty` is then `true`,
+the phase-231 `isReasoningRunaway` first guard (`if (proposalNonEmpty) return false`,
+`healing.mjs:154`) suppresses the `reasoning_runaway` label by design, the no-op
+writes apply (`changed:[]`), and the turn is classified `no-progress-exhausted`
+instead. Functionally acceptable (fast-fail timing is still delivered by the
+phase-234 cap), but the label is imprecise and the spurious empty-content writes
+are noise. **Diagnose first:** find where the 3 empty-content entries originate
+(likely `repair-context` `failurePaths` → a draft/W3-style synthesis turning
+failing paths into empty `write_file` stubs). Then either (a) drop empty-content
+file entries before computing the heal proposal so `proposalNonEmpty` reflects real
+writes, and/or (b) widen the phase-231 predicate to treat an all-empty-content
+proposal + `finish_length` + empty text as runaway. Evidence:
+`phase-234/cap-wiring-1/.kodr/runs/2026-06-20T10-24-52.597Z/repairs/turn-1/`
+(`raw-response.json`, `writes.json`).
+
 ### Heal request HTTP-400 "Context size exceeded" after a heavy main loop (diagnose-first)
 A heal/repair request returns `HTTP 400 "Context size has been exceeded"`
 (`stopReason: 'repair_error'`) after a long delay (~200–240s) following a
