@@ -96,6 +96,13 @@ timeout, so ship it as a quality fix, not the cure); (c) stream heal turns even
 for wireNoStream so partial output survives a timeout and first-token detection
 can distinguish slow from hung (highest value, highest risk — wireNoStream exists
 because streaming tool-calls was unreliable for this model; needs live
-validation). Efficacy of (a) on the >240s tail is unmeasured — the phase-228
-dogfood step is the measurement. Evidence: heal `turn-meta.json` across
-phase-201/204/216/219/225/226 and final-audit runs in `~/src/kodr-testing`.
+validation). Efficacy of (a) on the >240s tail is **still unmeasured**: the
+phase-228 dogfood could not trigger it — two complex tasks (FTS5 catalog; the
+final-audit JWT-auth shape that previously timed out a 240s heal) both passed
+first-pass with NO heal turn at all, because upstream quality (staged maturity +
+phase-227 skill) has cut heal frequency. That also **lowers (c)'s urgency** — heal
+runs less, so a 240s total-loss bites less often. Capture the measurement
+opportunistically from future heal turns' `turn-meta.json` (does the raised cap
+convert a 240s loss into a 240–600s completion?). Evidence: heal `turn-meta.json`
+across phase-201/204/216/219/225/226, final-audit, and phase-228 runs in
+`~/src/kodr-testing`.
