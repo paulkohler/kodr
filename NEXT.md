@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 227)
+## Current frontier (phase 228)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -17,14 +17,16 @@ Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
 The live work is the **staged execution pipeline** (`runStagedPrompt`) and
-the `lang:node` builtin skill. Phases 213–227 chipped at both for local
+the `lang:node` builtin skill. Phases 213–228 chipped at both for local
 thinking models (qwen3.6): pending-write `run_command` guards, W3 draft
 fallback, `SafeWriteError` steering with `clearFiles`, raised `maxStageWrites`
 (8) with unique-path dedup, inter-stage `npm install`, the phase-224
 `safeWriteSteered` flag, the phase-225 zero-applied-write auto-advance, the
 phase-226 duplicate-block guard in `preparePatches` (`reason: 'duplicate_block'`),
-and the phase-227 `lang:node` pitfall trio (node:sqlite `DatabaseSync` import
-name, check-status-before-parse, module-scope side effects).
+the phase-227 `lang:node` pitfall trio (node:sqlite `DatabaseSync` import
+name, check-status-before-parse, module-scope side effects), and the phase-228
+profile-aware heal per-turn timeout (wireNoStream profiles now get the full
+main-loop budget instead of the D2 240s cap).
 
 ## Candidates
 
@@ -89,15 +91,15 @@ same slow wireNoStream thinking model is generating (successes ran up to 116s, s
 the tail past 240s is plausibly just-slow, not hung); (2) wireNoStream returns
 nothing until the full response lands, so any timeout is a total loss (0 captured
 chars) and we cannot tell slow from hung (no first-token signal). Design
-directions, in order of confidence: (a) make the heal per-turn timeout
-profile-aware — give wireNoStream profiles a budget aligned with their main-loop
-per-turn budget instead of the tight 240s default cap (deterministic, low-risk;
-efficacy on the >240s tail is unmeasured — the loop's dogfood step is the
-measurement); (b) trim the heal prompt's verbatim file embeds (real waste — one
-prompt embedded a 228-line test file — but proven NOT to fix the timeout, so ship
-it as a quality fix, not the cure); (c) stream heal turns even for wireNoStream
-so partial output survives a timeout and first-token detection can distinguish
-slow from hung (highest value, highest risk — wireNoStream exists because
-streaming tool-calls was unreliable for this model; needs live validation).
-Evidence: heal `turn-meta.json` across phase-201/204/216/219/225/226 and
-final-audit runs in `~/src/kodr-testing`.
+directions, in order of confidence: **(a) shipped in phase 228** — make the heal
+per-turn timeout profile-aware by giving wireNoStream profiles a budget aligned
+with their main-loop per-turn budget (`min(timeoutMs, 600_000)`) instead of the
+tight 240s default cap; (b) trim the heal prompt's verbatim file embeds (real
+waste — one prompt embedded a 228-line test file — but proven NOT to fix the
+timeout, so ship it as a quality fix, not the cure); (c) stream heal turns even
+for wireNoStream so partial output survives a timeout and first-token detection
+can distinguish slow from hung (highest value, highest risk — wireNoStream exists
+because streaming tool-calls was unreliable for this model; needs live
+validation). Efficacy of (a) on the >240s tail is unmeasured — the phase-228
+dogfood step is the measurement. Evidence: heal `turn-meta.json` across
+phase-201/204/216/219/225/226 and final-audit runs in `~/src/kodr-testing`.

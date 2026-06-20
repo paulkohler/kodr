@@ -227,6 +227,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 225 Stage Auto-Advance on Zero Applied Writes
 - [x] 226 Prevent edit_file Patches From Duplicating a Block
 - [x] 227 lang:node Skill Pitfalls From 224–226 Dogfooding
+- [x] 228 Profile-aware heal per-turn timeout for wireNoStream thinking models
 
 ## Phase Contract
 

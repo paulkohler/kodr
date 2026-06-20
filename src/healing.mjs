@@ -10,8 +10,19 @@ import { runVerification } from './verification-runner.mjs';
 
 const DEFAULT_REPAIR_TURN_TIMEOUT_MS = 60000;
 // D2: cap per-turn default to 4 minutes — a repair turn that needs more than
-// this on a local model is not converging.
+// this on a fast local model is not converging.
 const MAX_DEFAULT_REPAIR_TURN_TIMEOUT_MS = 240_000;
+// Phase 228: wireNoStream thinking models (e.g. qwen3.6) do the same read->edit->
+// verify work in a heal turn as in a main turn, but wireNoStream returns nothing
+// until the full response lands, so a timeout is a TOTAL loss (0 captured chars).
+// Re-derivation from 36 heal-turn turn-meta.json artifacts (2026-06-15..20) showed
+// heal outcome is UNCORRELATED with prompt size (same-size prompts both succeed and
+// time out); the real lever is that heal was capped at 240s while main turns get the
+// full 600s. Align the heal cap with the main per-turn budget for these profiles.
+// (The prior "context overflow / accumulated turn-log" framing was wrong — the heal
+// prompt is built fresh and never carries the staged turn-log.) Efficacy on the
+// >240s tail is unmeasured; this is the principled change, the dogfood is the test.
+const MAX_WIRE_NOSTREAM_REPAIR_TURN_TIMEOUT_MS = 600_000;
 const SNAPSHOT_EXCLUDE_DIRS = new Set([
 	'.git',
 	'.kodr',
@@ -185,13 +196,19 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 	const maxTurns = Math.max(1, options.maxTurns || 2);
 	let diagnostics = options.diagnostics || null;
 	const diagnosticsProvider = options.diagnosticsProvider || null;
-	// D2: explicit option wins; otherwise cap the per-turn default to 4 min so
-	// a hung local model call doesn't silently consume the full run timeout.
+	// Phase 228: precedence — (1) explicit --repair-timeout-ms (options.turnTimeoutMs)
+	// wins for everyone; (2) wireNoStream profiles align the heal per-turn cap with the
+	// main-loop per-turn budget (options.timeoutMs) under a 600s ceiling, because heal
+	// work == main work and a wireNoStream timeout loses the whole turn; (3) D2: every
+	// other (fast local) profile keeps the 4-minute default cap as a runaway guard.
+	const defaultRepairCapMs = options.wireNoStream
+		? MAX_WIRE_NOSTREAM_REPAIR_TURN_TIMEOUT_MS
+		: MAX_DEFAULT_REPAIR_TURN_TIMEOUT_MS;
 	const turnTimeoutMs = options.turnTimeoutMs
 		? options.turnTimeoutMs
 		: Math.min(
 				options.timeoutMs || DEFAULT_REPAIR_TURN_TIMEOUT_MS,
-				MAX_DEFAULT_REPAIR_TURN_TIMEOUT_MS,
+				defaultRepairCapMs,
 			);
 	const artifactDir = options.artifactDir || join(cwd, '.kodr', 'repairs');
 	const repairs = [];

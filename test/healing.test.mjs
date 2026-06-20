@@ -417,6 +417,132 @@ describe('one-shot healing', () => {
 		);
 	});
 
+	// Phase 228: profile-aware heal per-turn timeout for wireNoStream thinking models.
+	it('Phase 228: wireNoStream raises the heal turn cap to min(timeoutMs, 600000)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-228a-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs-228a'),
+			maxTurns: 1,
+			repairTurn: async () => ({ text: repairText('bad.mjs') }),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 600_000,
+			wireNoStream: true,
+		});
+
+		const entry = result.repairs[0];
+		assert.equal(
+			entry.timeoutMs,
+			600_000,
+			'wireNoStream: timeoutMs should be raised to 600000, not capped at 240000',
+		);
+	});
+
+	it('Phase 228: wireNoStream cap is bounded by the 600000 ceiling, not timeoutMs', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-228b-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs-228b'),
+			maxTurns: 1,
+			repairTurn: async () => ({ text: repairText('bad.mjs') }),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 900_000,
+			wireNoStream: true,
+		});
+
+		const entry = result.repairs[0];
+		assert.equal(
+			entry.timeoutMs,
+			600_000,
+			'wireNoStream: ceiling 600000 should win over larger timeoutMs 900000',
+		);
+	});
+
+	it('Phase 228: wireNoStream honors a smaller timeoutMs below the ceiling', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-228c-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs-228c'),
+			maxTurns: 1,
+			repairTurn: async () => ({ text: repairText('bad.mjs') }),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 120_000,
+			wireNoStream: true,
+		});
+
+		const entry = result.repairs[0];
+		assert.equal(
+			entry.timeoutMs,
+			120_000,
+			'wireNoStream: smaller timeoutMs 120000 should not be raised to the ceiling',
+		);
+	});
+
+	it('Phase 228: explicit turnTimeoutMs still overrides under wireNoStream', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-228d-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs-228d'),
+			maxTurns: 1,
+			repairTurn: async () => ({ text: repairText('bad.mjs') }),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 600_000,
+			turnTimeoutMs: 300_000,
+			wireNoStream: true,
+		});
+
+		const entry = result.repairs[0];
+		assert.equal(
+			entry.timeoutMs,
+			300_000,
+			'wireNoStream: explicit turnTimeoutMs 300000 should override the wireNoStream cap',
+		);
+	});
+
+	it('Phase 228: non-wireNoStream still capped at 240000', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-228e-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 1000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs-228e'),
+			maxTurns: 1,
+			repairTurn: async () => ({ text: repairText('bad.mjs') }),
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 600_000,
+		});
+
+		const entry = result.repairs[0];
+		assert.equal(
+			entry.timeoutMs,
+			240_000,
+			'non-wireNoStream: timeoutMs should still be capped at D2 default 240000',
+		);
+	});
+
 	// D3 (revised): wrong-path writes apply, verification is ground truth, and
 	// wrong-path is post-verification steering only.
 	it('D3: failing wrong-path writes apply, warn once, then exhaust the loop', async () => {

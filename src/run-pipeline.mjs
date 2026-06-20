@@ -2577,8 +2577,13 @@ async function runHealingIfNeeded({
 		},
 		testCommand: options.testCommand,
 		timeoutMs: options.timeoutMs,
-		// D2: explicit --repair-timeout-ms wins; otherwise healing.mjs applies
-		// the min(timeoutMs, 240_000) cap automatically.
+		// Phase 228: forward wireNoStream so healing.mjs can raise the per-turn cap to
+		// the main-loop budget for wireNoStream thinking models (qwen3.6); fast local
+		// profiles still get the D2 240s default. options.wireNoStream is set by
+		// applyProfile (model-profiles.mjs) for profiles that declare wireNoStream.
+		wireNoStream: options.wireNoStream,
+		// D2: explicit --repair-timeout-ms still wins; otherwise healing.mjs applies the
+		// profile-aware cap (min(timeoutMs, 600_000) for wireNoStream, else 240_000).
 		...(options.repairTimeoutMs !== ''
 			? { turnTimeoutMs: options.repairTimeoutMs }
 			: {}),
