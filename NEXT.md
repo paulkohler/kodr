@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 228)
+## Current frontier (phase 229)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -17,16 +17,19 @@ Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
 The live work is the **staged execution pipeline** (`runStagedPrompt`) and
-the `lang:node` builtin skill. Phases 213–228 chipped at both for local
+the `lang:node` builtin skill. Phases 213–229 chipped at both for local
 thinking models (qwen3.6): pending-write `run_command` guards, W3 draft
 fallback, `SafeWriteError` steering with `clearFiles`, raised `maxStageWrites`
 (8) with unique-path dedup, inter-stage `npm install`, the phase-224
 `safeWriteSteered` flag, the phase-225 zero-applied-write auto-advance, the
 phase-226 duplicate-block guard in `preparePatches` (`reason: 'duplicate_block'`),
 the phase-227 `lang:node` pitfall trio (node:sqlite `DatabaseSync` import
-name, check-status-before-parse, module-scope side effects), and the phase-228
+name, check-status-before-parse, module-scope side effects), the phase-228
 profile-aware heal per-turn timeout (wireNoStream profiles now get the full
-main-loop budget instead of the D2 240s cap).
+main-loop budget instead of the D2 240s cap), and the phase-229 staged-aware
+`run_command` / turn-exhaustion guard wording (three sites made staged-aware so
+the model no longer receives envelope-only or factually false instructions in a
+staged run).
 
 ## Candidates
 
@@ -43,13 +46,6 @@ This is architecturally different from Phase 223's tool-error approach: it sends
 user-role message that the model must respond to, rather than a tool result it may
 ignore. Needs careful placement in completeWithToolCalls so it fires after the tool
 result is appended but before the next request.
-
-### run_command pending-write guard: staged-mode wording
-Phase 220 agent noted: the run_command guard hint "Return file changes in the
-final JSON proposal" has the same staged/envelope ambiguity as the sentinel
-wording fixed in Phase 220. When applyMode===proposal and inStagedPipeline===true,
-the guard should say: "Apply file changes via write_file tool calls. Do not run
-commands until all files are written." Mirror the Phase-220 pattern.
 
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the

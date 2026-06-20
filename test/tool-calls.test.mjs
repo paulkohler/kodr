@@ -3560,3 +3560,323 @@ describe('repeat sentinel — staged mode wording (Phase 220)', () => {
 		}
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Phase 229 — staged-aware run_command / turn-exhaustion guard wording
+// ---------------------------------------------------------------------------
+
+describe('Phase 229 — staged guard wording: Site 1 (F1 final-turn message)', () => {
+	const makeFinalTurnServer = async () =>
+		startFakeModelServer({
+			responses: [
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: {
+									content: '{"status":"OK","files":[]}',
+									role: 'assistant',
+								},
+							},
+						],
+						id: 'chatcmpl_final',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+	it('F1 final-turn message uses staged wording when inStagedPipeline is true', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-229-site1-staged-'));
+		const server = await makeFinalTurnServer();
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 1,
+				stream: false,
+				timeoutMs: 5000,
+				inStagedPipeline: true,
+			};
+			await completeWithToolCalls(
+				options,
+				'test-model',
+				'Do the work.',
+				'You are helpful.',
+				registry,
+			);
+			const userMsg = server.recordings[0].requestBody.messages.at(-1);
+			assert.equal(userMsg.role, 'user');
+			assert.match(userMsg.content, /write_file/u);
+			assert.match(userMsg.content, /STAGED_DONE/u);
+			assert.ok(
+				!userMsg.content.includes('final JSON proposal'),
+				'staged final-turn must not mention final JSON proposal',
+			);
+			assert.match(userMsg.content, /Turn budget exhausted/u);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('F1 final-turn message keeps envelope wording when inStagedPipeline is absent', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-229-site1-envelope-'));
+		const server = await makeFinalTurnServer();
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 1,
+				stream: false,
+				timeoutMs: 5000,
+				// inStagedPipeline absent
+			};
+			await completeWithToolCalls(
+				options,
+				'test-model',
+				'Do the work.',
+				'You are helpful.',
+				registry,
+			);
+			const userMsg = server.recordings[0].requestBody.messages.at(-1);
+			assert.equal(userMsg.role, 'user');
+			assert.match(userMsg.content, /Return the final JSON proposal now/u);
+			assert.ok(
+				!userMsg.content.includes('write_file'),
+				'envelope final-turn must not mention write_file',
+			);
+			assert.ok(
+				!userMsg.content.includes('STAGED_DONE'),
+				'envelope final-turn must not mention STAGED_DONE',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+describe('Phase 229 — staged guard wording: Site 2 (F1 allowlist-rejection hint)', () => {
+	const makeAllowlistServer = async () =>
+		startFakeModelServer({
+			responses: [
+				// Turn 1: model calls run_command with non-allowlisted command
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'tool_calls',
+								message: {
+									content: null,
+									role: 'assistant',
+									tool_calls: [
+										{
+											id: 'call_rm',
+											type: 'function',
+											function: {
+												name: 'run_command',
+												arguments: '{"command":"rm -rf /"}',
+											},
+										},
+									],
+								},
+							},
+						],
+						id: 'chatcmpl_1',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+				// Turn 2: final stop
+				{
+					method: 'POST',
+					url: '/v1/chat/completions',
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: {
+									content: '{"status":"OK","files":[]}',
+									role: 'assistant',
+								},
+							},
+						],
+						id: 'chatcmpl_2',
+						object: 'chat.completion',
+					},
+					status: 200,
+				},
+			],
+		});
+
+	it('F1 allowlist-rejection hint uses staged wording when inStagedPipeline is true', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-229-site2-staged-'));
+		const server = await makeAllowlistServer();
+		try {
+			const registry = createBuiltinRegistry(cwd, {
+				commandRunner: async () => ({
+					exitCode: 0,
+					stdout: 'ok',
+					stderr: '',
+					timedOut: false,
+				}),
+			});
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				stream: false,
+				timeoutMs: 5000,
+				inStagedPipeline: true,
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Run the cleanup.',
+				'You are helpful.',
+				registry,
+			);
+			const toolMsg = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_rm',
+			);
+			assert.ok(toolMsg, 'tool result for run_command call must exist');
+			const parsed = JSON.parse(toolMsg.content);
+			assert.match(parsed.error, /Command is not allowlisted:/u);
+			assert.match(parsed.hint, /write_file/u);
+			assert.ok(
+				!parsed.hint.includes('no write tool'),
+				'staged hint must not claim there is no write tool',
+			);
+			assert.ok(
+				!parsed.hint.includes('final JSON proposal'),
+				'staged hint must not mention final JSON proposal',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('F1 allowlist-rejection hint keeps envelope wording when inStagedPipeline is absent', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-229-site2-envelope-'));
+		const server = await makeAllowlistServer();
+		try {
+			const registry = createBuiltinRegistry(cwd, {
+				commandRunner: async () => ({
+					exitCode: 0,
+					stdout: 'ok',
+					stderr: '',
+					timedOut: false,
+				}),
+			});
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				stream: false,
+				timeoutMs: 5000,
+				// inStagedPipeline absent
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Run the cleanup.',
+				'You are helpful.',
+				registry,
+			);
+			const toolMsg = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_rm',
+			);
+			assert.ok(toolMsg, 'tool result for run_command call must exist');
+			const parsed = JSON.parse(toolMsg.content);
+			assert.match(parsed.error, /Command is not allowlisted:/u);
+			assert.match(parsed.hint, /The harness has no write tool\./u);
+			assert.match(parsed.hint, /final JSON proposal/u);
+			assert.ok(
+				!parsed.hint.includes('write_file'),
+				'envelope hint must not mention write_file',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});
+
+describe('Phase 229 — staged guard wording: Site 3 (pending-write guard hint)', () => {
+	it('pending-write guard hint uses staged wording when inStagedPipeline is true', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-229-site3-staged-'));
+		const registry = createBuiltinRegistry(cwd, {
+			commandRunner: async () => ({
+				exitCode: 0,
+				stdout: 'ok',
+				stderr: '',
+				timedOut: false,
+			}),
+			inStagedPipeline: true,
+		});
+		await registry.dispatch(
+			'write_file',
+			'{"path":"test/foo.test.mjs","content":"// pending\\n"}',
+		);
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"node --test test/foo.test.mjs"}',
+		);
+		assert.match(result.error, /pending writes/u);
+		assert.match(result.hint, /write_file/u);
+		assert.match(result.hint, /STAGED_DONE/u);
+		assert.ok(
+			!result.hint.includes('final JSON proposal'),
+			'staged hint must not mention final JSON proposal',
+		);
+	});
+
+	it('pending-write guard hint keeps envelope wording when inStagedPipeline is absent', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-229-site3-envelope-'));
+		const registry = createBuiltinRegistry(cwd, {
+			commandRunner: async () => ({
+				exitCode: 0,
+				stdout: 'ok',
+				stderr: '',
+				timedOut: false,
+			}),
+			// inStagedPipeline absent — default applyMode is 'proposal'
+		});
+		await registry.dispatch(
+			'write_file',
+			'{"path":"test/foo.test.mjs","content":"// pending\\n"}',
+		);
+		const result = await registry.dispatch(
+			'run_command',
+			'{"command":"node --test test/foo.test.mjs"}',
+		);
+		assert.match(result.error, /pending writes/u);
+		assert.match(result.hint, /Return the final JSON proposal envelope now\./u);
+		assert.ok(
+			!result.hint.includes('write_file'),
+			'envelope hint must not mention write_file',
+		);
+		assert.ok(
+			!result.hint.includes('STAGED_DONE'),
+			'envelope hint must not mention STAGED_DONE',
+		);
+	});
+});

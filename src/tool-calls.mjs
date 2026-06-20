@@ -32,6 +32,14 @@ const MAX_INSPECT_SYMBOLS = 200;
 const MAX_INSPECT_REFERENCES = 100;
 const MAX_INSPECT_RESULT_BYTES = 8192;
 
+// F1 allowlist-rejection steering hint. In staged mode the harness DOES have
+// write_file/edit_file tools (Phase 229); in envelope mode it does not.
+function allowlistWriteHint(staged) {
+	return staged
+		? 'Apply file changes via write_file/edit_file tool calls, not shell commands.'
+		: 'The harness has no write tool. Return file changes in the final JSON proposal (files array), not via shell commands.';
+}
+
 // Default alias map: model-hallucinated or native names → canonical capture tool.
 // Evidence: gpt-oss hallucinated write_file every run; devstral calls a native
 // `files` tool 4–5 times per run; OpenHands uses str_replace_editor.
@@ -343,14 +351,18 @@ export async function completeWithToolCalls(
 			Number.isFinite(budget.state.maxTurns) &&
 			budget.state.turns === budget.state.maxTurns;
 
+		const staged = options.inStagedPipeline === true;
 		const requestBody = applyResponseFormat(
 			{
 				messages: isFinalTurn
 					? [
 							...messages,
 							{
-								content:
-									'Turn budget exhausted. Return the final JSON proposal now — do not call any tools.',
+								content: staged
+									? 'Turn budget exhausted. Finish the current STAGE now — do not call any tools. ' +
+										'Write any remaining file with write_file. ' +
+										'If all files are already written, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]} to complete this stage.'
+									: 'Turn budget exhausted. Return the final JSON proposal now — do not call any tools.',
 								role: 'user',
 							},
 						]
@@ -451,6 +463,7 @@ export async function completeWithToolCalls(
 								});
 				} else {
 					seenToolCalls.set(callKey, 1);
+					const staged = options.inStagedPipeline === true;
 					try {
 						const raw = await registry.dispatch(toolName, toolArgs);
 						content =
@@ -467,7 +480,7 @@ export async function completeWithToolCalls(
 						) {
 							content = JSON.stringify({
 								...raw,
-								hint: 'The harness has no write tool. Return file changes in the final JSON proposal (files array), not via shell commands.',
+								hint: allowlistWriteHint(staged),
 							});
 						}
 					} catch (error) {
@@ -481,7 +494,7 @@ export async function completeWithToolCalls(
 						) {
 							content = JSON.stringify({
 								error: error.message,
-								hint: 'The harness has no write tool. Return file changes in the final JSON proposal (files array), not via shell commands.',
+								hint: allowlistWriteHint(staged),
 							});
 						}
 					}
@@ -863,10 +876,14 @@ export function createBuiltinRegistry(cwd, options = {}) {
 					pendingPaths.some((p) => command.includes(p)) ||
 					TEST_RUNNER_RE.test(command.trim())
 				) {
+					const staged = options.inStagedPipeline === true;
 					return {
 						error:
 							'Files have not been applied to disk yet — run_command cannot access pending writes.',
-						hint: 'Return the final JSON proposal envelope now. The harness will apply your writes and run verification automatically.',
+						hint: staged
+							? 'Apply file changes via write_file tool calls. Do not run commands or tests until all files are written — verification runs automatically after all stages complete. ' +
+								'If all files are already written, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]} to complete this stage.'
+							: 'Return the final JSON proposal envelope now. The harness will apply your writes and run verification automatically.',
 					};
 				}
 			}
