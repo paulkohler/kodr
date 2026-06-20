@@ -2578,6 +2578,14 @@ async function runHealingIfNeeded({
 		// Phase 136: inner tool-loop budget per heal turn — ceiling raised 4->8 so
 		// multi-step tool repair (read -> edits -> verify -> recover) has room.
 		maxTurns: healRepairTurnBudget(options.maxTurns),
+		// Phase 236: mark this bag so applyCompletionCap (model-client.mjs) injects the
+		// honored max_tokens:completionReserve wire cap ONLY on heal turns. The main loop
+		// / staged path carry the base options (no marker) and stay uncapped — the cap at
+		// completionReserve (4096 for qwen3.6) starves legitimate generation on thinking
+		// models (probe 2026-06-20: 4095 reasoning toks + 0 answer chars). On heal turns
+		// the cap is desired: it fast-fails a reasoning runaway via finish_reason:length
+		// (phase 231/234).
+		completionCapMode: 'heal',
 	};
 
 	return runSelfHealingLoop(cwd, testResult, {

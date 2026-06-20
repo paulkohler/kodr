@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 235)
+## Current frontier (phase 236)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -17,7 +17,7 @@ Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
 The live work is the **staged execution pipeline** (`runStagedPrompt`) and
-the `lang:node` builtin skill. Phases 213–235 chipped at both for local
+the `lang:node` builtin skill. Phases 213–236 chipped at both for local
 thinking models (qwen3.6): pending-write `run_command` guards, W3 draft
 fallback, `SafeWriteError` steering with `clearFiles`, raised `maxStageWrites`
 (8) with unique-path dedup, inter-stage `npm install`, the phase-224
@@ -47,11 +47,15 @@ where `server.test.mjs` was captured in the draft but discarded when the STAGED_
 envelope had `files:[]`), the phase-234 honored `max_tokens` completion cap
 (`completionReserve` value sent as `max_tokens` in every model request, converting
 reasoning-runaway from a 200–330s grind to a sub-second `finish_reason:length`
-fast-fail caught by phase-231), and the phase-235 heal draft carryover fix
+fast-fail caught by phase-231), the phase-235 heal draft carryover fix
 (`ProposalDraft.clear()` at the top of each `repairTurn` callback clears the shared
 registry draft before the model call so stale main-run writes are never re-emitted
 as no-op proposals, restoring phase-231's `reasoning_runaway` classification accuracy
-— previously defeated whenever the main run had written files).
+— previously defeated whenever the main run had written files), and the phase-236
+heal-only cap scope (the honored `max_tokens:completionReserve` cap is now gated on
+`completionCapMode:'heal'` in the options bag; the main loop and staged path carry no
+marker and revert to the known-good pre-234 uncapped wire shape — a ground-truth probe
+showed the 4096 cap starved a realistic two-file generation task to 0 answer chars).
 
 ## Candidates
 
@@ -78,34 +82,26 @@ can't drive repairs. Full smoke-as-verification requires pluggable verification
 backends: callers pass a `verify` function instead of a `testCommand` string.
 Significant architecture change — not yet plannable without an interface sketch.
 
-### Completion cap tightness on thinking models (follow-up to phase 234)
+### Completion cap tightness on thinking models — heal-specific residual (follow-up to phases 234/236)
 
-**Detection (phase 231) and honored cap (phase 234) both shipped.** The `max_tokens`
-cap at `completionReserve` (4096 for qwen3.6) converts reasoning runaway from a
-200–330s grind into a sub-second `finish_reason:length` fast-fail, caught immediately
-by the phase-231 `isReasoningRunaway` predicate.
+**Detection (phase 231), honored cap (phase 234), and main-loop un-starvation
+(phase 236) have all shipped.** The `max_tokens:completionReserve` wire cap is
+now HEAL-ONLY (gated on `completionCapMode:'heal'`). The main loop and staged path
+are uncapped — the known-good pre-234 behavior. The main-loop truncation concern
+is fully resolved by phase 236.
 
-**Corrected understanding (from the 2026-06-20 probe):** `max_thinking_tokens`,
-`reasoning_effort`, and nested `reasoning.max_tokens` are all IGNORED by qwen3.6 on
-LM Studio. Only `max_tokens` / `max_completion_tokens` are honored, and they cap the
-SUM (reasoning + answer combined). The cap does NOT reserve answer room — a runaway
-can still spend the entire cap on reasoning and return `finish_reason:length` with
-zero answer tokens. The benefit is fast-fail speed, not answer preservation.
-
-**Residual open question:** whether a `completionReserve:4096` cap is too tight for
-large multi-file heal answers on thinking models. The 2026-06-20 probe baseline used
-only 1601 tokens total (1425 reasoning + 176 answer), well under 4096. But a
-legitimate large-file heal answer that needs >4096 reasoning+answer tokens would hit
-`finish_reason:length` and be misread as runaway by the phase-231 predicate. Watch
-for false-positive `reasoning_runaway` stop reasons in ambitious dogfood — if
-observed, raise `completionReserve` for the affected profile or add a token-count
-heuristic to the predicate.
-
-**Phase-231 dogfood note:** the runaway is probabilistic in the agentic tool-call
-heal channel — the detection fires on `finishReasons[-1] === 'length'` but on
-live runs the model sometimes emits tool calls each sub-turn and exhausts the
-sub-turn budget instead (`turn_budget_exhausted`). Ambitious dogfood is the reliable
-trigger for genuine runaways.
+**Residual heal-specific open question:** whether `completionReserve:4096` is too
+tight for a large multi-file heal answer. The 2026-06-20 probe used only 1601
+tokens total on a small task (1425 reasoning + 176 answer), well under 4096. A
+legitimate heal answer that genuinely needs >4096 reasoning+answer tokens would
+hit `finish_reason:length` and be misread as runaway by the phase-231 predicate —
+a false-positive `reasoning_runaway` stop reason. Watch for this in ambitious
+dogfood. If observed: raise `completionReserve` for the profile (e.g. 8192), or
+add a token-count heuristic to the predicate (e.g. treat length+zero-answer as
+runaway only if completionTokens is near the cap), or adopt design (C) from the
+phase-236 plan (tight heal cap + generous main-loop cap) — but the threshold for
+design (C) is observing a genuine main-loop runaway that timeout+budget cannot
+contain fast enough, which has not yet occurred.
 
 ### Heal request HTTP-400 "Context size exceeded" after a heavy main loop (diagnose-first)
 A heal/repair request returns `HTTP 400 "Context size has been exceeded"`

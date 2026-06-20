@@ -155,18 +155,30 @@ export function buildChatRequestBody(options, body) {
 	);
 }
 
-// Phase 234: inject a HONORED wire-level completion cap. Probe (2026-06-20)
-// against qwen3.6 showed max_thinking_tokens / reasoning_effort / nested
-// reasoning.max_tokens are ALL ignored; only max_tokens / max_completion_tokens
-// are honored, and they bound the SUM (reasoning + answer). The cap does not
-// reserve answer room (a runaway can still spend it all on reasoning) — its value
-// is that a runaway hits it in ~1s and returns finish_reason:length, which the
-// phase-231 heal runaway detector already fast-fails on, instead of grinding the
-// full context window over 200-330s. Healthy heal answers (~1601 tokens in the
-// probe) fit well under completionReserve, so the cap is invisible to them.
+// Phase 234/236: inject a HONORED wire-level completion cap, scoped to HEAL turns.
+// Probe (2026-06-20) against qwen3.6: max_thinking_tokens / reasoning_effort /
+// nested reasoning.max_tokens are ALL ignored; only max_tokens / max_completion_tokens
+// are honored, and they bound the SUM (reasoning + answer). On a heal turn a runaway
+// hits the cap in ~1s -> finish_reason:length, which phase-231's isReasoningRunaway
+// fast-fails on, instead of grinding the full context window for 200-330s.
+//
+// Phase 236: the cap is HEAL-ONLY. A second 2026-06-20 probe (a realistic two-file
+// generation) showed the SAME completionReserve cap (4096) STARVES the main loop:
+// the thinking model spent all 4096 on reasoning and emitted 0 answer chars
+// (finish_reason:length), where the uncapped main loop needed ~10.6k completion
+// tokens and succeeded. The main loop is already bounded by the per-turn timeout and
+// the agentic sub-turn budget, so it does NOT need this wire cap. Apply it only when
+// the heal path marks the options bag; the main loop / staged path revert to their
+// known-good pre-234 uncapped wire shape. (Corrects phase 234's "apply to ALL
+// requests" assumption — it is NOT universally correct for thinking models.)
 function applyCompletionCap(options, body) {
+	// Phase 236: heal-only. No heal marker -> no cap (main loop / staged stay
+	// uncapped, their known-good pre-234 behavior).
+	if (options.completionCapMode !== 'heal') {
+		return body;
+	}
 	const cap = options.completionReserve;
-	// Only a positive integer is a usable cap. '', undefined, 0, non-integers →
+	// Only a positive integer is a usable cap. '', undefined, 0, non-integers ->
 	// no cap (don't break non-profile callers / tests that omit it).
 	if (!Number.isInteger(cap) || cap <= 0) {
 		return body;

@@ -235,6 +235,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 233 Staged Pipeline: Apply Pending Draft Writes on STAGED_DONE (W4 Parity)
 - [x] 234 Wire a Honored max_tokens Completion Cap (Fast-Fail Reasoning Runaway)
 - [x] 235 Clear the Proposal Draft Before Each Heal Turn (Stale Carryover Fix)
+- [x] 236 Scope the Honored Completion Cap to HEAL Turns Only (Un-Starve Main Generation)
 
 ## Phase Contract
 

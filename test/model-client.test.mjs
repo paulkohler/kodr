@@ -97,36 +97,43 @@ describe('completion cap request shaping', () => {
 	const messages = [{ role: 'user', content: 'hi' }];
 	const model = 'test-model';
 
-	it('adds max_tokens when completionReserve is a positive integer', () => {
+	// Phase 236: cap is HEAL-ONLY. Tests that assert the cap IS present must carry
+	// completionCapMode: 'heal'. Tests for the no-cap paths stay as-is (and the
+	// new main-loop regression tests below explicitly prove no cap without the marker).
+
+	it('adds max_tokens when completionReserve is a positive integer (heal turn)', () => {
 		const body = { messages, model };
-		const request = buildChatRequestBody({ completionReserve: 4096 }, body);
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096, completionCapMode: 'heal' },
+			body,
+		);
 
 		assert.equal(request.max_tokens, 4096);
 		// Input body must not be mutated
 		assert.equal(Object.hasOwn(body, 'max_tokens'), false);
 	});
 
-	it('value equals options.completionReserve, not a hardcoded constant', () => {
+	it('value equals options.completionReserve, not a hardcoded constant (heal turn)', () => {
 		const request = buildChatRequestBody(
-			{ completionReserve: 2048 },
+			{ completionReserve: 2048, completionCapMode: 'heal' },
 			{ messages, model },
 		);
 
 		assert.equal(request.max_tokens, 2048);
 	});
 
-	it('does not add max_tokens when caller body already has max_tokens', () => {
+	it('does not add max_tokens when caller body already has max_tokens (heal turn — override wins)', () => {
 		const request = buildChatRequestBody(
-			{ completionReserve: 4096 },
+			{ completionReserve: 4096, completionCapMode: 'heal' },
 			{ messages, model, max_tokens: 99 },
 		);
 
 		assert.equal(request.max_tokens, 99);
 	});
 
-	it('does not add max_tokens when caller body already has max_completion_tokens', () => {
+	it('does not add max_tokens when caller body already has max_completion_tokens (heal turn — override wins)', () => {
 		const request = buildChatRequestBody(
-			{ completionReserve: 4096 },
+			{ completionReserve: 4096, completionCapMode: 'heal' },
 			{ messages, model, max_completion_tokens: 200 },
 		);
 
@@ -140,27 +147,27 @@ describe('completion cap request shaping', () => {
 		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
 	});
 
-	it('does not add max_tokens when completionReserve is 0 (guards empty-completion footgun)', () => {
+	it('does not add max_tokens when completionReserve is 0 on a heal turn (guards empty-completion footgun)', () => {
 		const request = buildChatRequestBody(
-			{ completionReserve: 0 },
+			{ completionReserve: 0, completionCapMode: 'heal' },
 			{ messages, model },
 		);
 
 		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
 	});
 
-	it('does not add max_tokens when completionReserve is negative (keeps cap <= 0 guard regression-proof)', () => {
+	it('does not add max_tokens when completionReserve is negative on a heal turn (keeps cap <= 0 guard regression-proof)', () => {
 		const request = buildChatRequestBody(
-			{ completionReserve: -1 },
+			{ completionReserve: -1, completionCapMode: 'heal' },
 			{ messages, model },
 		);
 
 		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
 	});
 
-	it('preserves both caller override keys when present together', () => {
+	it('preserves both caller override keys when present together (heal turn)', () => {
 		const request = buildChatRequestBody(
-			{ completionReserve: 4096 },
+			{ completionReserve: 4096, completionCapMode: 'heal' },
 			{ messages, model, max_tokens: 99, max_completion_tokens: 200 },
 		);
 
@@ -168,9 +175,13 @@ describe('completion cap request shaping', () => {
 		assert.equal(request.max_completion_tokens, 200);
 	});
 
-	it('coexists with max_thinking_tokens', () => {
+	it('coexists with max_thinking_tokens (heal turn)', () => {
 		const request = buildChatRequestBody(
-			{ completionReserve: 4096, maxThinkingTokens: 512 },
+			{
+				completionReserve: 4096,
+				maxThinkingTokens: 512,
+				completionCapMode: 'heal',
+			},
 			{ messages, model },
 		);
 
@@ -178,12 +189,13 @@ describe('completion cap request shaping', () => {
 		assert.equal(request.max_thinking_tokens, 512);
 	});
 
-	it('coexists with cache_control (Anthropic remote model)', () => {
+	it('coexists with cache_control (Anthropic remote model, heal turn)', () => {
 		const request = buildChatRequestBody(
 			{
 				provider: 'openrouter',
 				promptCache: 'auto',
 				completionReserve: 8192,
+				completionCapMode: 'heal',
 			},
 			{ messages, model: 'anthropic/claude-sonnet-4.5' },
 		);
@@ -192,13 +204,14 @@ describe('completion cap request shaping', () => {
 		assert.deepEqual(request.cache_control, { type: 'ephemeral' });
 	});
 
-	it('composition-order invariant: all three injectors produce disjoint keys without clobbering', () => {
+	it('composition-order invariant: all three injectors produce disjoint keys without clobbering (heal turn)', () => {
 		const request = buildChatRequestBody(
 			{
 				completionReserve: 4096,
 				maxThinkingTokens: 512,
 				provider: 'openrouter',
 				promptCache: 'auto',
+				completionCapMode: 'heal',
 			},
 			{ messages, model: 'anthropic/claude-sonnet-4.5' },
 		);
@@ -206,6 +219,72 @@ describe('completion cap request shaping', () => {
 		assert.equal(request.max_tokens, 4096);
 		assert.equal(request.max_thinking_tokens, 512);
 		assert.deepEqual(request.cache_control, { type: 'ephemeral' });
+	});
+
+	// Phase 236 regression tests: main-loop / staged paths must stay UNCAPPED.
+	// A positive completionReserve without completionCapMode:'heal' must NOT inject
+	// max_tokens — restoring the known-good pre-234 wire shape for the main loop.
+
+	it('main-loop options (no completionCapMode) — no max_tokens even with positive completionReserve', () => {
+		// Regression guard: the main loop carries completionReserve from
+		// applyModelProfileDefaults but must NOT get max_tokens injected.
+		// Phase 234 regressed this; phase 236 fixes it.
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096 },
+			{ messages, model },
+		);
+
+		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
+	});
+
+	it('explicit non-heal completionCapMode — no max_tokens (only "heal" triggers the cap)', () => {
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096, completionCapMode: 'main' },
+			{ messages, model },
+		);
+
+		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
+	});
+
+	it('heal mode + positive reserve — cap present (focused heal regression guard)', () => {
+		// Belt-and-suspenders: ensure the heal path still injects the cap after 236.
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096, completionCapMode: 'heal' },
+			{ messages, model },
+		);
+
+		assert.equal(request.max_tokens, 4096);
+	});
+
+	it('main-loop bag with maxThinkingTokens gets max_thinking_tokens but NOT max_tokens (applyRequestParameters is marker-independent)', () => {
+		// Proves applyRequestParameters is unaffected by the completionCapMode gate.
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096, maxThinkingTokens: 1024 },
+			{ messages, model },
+		);
+
+		assert.equal(request.max_thinking_tokens, 1024);
+		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
+	});
+
+	it('repairOptions heal marker: completionCapMode is "heal" (heal plumbing assertion)', () => {
+		// Confirms the marker value the run-pipeline sets on repairOptions is exactly
+		// the string that applyCompletionCap gates on. No run-pipeline import needed —
+		// the contract is: repairOptions carries completionCapMode:'heal', and
+		// applyCompletionCap gates on options.completionCapMode !== 'heal'. This test
+		// asserts the gate value matches the marker by exercising both sides directly.
+		const healOptions = { completionReserve: 4096, completionCapMode: 'heal' };
+		const mainOptions = { completionReserve: 4096 };
+
+		const healRequest = buildChatRequestBody(healOptions, { messages, model });
+		const mainRequest = buildChatRequestBody(mainOptions, { messages, model });
+
+		assert.equal(healRequest.max_tokens, 4096, 'heal path sets cap');
+		assert.equal(
+			Object.hasOwn(mainRequest, 'max_tokens'),
+			false,
+			'main path has no cap',
+		);
 	});
 });
 
