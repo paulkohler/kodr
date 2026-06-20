@@ -442,6 +442,9 @@ describe('verification runner', () => {
 			'utf8',
 		);
 		let capturedArgs;
+		// nodeTestScript strips scripts.test's --test-timeout= by returning bare
+		// ['--test']; the effective filter is a no-op here but guards the direct
+		// `node --test --test-timeout=...` parse path. Either way exactly one wins.
 		await runVerification(cwd, 'npm test', {
 			testTimeoutMs: 7000,
 			runner: async (_cwd, effective) => {
@@ -458,6 +461,32 @@ describe('verification runner', () => {
 			`expected exactly one --test-timeout, got: ${capturedArgs.join(' ')}`,
 		);
 		assert.equal(timeoutArgs[0], '--test-timeout=7000');
+	});
+
+	it('rewrites npm run test (bin=npm) with a bare node --test script', async () => {
+		// `npm run test` parses to { bin: 'npm', args: ['run', 'test'] }, so it is
+		// a needsPackageJson command and qualifies for the same rewrite as `npm test`.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-pm-run-'));
+		await writeFile(
+			join(cwd, 'package.json'),
+			JSON.stringify({ scripts: { test: 'node --test' } }),
+			'utf8',
+		);
+		let capturedBin;
+		let capturedArgs;
+		await runVerification(cwd, 'npm run test', {
+			runner: async (_cwd, effective) => {
+				capturedBin = effective.bin;
+				capturedArgs = effective.args;
+				return { exitCode: 0, stderr: '', stdout: 'tests 1', timedOut: false };
+			},
+		});
+		assert.equal(capturedBin, 'node');
+		assert.ok(capturedArgs.includes('--test'));
+		assert.ok(
+			capturedArgs.some((a) => a.startsWith('--test-timeout=')),
+			`expected --test-timeout in args: ${capturedArgs.join(' ')}`,
+		);
 	});
 
 	it('allowlist stays intact: parseVerificationCommand rejects injection even post-parse rewrite', () => {

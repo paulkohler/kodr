@@ -831,6 +831,10 @@ describe('subagent stage orchestration', () => {
 				commands[1].startsWith('node --test'),
 				`expected node --test, got: ${commands[1]}`,
 			);
+			assert.ok(
+				commands[1].includes('--test-timeout='),
+				`expected --test-timeout on the rewritten command, got: ${commands[1]}`,
+			);
 			assert.equal(commands.length, 2);
 			assert.equal(result.installResult.ok, true);
 			assert.equal(result.testResult.ok, true);
