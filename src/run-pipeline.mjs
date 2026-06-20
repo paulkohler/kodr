@@ -1951,11 +1951,13 @@ async function runStagedPrompt({
 			break;
 		}
 
-		lastProposal = proposal;
 		// Phase 233: merge the captured draft into a VALID envelope too (W4 parity with
 		// the main pipeline ~1080-1088), not only the null-envelope W3 fallback. A
 		// STAGED_DONE envelope (files:[]) is non-null, so without this the draft's
 		// pending write_file is silently dropped at the empty-paths check below.
+		// Parity note: like the main path, the envelope wins per path, so a draft file
+		// the envelope omits is resurrected rather than dropped — captured writes are
+		// the model's committed work, not a tentative draft it can silently revoke.
 		const capturedDraft = completion.proposalDraft ?? null;
 		const draftNonEmpty = capturedDraft !== null && !capturedDraft.isEmpty;
 		if (!proposal) {
@@ -2195,6 +2197,14 @@ async function runStagedPrompt({
 		// Phase 224: real write clears the steer flag so write→steer→write→steer
 		// never false-completes (only consecutive steered/zero stages trigger).
 		safeWriteSteered = false;
+		// Phase 233: the model signaled STAGED_DONE in the SAME response that carried
+		// the pending draft write. The write is now applied (and cleared from the
+		// draft), so honor completion in this stage instead of burning another to
+		// re-signal. Set `done` before the record push so the record's schema matches
+		// every other terminal stage record (the field is omitted for non-done stages).
+		if (stagedDoneSignal) {
+			done = true;
+		}
 		stageRecords.push({
 			applied: writeResult.applied,
 			name: `implement-${stageIndex}`,
@@ -2202,12 +2212,9 @@ async function runStagedPrompt({
 			proposedPaths: paths,
 			responseChars: completion.text.length,
 			writeCount: writeResult.writes.length,
+			...(done ? { done: true } : {}),
 		});
-		// Phase 233: the model signaled STAGED_DONE in the SAME response that carried the
-		// pending draft write. The write is now applied (and cleared from the draft), so
-		// honor completion in this stage instead of burning another to re-signal.
-		if (stagedDoneSignal) {
-			done = true;
+		if (done) {
 			break;
 		}
 

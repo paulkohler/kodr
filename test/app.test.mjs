@@ -9252,4 +9252,137 @@ describe('Phase 233 — staged W4-parity: apply pending draft writes on STAGED_D
 	// non-empty, so the phase-225 auto-advance fires only when prepareChanges truly
 	// returns zero writes; stagedDoneSignal short-circuits before that in the
 	// STAGED_DONE case).
+
+	// (e) Normal (non-STAGED_DONE) stage: a draft write_file PLUS a non-overlapping
+	// envelope file are BOTH applied (W4 parity for the ordinary case, not only the
+	// STAGED_DONE one). Pre-233 the staged path ignored the draft whenever the
+	// envelope was non-null, so the draft-only file would have been lost here too.
+	// The stage does NOT signal STAGED_DONE, so it continues; a second stage then
+	// completes the run. Documents the behavior change the phase-233 review flagged.
+	it('(e) non-STAGED_DONE stage merges a draft file alongside the envelope file', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p233-e-'));
+		await writeNativeProfile(cwd, 'http://fake-placeholder.local/v1');
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad:
+							'{"plan":["write src/draftonly.mjs and src/envonly.mjs"],"next":"write both files"}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// implement-1 sub-turn 1: write src/draftonly.mjs via write_file (draft).
+				makeWriteFileTurn({
+					id: 'call_p233e',
+					path: 'src/draftonly.mjs',
+					content: 'export const fromDraft = true;\n',
+					chatId: 'chatcmpl_p233e_1',
+				}),
+				// implement-1 sub-turn 2: envelope lists ONLY src/envonly.mjs and does
+				// NOT signal STAGED_DONE. The draft's src/draftonly.mjs must still be
+				// merged + applied (W4), and the stage continues (done stays false).
+				makeEnvelopeTurn(
+					{
+						status: 'OK',
+						files: [
+							{
+								path: 'src/envonly.mjs',
+								content: 'export const fromEnvelope = true;\n',
+							},
+						],
+						patches: [],
+						messages: [{ level: 'info', content: 'Wrote both files.' }],
+						scratchpad: '',
+					},
+					'chatcmpl_p233e_2',
+				),
+				// implement-2: STAGED_DONE to terminate the run.
+				{
+					body: proposalResponse({
+						files: [],
+						patches: [],
+						messages: [{ level: 'info', content: 'All done. STAGED_DONE' }],
+						scratchpad: '',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		await writeNativeProfile(cwd, server.baseUrl);
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Write src/draftonly.mjs and src/envonly.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--model',
+					'test-model',
+					'--out',
+					'p233e-out',
+					'--timeout-ms',
+					'10000',
+					'--tools',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			// Both files must be on disk — the draft-only file is NOT lost just because
+			// the envelope omitted it.
+			const draftContent = await readFile(
+				join(cwd, 'src', 'draftonly.mjs'),
+				'utf8',
+			);
+			assert.ok(
+				draftContent.includes('fromDraft'),
+				`draft-only file must be applied, got: ${draftContent}`,
+			);
+			const envContent = await readFile(
+				join(cwd, 'src', 'envonly.mjs'),
+				'utf8',
+			);
+			assert.ok(
+				envContent.includes('fromEnvelope'),
+				`envelope file must be applied, got: ${envContent}`,
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p233e-out', 'summary.json'), 'utf8'),
+			);
+			assert.ok(
+				!summary.writeError,
+				`expected no writeError, got: ${summary.writeError?.name}`,
+			);
+			// implement-1 applied both files (draft + envelope), no double-count.
+			const stage1 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-1',
+			);
+			assert.equal(
+				stage1?.writeCount,
+				2,
+				`implement-1 must apply 2 files, got: ${stage1?.writeCount}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
 });
