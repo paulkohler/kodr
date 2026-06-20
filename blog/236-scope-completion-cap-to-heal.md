@@ -153,3 +153,27 @@ All 1877 pre-existing tests pass unchanged, including the heal app tests in
 `test/app.test.mjs`, the `isReasoningRunaway` tests in `test/healing.test.mjs`,
 and the streaming thinking-token test that confirms `applyRequestParameters` is
 unaffected.
+
+## Dogfood: the wire proves the scope
+
+A unit test proves the gate responds to the marker; only a live run proves the
+run-pipeline actually sets it. The phase-236 dogfood (`phase-236/uncap-main-1`)
+ran a substantial two-file inventory module + tests against qwen3.6 and read the
+persisted `raw-request.json`:
+
+- **Main loop:** top-level keys were `messages, model, url, tools,
+  max_thinking_tokens` — **no `max_tokens`**. All 8 main-loop turns finished
+  `tool_calls`; zero cap-induced `finish_reason: length`. The phase-234
+  baseline (`phase-234/cap-wiring-1`) had `max_tokens: 4096` here, which had
+  starved a comparable turn to 4095 reasoning tokens and 0 answer. Regression
+  removed, live.
+- **Heal turn:** still hit *exactly* 4096 completion tokens with `finish_reason:
+  length`, classified `reasoning_runaway` (also re-confirming phase 235's
+  carryover fix). The heal-only cap is intact.
+
+So the cap is correctly scoped on the real wire: generous (uncapped) for
+generation, tight for heal fast-fail. One generated-code artifact worth noting
+(not a kodr bug): the model's test used `import(url + '?t=' + Date.now())` as an
+ESM cache-bust, which does not work for local `.mjs` (Node caches by canonical
+path, not query string), causing shared-`Map` state contamination across tests —
+a `lang:node` skill-pitfall candidate queued in `NEXT.md`.
