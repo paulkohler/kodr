@@ -267,7 +267,7 @@ Regex stability notes:
       Dogfooding` after the `- [x] 226 ...` line.
 - [x] `package.json` version bumped to `0.0.227` (`cversion --check` enforces
       package.json == max roadmap phase; do both in the same commit).
-- [ ] Commit (small, focused; do **not** push).
+- [x] Commit (small, focused; do **not** push).
 
 ## Risks / things to watch
 

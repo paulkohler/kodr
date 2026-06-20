@@ -173,13 +173,15 @@ res.json()`. A 404/500 returns an HTML error page, so parsing it throws
 const res = await fetch(`http://localhost:${port}/items/999`);
 const body = await res.json();
 
-// Correct — assert status first; only parse JSON on a JSON response
-const res = await fetch(`http://localhost:${port}/items/999`);
-assert.equal(res.status, 404);
-if (res.ok) {
-  assert.match(res.headers.get('content-type') ?? '', /application\/json/);
-  const body = await res.json();
-}
+// Correct — on the error path, assert the status and do NOT parse a body
+const missing = await fetch(`http://localhost:${port}/items/999`);
+assert.equal(missing.status, 404);
+
+// Correct — on a success, confirm 2xx + JSON before parsing
+const found = await fetch(`http://localhost:${port}/items/1`);
+assert.equal(found.status, 200);
+assert.match(found.headers.get('content-type') ?? '', /application\/json/);
+const item = await found.json();
 ```
 
 ## busboy v1
