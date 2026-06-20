@@ -2193,6 +2193,12 @@ async function runStagedPrompt({
 		// stage reads from disk rather than returning stale pending-write labels.
 		const appliedPaths = writeResult.writes.map((w) => w.path);
 		registry?.proposalDraft?.clearFiles(appliedPaths);
+		// Phase 237: also drop applied PATCH entries. clearFiles removes only _files;
+		// without this, an applied edit_file patch leaks into every subsequent staged
+		// stage (re-surfacing in proposalPaths, re-merged by mergeProposalWithDraft).
+		// appliedPaths covers both file-writes and patch-applies, so the same path set
+		// clears both accumulators.
+		registry?.proposalDraft?.clearPatches(appliedPaths);
 		noProgressTurns = 0;
 		// Phase 224: real write clears the steer flag so write→steer→write→steer
 		// never false-completes (only consecutive steered/zero stages trigger).

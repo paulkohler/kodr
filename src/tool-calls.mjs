@@ -176,6 +176,18 @@ export class ProposalDraft {
 		}
 	}
 
+	// Phase 237: remove patch entries for already-applied paths, symmetric to
+	// clearFiles. The staged pipeline applies a stage's writes then clears the draft
+	// so the next stage starts clean; clearFiles removes only _files, so an applied
+	// edit_file patch would otherwise leak into every subsequent staged stage
+	// (re-surfacing in proposalPaths and re-merging via mergeProposalWithDraft). This
+	// drops every captured patch whose .path is in `paths`. clearFiles stays
+	// files-only (phase 217/235 contract); clear() (phase 235, heal) is unchanged.
+	clearPatches(paths) {
+		const drop = new Set(paths);
+		this._patches = this._patches.filter((patch) => !drop.has(patch.path));
+	}
+
 	// Phase 235: full reset of the shared draft. clearFiles() removes only file
 	// entries; clear() also drops captured patches and alias hits, so a reused
 	// registry (e.g. across the main run -> heal loop) starts each heal turn with a

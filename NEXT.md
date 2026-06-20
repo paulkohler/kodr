@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 236)
+## Current frontier (phase 237)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -17,7 +17,7 @@ Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
 The live work is the **staged execution pipeline** (`runStagedPrompt`) and
-the `lang:node` builtin skill. Phases 213–236 chipped at both for local
+the `lang:node` builtin skill. Phases 213–237 chipped at both for local
 thinking models (qwen3.6): pending-write `run_command` guards, W3 draft
 fallback, `SafeWriteError` steering with `clearFiles`, raised `maxStageWrites`
 (8) with unique-path dedup, inter-stage `npm install`, the phase-224
@@ -51,11 +51,16 @@ fast-fail caught by phase-231), the phase-235 heal draft carryover fix
 (`ProposalDraft.clear()` at the top of each `repairTurn` callback clears the shared
 registry draft before the model call so stale main-run writes are never re-emitted
 as no-op proposals, restoring phase-231's `reasoning_runaway` classification accuracy
-— previously defeated whenever the main run had written files), and the phase-236
+— previously defeated whenever the main run had written files), the phase-236
 heal-only cap scope (the honored `max_tokens:completionReserve` cap is now gated on
 `completionCapMode:'heal'` in the options bag; the main loop and staged path carry no
 marker and revert to the known-good pre-234 uncapped wire shape — a ground-truth probe
-showed the 4096 cap starved a realistic two-file generation task to 0 answer chars).
+showed the 4096 cap starved a realistic two-file generation task to 0 answer chars),
+and the phase-237 staged `clearFiles` patch leak fix (`ProposalDraft.clearPatches(paths)`
+added symmetric to `clearFiles`, called alongside `clearFiles(appliedPaths)` at
+`run-pipeline.mjs:2195` — closing the staged half of the phase-235 draft-carryover
+asymmetry: an applied `edit_file` patch no longer leaks into every subsequent staged
+stage via `proposalPaths` and `mergeProposalWithDraft`).
 
 ## Candidates
 

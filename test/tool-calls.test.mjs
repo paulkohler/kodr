@@ -2417,6 +2417,96 @@ describe('ProposalDraft.clearFiles', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase 237 — ProposalDraft.clearPatches
+// ---------------------------------------------------------------------------
+
+describe('ProposalDraft.clearPatches', () => {
+	it('clearPatches removes only matching-path patch entries, leaves others', () => {
+		const draft = new ProposalDraft();
+		draft.recordPatch('src/a.mjs', 'old-a', 'new-a');
+		draft.recordPatch('src/b.mjs', 'old-b', 'new-b');
+		draft.clearPatches(['src/a.mjs']);
+		assert.equal(draft.patches.length, 1);
+		assert.equal(draft.patches[0].path, 'src/b.mjs');
+	});
+
+	it('clearPatches removes ALL patches for the same path', () => {
+		const draft = new ProposalDraft();
+		draft.recordPatch('src/a.mjs', 'search-1', 'replace-1');
+		draft.recordPatch('src/a.mjs', 'search-2', 'replace-2');
+		draft.clearPatches(['src/a.mjs']);
+		assert.equal(draft.patches.length, 0);
+	});
+
+	it('clearPatches leaves _files untouched (symmetry mirror of phase-235 clearFiles files-only test)', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'content-a');
+		draft.recordPatch('src/a.mjs', 'old', 'new');
+		draft.clearPatches(['src/a.mjs']);
+		assert.equal(draft.patches.length, 0);
+		assert.equal(draft.files.length, 1);
+		assert.equal(draft.files[0].path, 'src/a.mjs');
+	});
+
+	it('clearPatches with empty array is a no-op', () => {
+		const draft = new ProposalDraft();
+		draft.recordPatch('src/a.mjs', 'old', 'new');
+		draft.clearPatches([]);
+		assert.equal(draft.patches.length, 1);
+	});
+
+	it('clearFiles regression: still removes only files, leaves patches (phase 217/235 contract)', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'content-a');
+		draft.recordPatch('src/a.mjs', 'old', 'new');
+		draft.clearFiles(['src/a.mjs']);
+		// File cleared
+		assert.equal(draft.files.length, 0);
+		// Patch NOT cleared — clearFiles is files-only
+		assert.equal(draft.patches.length, 1);
+		assert.equal(draft.patches[0].path, 'src/a.mjs');
+	});
+
+	it('combined clearFiles+clearPatches at the staged site yields isEmpty === true', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'content-a');
+		draft.recordPatch('src/a.mjs', 'old', 'new');
+		// Simulate what run-pipeline.mjs:2195 now does for appliedPaths=['src/a.mjs']
+		draft.clearFiles(['src/a.mjs']);
+		draft.clearPatches(['src/a.mjs']);
+		assert.ok(draft.isEmpty);
+	});
+
+	it('stale applied patch does not survive into next stage proposalPaths (mechanism proof)', () => {
+		// Simulate an edit_file patch applied in implement-2 (the dogfood scenario:
+		// implement-2 applied a patch to test/api.test.mjs, implement-3 re-reported it
+		// with writeCount=0 because clearFiles never cleared _patches).
+		const draft = new ProposalDraft();
+		// Record a patch as applied (like the live-mode handler does)
+		draft.recordPatch('test/api.test.mjs', 'old code', 'new code', {
+			applied: true,
+		});
+		// Before the fix: clearFiles only — patch survives
+		draft.clearFiles(['test/api.test.mjs']);
+		assert.equal(
+			draft.patches.length,
+			1,
+			'patch survives clearFiles (the pre-fix bug)',
+		);
+		// After the fix: clearPatches removes it
+		draft.clearPatches(['test/api.test.mjs']);
+		assert.equal(draft.patches.length, 0);
+		// isEmpty is now true — a mergeProposalWithDraft would contribute no patches
+		assert.ok(draft.isEmpty);
+		// Note: a full end-to-end staged two-stage patch sequence through
+		// startFakeModelServer is not staged here because the fake-server harness
+		// requires seeding disk content that edit_file can match; the unit mechanism
+		// proof above covers the same invariant: between-stage clearPatches makes the
+		// implement-3 patch leak impossible.
+	});
+});
+
+// ---------------------------------------------------------------------------
 // Phase 117 — W1: write_file/edit_file capture tool registration & behavior
 // ---------------------------------------------------------------------------
 

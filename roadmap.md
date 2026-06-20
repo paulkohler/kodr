@@ -236,6 +236,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 234 Wire a Honored max_tokens Completion Cap (Fast-Fail Reasoning Runaway)
 - [x] 235 Clear the Proposal Draft Before Each Heal Turn (Stale Carryover Fix)
 - [x] 236 Scope the Honored Completion Cap to HEAL Turns Only (Un-Starve Main Generation)
+- [x] 237 Clear Applied Patches Between Staged Stages (Staged clearFiles Patch Leak)
 
 ## Phase Contract
 
