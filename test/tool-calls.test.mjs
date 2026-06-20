@@ -3880,3 +3880,350 @@ describe('Phase 229 — staged guard wording: Site 3 (pending-write guard hint)'
 		);
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Phase 232 — staged completion: synthetic user turn over embedded tool hint
+// ---------------------------------------------------------------------------
+
+describe('staged completion synthetic user turn (Phase 232)', () => {
+	// Reuse the Phase 220 buildServer helper pattern: 1 real call + repeatCount
+	// repeats, then a final stop answer. Defined locally here since we need it
+	// for multiple test cases below.
+	const buildServer232 = async (repeatCount, finalContent) => {
+		const makeToolResponse = (id) => ({
+			method: 'POST',
+			url: '/v1/chat/completions',
+			body: {
+				choices: [
+					{
+						finish_reason: 'tool_calls',
+						message: {
+							content: null,
+							role: 'assistant',
+							tool_calls: [
+								{
+									id,
+									type: 'function',
+									function: { name: 'list_files', arguments: '{}' },
+								},
+							],
+						},
+					},
+				],
+				id: `chatcmpl_${id}`,
+				object: 'chat.completion',
+			},
+			status: 200,
+		});
+		const responses = [makeToolResponse('call_1')]; // real call
+		for (let i = 2; i <= repeatCount + 1; i++) {
+			responses.push(makeToolResponse(`call_${i}`));
+		}
+		responses.push({
+			method: 'POST',
+			url: '/v1/chat/completions',
+			body: {
+				choices: [
+					{
+						finish_reason: 'stop',
+						message: {
+							content:
+								finalContent ??
+								'{"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]}',
+							role: 'assistant',
+						},
+					},
+				],
+				id: 'chatcmpl_final',
+				object: 'chat.completion',
+			},
+			status: 200,
+		});
+		return startFakeModelServer({ responses });
+	};
+
+	// Case 1: staged escalation injects a user turn containing STAGED_DONE +
+	// write_file + "Stop calling tools", and does NOT claim "All target files are
+	// written" (truthful dual-exit per phase-229 precedent).
+	it('case 1: staged escalation at count=3 injects a user turn with STAGED_DONE and write_file', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-232-case1-'));
+		// 1 real + 3 repeats → count reaches 3 on the 3rd repeat (call_4)
+		const server = await buildServer232(3);
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 12,
+				stream: false,
+				timeoutMs: 5000,
+				inStagedPipeline: true,
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write a file.',
+				'You are helpful.',
+				registry,
+			);
+			// There must be a user message in the conversation with the nudge text
+			const nudgeMsg = completion.messages.find(
+				(m) =>
+					m.role === 'user' &&
+					typeof m.content === 'string' &&
+					m.content.includes('STAGED_DONE'),
+			);
+			assert.ok(nudgeMsg, 'a user-role nudge message must be injected');
+			assert.ok(
+				nudgeMsg.content.includes('write_file'),
+				'nudge must mention write_file',
+			);
+			assert.ok(
+				nudgeMsg.content.includes('Stop calling tools'),
+				'nudge must include "Stop calling tools"',
+			);
+			// Truthfulness: must NOT claim all files are written (unverifiable mid-budget)
+			assert.ok(
+				!nudgeMsg.content.includes('All target files are written'),
+				'nudge must not falsely claim all files are written',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// Case 2: the user turn fires at most once across 5 repeats.
+	it('case 2: synthetic user turn fires at most once across 5 repeats', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-232-case2-'));
+		// 1 real + 5 repeats → count reaches 5 on the 5th repeat
+		const server = await buildServer232(5);
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 15,
+				stream: false,
+				timeoutMs: 5000,
+				inStagedPipeline: true,
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write a file.',
+				'You are helpful.',
+				registry,
+			);
+			// Count how many user messages carry the nudge content
+			const nudgeMessages = completion.messages.filter(
+				(m) =>
+					m.role === 'user' &&
+					typeof m.content === 'string' &&
+					m.content.includes('STAGED_DONE') &&
+					m.content.includes('Stop calling tools'),
+			);
+			assert.equal(
+				nudgeMessages.length,
+				1,
+				'synthetic user turn must fire at most once even with 5 repeats',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// Case 3: the user turn does NOT fire in non-staged mode (inStagedPipeline absent).
+	it('case 3: synthetic user turn does NOT fire when inStagedPipeline is absent', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-232-case3-'));
+		const server = await buildServer232(3);
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 12,
+				stream: false,
+				timeoutMs: 5000,
+				// inStagedPipeline intentionally absent
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'List files.',
+				'You are helpful.',
+				registry,
+			);
+			// No user message with the STAGED_DONE / "Stop calling tools" content
+			const nudgeMessages = completion.messages.filter(
+				(m) =>
+					m.role === 'user' &&
+					typeof m.content === 'string' &&
+					m.content.includes('Stop calling tools'),
+			);
+			assert.equal(
+				nudgeMessages.length,
+				0,
+				'no staged nudge should fire in non-staged mode',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// Case 4: tools still present on the post-nudge request (do NOT drop tools).
+	// The fake-model-server exposes received request bodies via recordings; we
+	// assert `tools` is a non-empty array on the request sent AFTER the nudge.
+	it('case 4: tools are still present on the post-nudge request (tools not dropped)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-232-case4-'));
+		// 1 real + 3 repeats → count=3 triggers escalation + nudge after turn 3,
+		// then one final turn (turn 4 = call_4 repeat that triggers escalation,
+		// turn 5 = final stop). We need the recording of the request that follows
+		// the nudge injection.
+		const server = await buildServer232(3);
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 12,
+				stream: false,
+				timeoutMs: 5000,
+				inStagedPipeline: true,
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write a file.',
+				'You are helpful.',
+				registry,
+			);
+			// Find the recording whose request body messages include the nudge user turn.
+			// That request is the one AFTER the nudge was injected — its messages array
+			// should end with the nudge, and tools must be present (not dropped).
+			const nudgeRequestRecording = server.recordings.find((rec) => {
+				const msgs = rec.requestBody?.messages;
+				return (
+					Array.isArray(msgs) &&
+					msgs.some(
+						(m) =>
+							m.role === 'user' &&
+							typeof m.content === 'string' &&
+							m.content.includes('Stop calling tools') &&
+							m.content.includes('STAGED_DONE'),
+					)
+				);
+			});
+			assert.ok(
+				nudgeRequestRecording,
+				'there must be a request whose messages include the nudge user turn',
+			);
+			assert.ok(
+				Array.isArray(nudgeRequestRecording.requestBody.tools) &&
+					nudgeRequestRecording.requestBody.tools.length > 0,
+				'tools must be present (non-empty) on the post-nudge request — tools must NOT be dropped',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// Case 5: regression — normal staged run with no repeats never injects the nudge.
+	it('case 5: normal staged run with no repeats never injects the synthetic user turn', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-232-case5-'));
+		// 0 repeats: real call → final stop (no repeat at all)
+		const server = await buildServer232(0);
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 8,
+				stream: false,
+				timeoutMs: 5000,
+				inStagedPipeline: true,
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write a file.',
+				'You are helpful.',
+				registry,
+			);
+			const nudgeMessages = completion.messages.filter(
+				(m) =>
+					m.role === 'user' &&
+					typeof m.content === 'string' &&
+					m.content.includes('Stop calling tools'),
+			);
+			assert.equal(
+				nudgeMessages.length,
+				0,
+				'no nudge must fire on a clean staged run with no repeats',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// Case 6: regression — the existing tool-role escalation message still parses
+	// to { repeat: true, count: 3 } with "Stop retrying".
+	it('case 6: existing tool-role escalation message still parses to { repeat: true, count: 3 } with Stop retrying', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-232-case6-'));
+		// 1 real + 3 repeats → call_4 has count=3, triggering escalation
+		const server = await buildServer232(3);
+		try {
+			const registry = createBuiltinRegistry(cwd);
+			const options = {
+				baseUrl: server.baseUrl,
+				extraHeaders: {},
+				maxCostUsd: '',
+				maxRetries: 7,
+				maxTokens: '',
+				maxTurns: 12,
+				stream: false,
+				timeoutMs: 5000,
+				inStagedPipeline: true,
+			};
+			const completion = await completeWithToolCalls(
+				options,
+				'test-model',
+				'Write a file.',
+				'You are helpful.',
+				registry,
+			);
+			// Find the tool-role message for call_3 (count=3, escalation threshold).
+			// call_1 is the real call, call_2 is repeat count=2, call_3 is count=3.
+			const escalationToolMsg = completion.messages.find(
+				(m) => m.role === 'tool' && m.tool_call_id === 'call_3',
+			);
+			assert.ok(
+				escalationToolMsg,
+				'tool-role escalation message for call_3 must exist',
+			);
+			const parsed = JSON.parse(escalationToolMsg.content);
+			assert.equal(parsed.repeat, true, 'repeat must be true');
+			assert.equal(parsed.count, 3, 'count must be 3 at escalation threshold');
+			assert.ok(
+				parsed.message.includes('Stop retrying'),
+				'escalation tool message must still include "Stop retrying"',
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});

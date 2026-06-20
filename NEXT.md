@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 230)
+## Current frontier (phase 232)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -17,7 +17,7 @@ Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
 The live work is the **staged execution pipeline** (`runStagedPrompt`) and
-the `lang:node` builtin skill. Phases 213–230 chipped at both for local
+the `lang:node` builtin skill. Phases 213–232 chipped at both for local
 thinking models (qwen3.6): pending-write `run_command` guards, W3 draft
 fallback, `SafeWriteError` steering with `clearFiles`, raised `maxStageWrites`
 (8) with unique-path dedup, inter-stage `npm install`, the phase-224
@@ -29,26 +29,18 @@ profile-aware heal per-turn timeout (wireNoStream profiles now get the full
 main-loop budget instead of the D2 240s cap), the phase-229 staged-aware
 `run_command` / turn-exhaustion guard wording (three sites made staged-aware so
 the model no longer receives envelope-only or factually false instructions in a
-staged run), and the phase-230 per-test timeout for pm-delegated `node --test`
+staged run), the phase-230 per-test timeout for pm-delegated `node --test`
 verification (scoped rewrite of `npm test` / `pnpm test` / `yarn test` to
 `node --test` when `scripts.test` is a bare `node --test`, so the existing
-`--test-timeout` injection applies and one hung generated test fails fast).
+`--test-timeout` injection applies and one hung generated test fails fast), the
+phase-231 reasoning-runaway fast-fail in the heal loop (detect `finish_reason:
+length` with zero answer tokens, break immediately, accurate `reasoning_runaway`
+stop reason), and the phase-232 synthetic staged-completion user turn (when the
+staged repeat-escalation sentinel fires, a `user`-role message is injected after
+all tool results, offering the dual-exit: write the next file or return
+`STAGED_DONE`; tools remain available; fire-once per `completeWithToolCalls` call).
 
 ## Candidates
-
-### Staged completion: synthetic user turn instead of embedded tool hint
-Phase-223 dogfooding: embedding STAGED_DONE JSON in a tool-error message does not
-reliably break the model's tool-calling loop. The model needs the completion
-instruction delivered as a clean user turn (not buried in error JSON). When the
-staged sentinel escalates (count >= ESCALATION_THRESHOLD) and inStagedPipeline
-is true, inject a synthetic user message after the tool result — e.g., appended
-to the `messages` array before the next iteration — that says:
-"All target files are written. Stop calling tools. Return only:
-`{\"status\":\"OK\",\"files\":[],\"messages\":[{\"level\":\"info\",\"content\":\"STAGED_DONE\"}]}`"
-This is architecturally different from Phase 223's tool-error approach: it sends a
-user-role message that the model must respond to, rather than a tool result it may
-ignore. Needs careful placement in completeWithToolCalls so it fires after the tool
-result is appended but before the next request.
 
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the
@@ -106,11 +98,16 @@ NOT a runaway). So phase-231's predicate is correctly scoped, but live runaways
 recur only when the model reasons-to-length on sub-turn 1 — the limit-pushing
 ambitious dogfood is the reliable trigger. (2) A **distinct** heal failure mode
 showed up: heal turn-3 hit `HTTP 400 "Context size has been exceeded"`
-(`stopReason: 'repair_error'`) because the heal prompt grew to ~30.5k chars and
-crossed the 32K window. This elevates the "trim verbatim file embeds" secondary —
-it is not only about reasoning budget; the heal **prompt itself** can blow the
-window. Consider bounding the heal prompt size (cap/trim embedded file bodies,
-drop the largest sources) so the request is always sendable.
+(`stopReason: 'repair_error'`) **after 238s** — NOT from an oversized initial heal
+prompt. Re-derived from turn-meta: turn-2's initial prompt was 30,501 chars and
+SUCCEEDED; turn-3's initial prompt was SMALLER (25,756 chars) yet FAILED mid-turn.
+So the cause is **tool-call sub-turn context accumulation** inside the agentic
+heal loop (`completeWithToolCalls` appends each `read_file`/tool result until one
+sub-turn request crosses the 32K window), not the initial embed size. The fix is
+in the heal tool-loop's context management (does the heal path get the same
+trimming/compaction the main tool loop has? — diagnose first), not "trim the
+initial embeds." This is a diagnose-first candidate; do not assume the initial
+prompt is the lever.
 
 Evidence: `final-audit/blog-platform/.kodr/runs/2026-06-20T04-45-40.838Z/repairs/`
 `turn-1/raw-response.json` + `turn-meta.json`; `phase-231/heal-runaway-3` run

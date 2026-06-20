@@ -40,6 +40,21 @@ function allowlistWriteHint(staged) {
 		: 'The harness has no write tool. Return file changes in the final JSON proposal (files array), not via shell commands.';
 }
 
+// Phase 232: synthetic user turn injected after the staged repeat-escalation
+// tool-error message. Phase-223 dogfooding found that embedding STAGED_DONE
+// JSON inside a tool-role result does NOT reliably break qwen3.6's tool-calling
+// loop — the model treats the tool message as ambient state and keeps spinning.
+// A clean USER-role turn is a direct prompt the model must answer, not a tool
+// result it may ignore. Message is truthfully dual-exit (write the next file OR
+// return STAGED_DONE) per the phase-229 truthfulness precedent: we cannot assert
+// "all files are written" because mid-budget we don't know that.
+const STAGED_COMPLETION_NUDGE = `You have repeated the same tool call several times without making progress.
+Stop calling tools to inspect or verify — verification runs automatically after
+all stages complete. If there is another file to create, call write_file for it
+now. If every file for this stage is already written, respond with only this JSON
+and nothing else:
+{"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]}`;
+
 // Default alias map: model-hallucinated or native names → canonical capture tool.
 // Evidence: gpt-oss hallucinated write_file every run; devstral calls a native
 // `files` tool 4–5 times per run; OpenHands uses str_replace_editor.
@@ -315,6 +330,11 @@ export async function completeWithToolCalls(
 	// S4: track whether we have already sent the no-proposal steer so it fires
 	// exactly once (the steer is cheaper than a full repair loop).
 	let noProposalSteerSent = false;
+	// Phase 232: track whether the synthetic staged-completion user turn has been
+	// sent. Fires at most once per completeWithToolCalls call (same fire-once
+	// pattern as nudgeSent / noProposalSteerSent). Guarded by escalatedThisTurn
+	// per turn so the user message lands only after all tool results for the turn.
+	let stagedCompletionTurnSent = false;
 	// W3: shared proposal draft from the registry (may be null).
 	const proposalDraft = registry?.proposalDraft ?? null;
 
@@ -424,6 +444,9 @@ export async function completeWithToolCalls(
 			// Dispatch each call and append a tool result message.
 			// Errors are returned as content rather than thrown so the model can
 			// observe and recover from tool failures.
+			// Phase 232: reset per-turn escalation flag before the loop so it only
+			// covers the current turn's tool calls (not accumulated across turns).
+			let escalatedThisTurn = false;
 			for (const toolCall of toolCalls) {
 				const toolName = toolCall.function?.name || '';
 				const toolArgs = toolCall.function?.arguments || '{}';
@@ -438,6 +461,15 @@ export async function completeWithToolCalls(
 					seenToolCalls.set(callKey, count);
 					const ESCALATION_THRESHOLD = 3;
 					const staged = options.inStagedPipeline === true;
+					// Phase 232: mark this turn for synthetic user-turn injection when
+					// staged escalation fires and the nudge has not been sent yet.
+					if (
+						count >= ESCALATION_THRESHOLD &&
+						staged &&
+						!stagedCompletionTurnSent
+					) {
+						escalatedThisTurn = true;
+					}
 					content =
 						count >= ESCALATION_THRESHOLD
 							? JSON.stringify({
@@ -506,6 +538,16 @@ export async function completeWithToolCalls(
 					// tool_call_id links this result to the specific call above.
 					tool_call_id: toolCall.id,
 				});
+			}
+			// Phase 232: after ALL tool results are pushed (OpenAI requires every
+			// assistant tool_calls to be followed immediately by its tool results
+			// before any user message), inject the synthetic staged-completion user
+			// turn. Fire-once guard (stagedCompletionTurnSent) prevents a second
+			// injection if the model keeps escalating. The user turn is additive —
+			// the tool-role escalation message above is preserved byte-identical.
+			if (escalatedThisTurn && !stagedCompletionTurnSent) {
+				stagedCompletionTurnSent = true;
+				messages.push({ role: 'user', content: STAGED_COMPLETION_NUDGE });
 			}
 			continue;
 		}
