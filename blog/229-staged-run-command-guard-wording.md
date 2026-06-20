@@ -116,3 +116,33 @@ All six passed immediately. Existing Phase-213 and Phase-220 tests were unaffect
 the error strings and non-staged wording are byte-identical to before the change.
 
 ## Test count: 1822 → 1828
+
+## Postscript: the dogfood caught a wiring no-op the unit tests missed
+
+The six new unit tests passed and a fresh-context review approved the phase. But
+the live staged dogfood told a different story: a confirmed staged run
+(`staged: true`) fired the pending-write guard (Site 3) six times and handed back
+the **envelope** hint ("Return the final JSON proposal envelope now") every time —
+never the new staged wording. The fix was a no-op in production.
+
+Root cause: the registry is built in `run-pipeline.mjs` *before*
+`shouldUseStagedExecution` is evaluated, and `createBuiltinRegistry` was never
+passed `inStagedPipeline`. So the Site-3 guard — which lives inside the registry
+handler — always read `options.inStagedPipeline === false`. Sites 1 and 2 live
+inside `completeWithToolCalls`, which *does* receive `{ ...options,
+inStagedPipeline: true }` per stage, so they worked. The Site-3 unit test passed
+because it constructed the registry with `inStagedPipeline: true` **explicitly** —
+it proved the registry's branch logic, not that the production caller wires the
+flag.
+
+The fix computes `willStage = !parent && shouldUseStagedExecution(options, prompt,
+context)` once, before the registry is created, passes it as the registry's
+`inStagedPipeline`, and reuses it at the staged branch (one source of truth).
+`shouldUseStagedExecution` is now exported with a focused decision test. Re-running
+the same staged dogfood on the fixed build: the guard now delivers "Apply file
+changes via write_file tool calls" and zero envelope hints.
+
+The lesson — recorded in `process/failures.jsonl` as `229-dogfood` — is sharp: a
+unit test that *constructs a dependency with a flag already set* does not prove
+the caller passes that flag. Wiring no-ops slip past green unit tests and reviews;
+the live run is what exposed it.

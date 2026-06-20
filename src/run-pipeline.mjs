@@ -429,10 +429,22 @@ export async function runPrompt(options, io) {
 			rawInitialMessages = initialMessages;
 		}
 
+		// Phase 229 fix: the staged decision must be known at registry-creation time.
+		// shouldUseStagedExecution is pure over (options, prompt, context); compute it
+		// once here and reuse it at the staged branch below. The registry's run_command
+		// pending-write guard reads options.inStagedPipeline to pick staged vs envelope
+		// steering — without this it always saw false, so a staged run handed back
+		// envelope wording (caught by the phase-229 dogfood: staged run, guard fired 6x,
+		// delivered the envelope hint instead of "Apply file changes via write_file").
+		const willStage =
+			!parent && shouldUseStagedExecution(options, prompt, context);
 		const registry = options.tools
 			? createBuiltinRegistry(io.cwd, {
 					commandRunner,
 					hooks: configuredHooks.hooks,
+					// Phase 229: tell the registry's run_command guard whether this run
+					// will use the staged pipeline so its pending-write hint matches.
+					inStagedPipeline: willStage,
 					runDir,
 					skillExecutor: activeExecutor,
 					skillsDirs: resolvedSkillsDirs(options, io.cwd),
@@ -783,11 +795,7 @@ export async function runPrompt(options, io) {
 				};
 			}
 
-			if (
-				shouldUseStagedExecution(options, prompt, context) &&
-				!parent &&
-				registry
-			) {
+			if (willStage && registry) {
 				return runStagedPrompt({
 					commandRunner,
 					configuredHooks,
@@ -2424,7 +2432,11 @@ async function runStagedPrompt({
 	};
 }
 
-function shouldUseStagedExecution(options, prompt, context) {
+// Exported for testing: the result of this (combined with `!parent`) is the
+// `willStage` value passed as `inStagedPipeline` to createBuiltinRegistry, so the
+// run_command pending-write guard's staged-vs-envelope steering rides on it
+// (Phase 229 wiring fix). Keep this pure over (options, prompt, context).
+export function shouldUseStagedExecution(options, prompt, context) {
 	if (options.staged === true) {
 		return true;
 	}
