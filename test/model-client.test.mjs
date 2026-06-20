@@ -149,6 +149,25 @@ describe('completion cap request shaping', () => {
 		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
 	});
 
+	it('does not add max_tokens when completionReserve is negative (keeps cap <= 0 guard regression-proof)', () => {
+		const request = buildChatRequestBody(
+			{ completionReserve: -1 },
+			{ messages, model },
+		);
+
+		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
+	});
+
+	it('preserves both caller override keys when present together', () => {
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096 },
+			{ messages, model, max_tokens: 99, max_completion_tokens: 200 },
+		);
+
+		assert.equal(request.max_tokens, 99);
+		assert.equal(request.max_completion_tokens, 200);
+	});
+
 	it('coexists with max_thinking_tokens', () => {
 		const request = buildChatRequestBody(
 			{ completionReserve: 4096, maxThinkingTokens: 512 },
