@@ -141,13 +141,25 @@ export async function runVerification(cwd, command, options = {}) {
 		return summary;
 	}
 	// Bound individual test hangs: node --test runs forever on unresolved Promises.
+	// See failures.jsonl phase-230 entry (final-audit/blog-platform pagination hang
+	// ~300s) for the pm-delegated path that motivated the scoped rewrite below.
+	let base = parsed;
+	if (needsPackageJson) {
+		const rewritten = await nodeTestScript(cwd);
+		if (rewritten !== null) {
+			base = rewritten;
+		}
+	}
 	const effective =
-		parsed.bin === 'node' && parsed.args.includes('--test')
+		base.bin === 'node' && base.args.includes('--test')
 			? {
-					bin: parsed.bin,
-					args: [...parsed.args, `--test-timeout=${testTimeoutMs}`],
+					bin: base.bin,
+					args: [
+						...base.args.filter((a) => !/^--test-timeout=/u.test(a)),
+						`--test-timeout=${testTimeoutMs}`,
+					],
 				}
-			: parsed;
+			: base;
 	const result = await runner(cwd, effective, timeoutMs);
 	const finishedAt = new Date().toISOString();
 	const summary = {
@@ -246,6 +258,38 @@ async function packageJsonHasTestScript(cwd) {
 		return Boolean(pkg?.scripts?.test);
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * When the package-manager-delegated test command (npm/pnpm/yarn test) points at
+ * a bare `node --test` script, rewrite the spawn target to `{ bin: 'node',
+ * args: ['--test'] }` so the existing --test-timeout injection applies.
+ *
+ * Qualifier: scripts.test trimmed and split on whitespace must be exactly
+ * `node --test` with at most pre-existing `--test-timeout=<digits>` flags and
+ * nothing else (no file paths, no `&&` chains, no jest/mocha/vitest).
+ *
+ * Returns `{ bin: 'node', args: ['--test'] }` on qualify, else `null`.
+ * Parse failure or missing package.json → `null` (fail safe to today's behavior).
+ *
+ * See decisions.jsonl phase-230 for the (b)-over-(a)/(c) mechanism decision.
+ */
+async function nodeTestScript(cwd) {
+	try {
+		const pkg = JSON.parse(await readFile(join(cwd, 'package.json'), 'utf8'));
+		const script = pkg?.scripts?.test;
+		if (typeof script !== 'string') return null;
+		const parts = script.trim().split(/\s+/u);
+		if (parts.length < 2 || parts[0] !== 'node' || parts[1] !== '--test') {
+			return null;
+		}
+		for (let i = 2; i < parts.length; i++) {
+			if (!/^--test-timeout=\d+$/u.test(parts[i])) return null;
+		}
+		return { bin: 'node', args: ['--test'] };
+	} catch {
+		return null;
 	}
 }
 

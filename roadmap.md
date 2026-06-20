@@ -229,6 +229,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 227 lang:node Skill Pitfalls From 224–226 Dogfooding
 - [x] 228 Profile-aware heal per-turn timeout for wireNoStream thinking models
 - [x] 229 Staged-Aware run_command / Turn-Exhaustion Guard Wording
+- [x] 230 Per-test timeout for package-manager-delegated node --test verification
 
 ## Phase Contract
 

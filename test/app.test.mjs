@@ -3145,10 +3145,13 @@ describe('run', () => {
 			);
 
 			assert.equal(result.result.testResult.ok, true);
-			assert.match(result.result.testResult.stdout, /node --test/u);
+			// Phase 230: pm rewrite means node --test runs directly; stdout is raw
+			// test-runner output (no npm script prefix). The raw command (npm test)
+			// is still preserved in last-test.md.
+			assert.match(result.result.testResult.stdout, /subproject test/u);
 			assert.match(
 				await readFile(join(cwd, 'example', '.kodr', 'last-test.md'), 'utf8'),
-				/node --test/u,
+				/npm test/u,
 			);
 		} finally {
 			await server.close();

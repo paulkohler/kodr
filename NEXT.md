@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 229)
+## Current frontier (phase 230)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -17,7 +17,7 @@ Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
 The live work is the **staged execution pipeline** (`runStagedPrompt`) and
-the `lang:node` builtin skill. Phases 213–229 chipped at both for local
+the `lang:node` builtin skill. Phases 213–230 chipped at both for local
 thinking models (qwen3.6): pending-write `run_command` guards, W3 draft
 fallback, `SafeWriteError` steering with `clearFiles`, raised `maxStageWrites`
 (8) with unique-path dedup, inter-stage `npm install`, the phase-224
@@ -26,10 +26,13 @@ phase-226 duplicate-block guard in `preparePatches` (`reason: 'duplicate_block'`
 the phase-227 `lang:node` pitfall trio (node:sqlite `DatabaseSync` import
 name, check-status-before-parse, module-scope side effects), the phase-228
 profile-aware heal per-turn timeout (wireNoStream profiles now get the full
-main-loop budget instead of the D2 240s cap), and the phase-229 staged-aware
+main-loop budget instead of the D2 240s cap), the phase-229 staged-aware
 `run_command` / turn-exhaustion guard wording (three sites made staged-aware so
 the model no longer receives envelope-only or factually false instructions in a
-staged run).
+staged run), and the phase-230 per-test timeout for pm-delegated `node --test`
+verification (scoped rewrite of `npm test` / `pnpm test` / `yarn test` to
+`node --test` when `scripts.test` is a bare `node --test`, so the existing
+`--test-timeout` injection applies and one hung generated test fails fast).
 
 ## Candidates
 
@@ -113,13 +116,3 @@ reliably produces nothing. Evidence: `final-audit/blog-platform` heal
 `raw-response.json` + `turn-meta.json`, and heal `turn-meta.json` across
 phase-201/204/216/219/225/226/228 runs in `~/src/kodr-testing`.
 
-### Heal/test hang: generated test that hangs ~300s blocks verification
-Side finding from the same ambitious run: the model-generated `test/api.test.mjs`
-had a test (`pagination returns the right page size`) that hung ~300s (a leaked
-server/connection or an await that never resolves). A single hanging generated
-test stalls the whole verification + heal loop. `node --test` has no default
-per-test timeout, so the run leans on kodr's verification timeout. Worth a small
-guard: pass `--test-timeout` to the generated/auto-detected `node --test` command
-(the harness already uses `--test-timeout=60000` for its OWN suite — extend the
-same default to verification runs) so one hung test fails fast instead of
-consuming the run. Cheap, deterministic, and independent of the model.

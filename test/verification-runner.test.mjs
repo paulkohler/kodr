@@ -303,6 +303,167 @@ describe('verification runner', () => {
 
 		assert.equal(result.exitCode, 0);
 		assert.equal(result.ok, false, result.stdout);
-		assert.match(result.stdout, /node --test/u);
+		// Phase 230: pm rewrite means node --test runs directly; stdout is raw
+		// test-runner output (no npm script prefix), but zero-test detection still works.
+		assert.match(result.stdout, /tests 0/u);
+	});
+
+	// Phase 230: pm-delegated --test-timeout injection
+	it('rewrites npm test to node --test and injects --test-timeout when scripts.test is bare node --test', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-pm-rewrite-npm-'));
+		await writeFile(
+			join(cwd, 'package.json'),
+			JSON.stringify({ scripts: { test: 'node --test' } }),
+			'utf8',
+		);
+		let capturedBin;
+		let capturedArgs;
+		await runVerification(cwd, 'npm test', {
+			runner: async (_cwd, effective) => {
+				capturedBin = effective.bin;
+				capturedArgs = effective.args;
+				return { exitCode: 0, stderr: '', stdout: 'tests 1', timedOut: false };
+			},
+		});
+		assert.equal(capturedBin, 'node');
+		assert.ok(
+			capturedArgs.includes('--test'),
+			`expected --test in args: ${capturedArgs.join(' ')}`,
+		);
+		assert.ok(
+			capturedArgs.some((a) => a.startsWith('--test-timeout=')),
+			`expected --test-timeout in args: ${capturedArgs.join(' ')}`,
+		);
+	});
+
+	it('rewrites pnpm test and yarn test to node --test with --test-timeout when scripts.test is bare node --test', async () => {
+		for (const pm of ['pnpm', 'yarn']) {
+			const cwd = await mkdtemp(
+				join(tmpdir(), `kodr-verify-pm-rewrite-${pm}-`),
+			);
+			await writeFile(
+				join(cwd, 'package.json'),
+				JSON.stringify({ scripts: { test: 'node --test' } }),
+				'utf8',
+			);
+			let capturedBin;
+			let capturedArgs;
+			await runVerification(cwd, `${pm} test`, {
+				runner: async (_cwd, effective) => {
+					capturedBin = effective.bin;
+					capturedArgs = effective.args;
+					return {
+						exitCode: 0,
+						stderr: '',
+						stdout: 'tests 1',
+						timedOut: false,
+					};
+				},
+			});
+			assert.equal(capturedBin, 'node', `${pm}: expected bin=node`);
+			assert.ok(
+				capturedArgs.includes('--test'),
+				`${pm}: expected --test in args`,
+			);
+			assert.ok(
+				capturedArgs.some((a) => a.startsWith('--test-timeout=')),
+				`${pm}: expected --test-timeout in args: ${capturedArgs.join(' ')}`,
+			);
+		}
+	});
+
+	it('honors testTimeoutMs on the pm-delegated rewrite path', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-pm-timeout-'));
+		await writeFile(
+			join(cwd, 'package.json'),
+			JSON.stringify({ scripts: { test: 'node --test' } }),
+			'utf8',
+		);
+		let capturedArgs;
+		await runVerification(cwd, 'npm test', {
+			testTimeoutMs: 5000,
+			runner: async (_cwd, effective) => {
+				capturedArgs = effective.args;
+				return { exitCode: 0, stderr: '', stdout: 'tests 1', timedOut: false };
+			},
+		});
+		assert.ok(
+			capturedArgs.includes('--test-timeout=5000'),
+			`expected --test-timeout=5000 in args: ${capturedArgs.join(' ')}`,
+		);
+	});
+
+	it('does not rewrite npm test when scripts.test is jest (safety guarantee)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-pm-jest-'));
+		await writeFile(
+			join(cwd, 'package.json'),
+			JSON.stringify({ scripts: { test: 'jest' } }),
+			'utf8',
+		);
+		let capturedBin;
+		let capturedArgs;
+		await runVerification(cwd, 'npm test', {
+			runner: async (_cwd, effective) => {
+				capturedBin = effective.bin;
+				capturedArgs = effective.args;
+				return { exitCode: 0, stderr: '', stdout: '', timedOut: false };
+			},
+		});
+		assert.equal(capturedBin, 'npm');
+		assert.deepEqual(capturedArgs, ['test']);
+		assert.ok(
+			!capturedArgs.some((a) => a.startsWith('--test-timeout=')),
+			`expected no --test-timeout in args: ${capturedArgs.join(' ')}`,
+		);
+	});
+
+	it('does not rewrite npm test when scripts.test has an extra file path', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-pm-extrapath-'));
+		await writeFile(
+			join(cwd, 'package.json'),
+			JSON.stringify({ scripts: { test: 'node --test test/*.mjs' } }),
+			'utf8',
+		);
+		let capturedBin;
+		await runVerification(cwd, 'npm test', {
+			runner: async (_cwd, effective) => {
+				capturedBin = effective.bin;
+				return { exitCode: 0, stderr: '', stdout: '', timedOut: false };
+			},
+		});
+		assert.equal(capturedBin, 'npm');
+	});
+
+	it('strips pre-existing --test-timeout from scripts.test and uses exactly one from testTimeoutMs', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-verify-pm-dedup-'));
+		await writeFile(
+			join(cwd, 'package.json'),
+			JSON.stringify({ scripts: { test: 'node --test --test-timeout=999' } }),
+			'utf8',
+		);
+		let capturedArgs;
+		await runVerification(cwd, 'npm test', {
+			testTimeoutMs: 7000,
+			runner: async (_cwd, effective) => {
+				capturedArgs = effective.args;
+				return { exitCode: 0, stderr: '', stdout: 'tests 1', timedOut: false };
+			},
+		});
+		const timeoutArgs = capturedArgs.filter((a) =>
+			a.startsWith('--test-timeout='),
+		);
+		assert.equal(
+			timeoutArgs.length,
+			1,
+			`expected exactly one --test-timeout, got: ${capturedArgs.join(' ')}`,
+		);
+		assert.equal(timeoutArgs[0], '--test-timeout=7000');
+	});
+
+	it('allowlist stays intact: parseVerificationCommand rejects injection even post-parse rewrite', () => {
+		assert.throws(
+			() => parseVerificationCommand('npm test && rm -rf .'),
+			VerificationError,
+		);
 	});
 });

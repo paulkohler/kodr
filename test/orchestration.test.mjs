@@ -824,7 +824,14 @@ describe('subagent stage orchestration', () => {
 				yes: true,
 			});
 
-			assert.deepEqual(commands, ['npm install', 'npm test']);
+			// Phase 230: pm rewrite — scripts.test 'node --test' → spawns
+			// node --test directly with --test-timeout rather than npm test.
+			assert.equal(commands[0], 'npm install');
+			assert.ok(
+				commands[1].startsWith('node --test'),
+				`expected node --test, got: ${commands[1]}`,
+			);
+			assert.equal(commands.length, 2);
 			assert.equal(result.installResult.ok, true);
 			assert.equal(result.testResult.ok, true);
 		} finally {
