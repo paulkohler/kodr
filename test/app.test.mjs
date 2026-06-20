@@ -9684,20 +9684,9 @@ describe('Phase 235 — heal draft carryover (stale no-op write suppression)', (
 		}
 	});
 
-	// (d) Inter-turn carryover: same mechanism as (a); covered at unit level in
-	// healing.test.mjs (ProposalDraft.clear() describe block). The turn-start
-	// clear() in repairTurn applies to EVERY heal turn, so turn-2 clears turn-1's
-	// draft just as turn-1 clears the main run's draft. Note documented here so
-	// the four (a)-(d) cases named in the phase are all accounted for.
-	it('(d) inter-turn carryover prevented by same mechanism as (a) — see healing.test.mjs unit tests', () => {
-		// Mechanistic proof: ProposalDraft.clear() is called unconditionally at the
-		// TOP of repairTurn for every heal turn. Turn-1 clears the main-run draft;
-		// turn-2 clears turn-1's draft. The unit tests in healing.test.mjs verify
-		// clear() semantics end-to-end (files + patches + aliasHits all reset,
-		// isEmpty=true, new writes captured cleanly).
-		assert.ok(
-			true,
-			'(d) inter-turn carryover is structurally prevented — see healing.test.mjs ProposalDraft.clear() describe',
-		);
-	});
+	// (d) Inter-turn carryover is the same mechanism as (a): repairTurn clears the
+	// draft at the TOP of EVERY heal turn, so turn-2 clears turn-1's draft just as
+	// turn-1 clears the main run's draft. Proven at the unit level by the
+	// 'inter-turn carryover' test in healing.test.mjs's ProposalDraft.clear()
+	// describe — no always-pass placeholder is kept here.
 });
