@@ -41,6 +41,19 @@ user-role message that the model must respond to, rather than a tool result it m
 ignore. Needs careful placement in completeWithToolCalls so it fires after the tool
 result is appended but before the next request.
 
+### lang:node skill pitfalls from 224–226 dogfooding
+Three live staged runs (Express + node:sqlite notes API, qwen3.6) produced
+recurring, addressable code-quality bugs the `lang:node` builtin skill does not
+yet name: (a) `import { Database } from 'node:sqlite'` — the export is
+`DatabaseSync`, a parse/runtime failure; (b) integration tests that `JSON.parse`
+a response without checking status/content-type, so an HTML 404 page surfaces as
+`SyntaxError: Unexpected token '<'`; (c) module-scope side effects in server.mjs
+(`createDatabase()` / `createServer()` running at import, not behind the
+`import.meta.url` guard). Add named pitfall entries (correct vs wrong) like the
+phase-218/223 SQLite entries. Cheap, deterministic to add, and directly improves
+example quality — the project's measurement goal. Evidence in
+`process/failures.jsonl` (224-dogfood, 225-dogfood, 226-dogfood).
+
 ### run_command pending-write guard: staged-mode wording
 Phase 220 agent noted: the run_command guard hint "Return file changes in the
 final JSON proposal" has the same staged/envelope ambiguity as the sentinel
@@ -75,6 +88,10 @@ Significant architecture change — not yet plannable without an interface sketc
 Three rounds of large thinking-model responses exhaust the 32 K context budget
 before healing completes, producing an empty final output. This is the
 highest-impact systemic issue from phase 204 (`--no-heal` is the current
-workaround). Fix options: cap heal turns when `wireNoStream`, drop prior heal
-turns from context before each retry, or compress the turn log. Needs design
-before it becomes a phase.
+workaround). The 225-dogfood re-confirmed it bites now that staged runs reliably
+reach verification: a repair turn timed out at 240s with **0 completion chars**
+(`healStopReason: timeout`) — the model never emitted a token before the cap,
+i.e. the heal request is too large for it to make progress. Fix options: cap heal
+turns when `wireNoStream`, drop prior heal turns from context before each retry,
+or compress the turn log. Now the strongest systemic candidate, but still needs a
+design sketch before it becomes a phase.
