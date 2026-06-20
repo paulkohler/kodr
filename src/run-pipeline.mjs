@@ -2588,6 +2588,18 @@ async function runHealingIfNeeded({
 		originalTask: options.prompt || '',
 		maxTurns: Math.max(1, Math.min(options.maxTurns, 3)),
 		repairTurn: async ({ prompt }) => {
+			// Phase 235: the shared registry.proposalDraft is reused from the main run
+			// (and across heal turns). The main pipeline never clears it after apply (only
+			// the staged path does, at clearFiles ~2195), so without this reset the heal
+			// turn re-emits the main run's already-written files as no-op writes — and that
+			// non-empty proposal defeats phase-231's runaway classification (the
+			// proposalNonEmpty guard in isReasoningRunaway). Clear at turn-start so each
+			// turn captures only its own write_file/edit_file calls; the main run is fully
+			// done consuming the draft by the time heal runs (its forensics reads at ~1172/
+			// 1176/1357 all precede the heal call at 1567).
+			if (options.tools && registry) {
+				registry.proposalDraft?.clear();
+			}
 			const completion =
 				options.tools && registry
 					? await completeWithToolCalls(

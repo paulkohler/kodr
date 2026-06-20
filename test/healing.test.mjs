@@ -18,6 +18,7 @@ import {
 	runSelfHealingLoop,
 	writesReferenceTask,
 } from '../src/healing.mjs';
+import { ProposalDraft } from '../src/tool-calls.mjs';
 import { runVerification } from '../src/verification-runner.mjs';
 
 describe('one-shot healing', () => {
@@ -1553,6 +1554,74 @@ describe('reasoning-token runaway (phase 231)', () => {
 		assert.equal(ev.totalTokens, null);
 		// contextWindow omitted when options.contextWindow is not finite
 		assert.ok(!('contextWindow' in ev));
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 235 — ProposalDraft.clear() unit tests
+// ---------------------------------------------------------------------------
+
+describe('ProposalDraft.clear() (phase 235)', () => {
+	it('clear() empties files, patches, AND alias hits; isEmpty is true afterward', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'export const a = 1;\n');
+		draft.recordPatch('src/b.mjs', 'old', 'new');
+		draft.recordAlias('write_file');
+
+		// Pre-clear: everything is recorded.
+		assert.equal(draft.files.length, 1, 'files before clear');
+		assert.equal(draft.patches.length, 1, 'patches before clear');
+		assert.deepEqual(
+			draft.aliasHits,
+			{ write_file: 1 },
+			'aliasHits before clear',
+		);
+		assert.equal(draft.isEmpty, false, 'isEmpty false before clear');
+
+		draft.clear();
+
+		// Post-clear: all accumulators are empty.
+		assert.equal(draft.files.length, 0, 'files after clear');
+		assert.equal(draft.patches.length, 0, 'patches after clear');
+		assert.deepEqual(draft.aliasHits, {}, 'aliasHits after clear');
+		assert.equal(draft.isEmpty, true, 'isEmpty true after clear');
+	});
+
+	it('clearFiles regression: still removes only files, leaves patches (guards staged invariant)', () => {
+		const draft = new ProposalDraft();
+		draft.recordFile('src/a.mjs', 'export const a = 1;\n');
+		draft.recordPatch('src/b.mjs', 'old', 'new');
+
+		// clearFiles removes only the named file entry — patches untouched.
+		draft.clearFiles(['src/a.mjs']);
+
+		assert.equal(draft.files.length, 0, 'file entry removed by clearFiles');
+		assert.equal(
+			draft.patches.length,
+			1,
+			'patch entry NOT removed by clearFiles',
+		);
+		// isEmpty checks both _files and _patches; patch present -> not empty.
+		assert.equal(draft.isEmpty, false, 'isEmpty is false when patches remain');
+	});
+
+	it('inter-turn carryover: clear() followed by new recordFile captures only the new write', () => {
+		const draft = new ProposalDraft();
+		// Simulate a main-run write (or a prior heal turn's write).
+		draft.recordFile('src/main.mjs', 'export const main = true;\n');
+		assert.equal(draft.files.length, 1, 'one file before clear');
+
+		// Phase 235: clear at heal-turn-start, then the model writes a fix.
+		draft.clear();
+		assert.equal(draft.isEmpty, true, 'empty after clear');
+
+		draft.recordFile('src/main.mjs', 'export const main = false;\n');
+		assert.equal(draft.files.length, 1, 'only the new write captured');
+		assert.equal(
+			draft.files[0].content,
+			'export const main = false;\n',
+			'content is the heal turn write, not the stale main-run write',
+		);
 	});
 });
 

@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 234)
+## Current frontier (phase 235)
 
 `kodr check` is a complete standalone diagnostic — `--json`, `--strict`,
 `--changed`, `--watch`, `--deep`, `--ci`, `--fix`, and a path argument — over
@@ -17,7 +17,7 @@ Per-phase detail for this surface and everything before it lives in
 `roadmap.md` and `blog/` — not here.
 
 The live work is the **staged execution pipeline** (`runStagedPrompt`) and
-the `lang:node` builtin skill. Phases 213–232 chipped at both for local
+the `lang:node` builtin skill. Phases 213–235 chipped at both for local
 thinking models (qwen3.6): pending-write `run_command` guards, W3 draft
 fallback, `SafeWriteError` steering with `clearFiles`, raised `maxStageWrites`
 (8) with unique-path dedup, inter-stage `npm install`, the phase-224
@@ -35,16 +35,23 @@ verification (scoped rewrite of `npm test` / `pnpm test` / `yarn test` to
 `--test-timeout` injection applies and one hung generated test fails fast), the
 phase-231 reasoning-runaway fast-fail in the heal loop (detect `finish_reason:
 length` with zero answer tokens, break immediately, accurate `reasoning_runaway`
-stop reason), and the phase-232 synthetic staged-completion user turn (when the
+stop reason), the phase-232 synthetic staged-completion user turn (when the
 staged repeat-escalation sentinel fires, a `user`-role message is injected after
 all tool results, offering the dual-exit: write the next file or return
 `STAGED_DONE`; tools remain available; fire-once per `completeWithToolCalls` call),
-and the phase-233 W4-parity merge in `runStagedPrompt` (a `write_file` draft
+the phase-233 W4-parity merge in `runStagedPrompt` (a `write_file` draft
 captured in `proposalDraft` is now merged into a valid STAGED_DONE envelope before
 the empty-paths check, so pending draft writes are applied and the stage terminates
 done in one turn — fixing the silent-data-loss bug discovered in `final-audit-2`
 where `server.test.mjs` was captured in the draft but discarded when the STAGED_DONE
-envelope had `files:[]`).
+envelope had `files:[]`), the phase-234 honored `max_tokens` completion cap
+(`completionReserve` value sent as `max_tokens` in every model request, converting
+reasoning-runaway from a 200–330s grind to a sub-second `finish_reason:length`
+fast-fail caught by phase-231), and the phase-235 heal draft carryover fix
+(`ProposalDraft.clear()` at the top of each `repairTurn` callback clears the shared
+registry draft before the model call so stale main-run writes are never re-emitted
+as no-op proposals, restoring phase-231's `reasoning_runaway` classification accuracy
+— previously defeated whenever the main run had written files).
 
 ## Candidates
 
@@ -99,27 +106,6 @@ heal channel — the detection fires on `finishReasons[-1] === 'length'` but on
 live runs the model sometimes emits tool calls each sub-turn and exhausts the
 sub-turn budget instead (`turn_budget_exhausted`). Ambitious dogfood is the reliable
 trigger for genuine runaways.
-
-### Heal channel fabricates empty-content file proposals (masks runaway as no-progress)
-Surfaced by the phase-234 dogfood (`phase-234/cap-wiring-1`, recorded in
-`failures.jsonl`). When the agentic tool-call heal channel runs away on reasoning
-in a LATER sub-turn (sub-turn 0 = `read_file` only, sub-turn 1 = pure-reasoning to
-`finish_length`, 0 content, NO `write_file` ever called), the forwarded proposal
-still contains **3 empty-content file entries** (`writes.json`: `contentLen:0`,
-no-op diffs for the failing paths). Because `turnProposalNonEmpty` is then `true`,
-the phase-231 `isReasoningRunaway` first guard (`if (proposalNonEmpty) return false`,
-`healing.mjs:154`) suppresses the `reasoning_runaway` label by design, the no-op
-writes apply (`changed:[]`), and the turn is classified `no-progress-exhausted`
-instead. Functionally acceptable (fast-fail timing is still delivered by the
-phase-234 cap), but the label is imprecise and the spurious empty-content writes
-are noise. **Diagnose first:** find where the 3 empty-content entries originate
-(likely `repair-context` `failurePaths` → a draft/W3-style synthesis turning
-failing paths into empty `write_file` stubs). Then either (a) drop empty-content
-file entries before computing the heal proposal so `proposalNonEmpty` reflects real
-writes, and/or (b) widen the phase-231 predicate to treat an all-empty-content
-proposal + `finish_length` + empty text as runaway. Evidence:
-`phase-234/cap-wiring-1/.kodr/runs/2026-06-20T10-24-52.597Z/repairs/turn-1/`
-(`raw-response.json`, `writes.json`).
 
 ### Heal request HTTP-400 "Context size exceeded" after a heavy main loop (diagnose-first)
 A heal/repair request returns `HTTP 400 "Context size has been exceeded"`

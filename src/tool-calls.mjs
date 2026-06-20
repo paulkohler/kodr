@@ -175,6 +175,16 @@ export class ProposalDraft {
 			this._files.delete(path);
 		}
 	}
+
+	// Phase 235: full reset of the shared draft. clearFiles() removes only file
+	// entries; clear() also drops captured patches and alias hits, so a reused
+	// registry (e.g. across the main run -> heal loop) starts each heal turn with a
+	// clean capture surface and never re-emits a prior turn's writes.
+	clear() {
+		this._files.clear();
+		this._patches.length = 0;
+		this._aliasHits.clear();
+	}
 }
 
 // Holds named tool definitions (schema + handler) and builds the tools array
