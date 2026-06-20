@@ -3990,6 +3990,17 @@ describe('staged completion synthetic user turn (Phase 232)', () => {
 				!nudgeMsg.content.includes('All target files are written'),
 				'nudge must not falsely claim all files are written',
 			);
+			// OpenAI ordering invariant (the production-critical bit a fake server
+			// won't enforce): the user nudge must follow ALL tool results for the
+			// escalating turn — i.e. the message immediately before it is a tool
+			// result, never an assistant tool_calls message awaiting its results.
+			const nudgeIdx = completion.messages.indexOf(nudgeMsg);
+			assert.ok(nudgeIdx > 0, 'nudge must not be the first message');
+			assert.equal(
+				completion.messages[nudgeIdx - 1].role,
+				'tool',
+				'message immediately before the nudge must be a tool result',
+			);
 		} finally {
 			await server.close();
 		}
