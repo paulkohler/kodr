@@ -183,6 +183,8 @@ export class ProposalDraft {
 	// (re-surfacing in proposalPaths and re-merging via mergeProposalWithDraft). This
 	// drops every captured patch whose .path is in `paths`. clearFiles stays
 	// files-only (phase 217/235 contract); clear() (phase 235, heal) is unchanged.
+	// Reassigning _patches (vs clear()'s in-place .length=0) is safe: nothing
+	// external holds a reference to the array — the patches getter spreads a copy.
 	clearPatches(paths) {
 		const drop = new Set(paths);
 		this._patches = this._patches.filter((patch) => !drop.has(patch.path));

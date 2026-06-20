@@ -2604,7 +2604,8 @@ async function runHealingIfNeeded({
 		repairTurn: async ({ prompt }) => {
 			// Phase 235: the shared registry.proposalDraft is reused from the main run
 			// (and across heal turns). The main pipeline never clears it after apply (only
-			// the staged path does, at clearFiles ~2195), so without this reset the heal
+			// the staged path does, via clearFiles + clearPatches ~2195), so without this
+			// reset the heal
 			// turn re-emits the main run's already-written files as no-op writes — and that
 			// non-empty proposal defeats phase-231's runaway classification (the
 			// proposalNonEmpty guard in isReasoningRunaway). Clear at turn-start so each
