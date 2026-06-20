@@ -122,3 +122,20 @@ Seven new unit tests in `test/tool-calls.test.mjs` in a `describe('ProposalDraft
   was not staged because the fake-server harness requires seeding disk content that
   `edit_file` can match — the unit mechanism proof covers the same invariant (per
   the phase-235 case-(d) precedent).
+
+## Dogfood: a found-then-fixed loop, and an honest non-trigger
+
+This bug was *found* by the ambitious audit dogfood (`final-audit-3/task-api`):
+implement-2 applied an `edit_file` patch to `test/api.test.mjs`; implement-3 then
+re-reported that path with `writeCount: 0` — the stale `_patches` entry leaking
+into the next stage. The post-fix re-validation (`phase-237/patch-leak-*`) re-ran
+the same task twice but was an **honest non-trigger**: qwen3.6 happened to write
+every file via `write_file` (all `status: "create"`), so `_patches` stayed empty
+and `clearPatches` had nothing to remove. Worth recording is the *false*
+resemblance the operator correctly ruled out — implement-2/3 again showed
+`writeCount: 0` on already-applied paths, but that was the model **actively
+re-proposing** via fresh `write_file` calls (blocked by `safeWriteSteer`), a
+different mechanism from the passive patch carryover (verified against `writes.json`
+and the conversation messages). Live reproduction of the patch leak is
+model-nondeterministic; the unit mechanism test is its reliable proof, and the
+call-site wiring is confirmed by inspection at `run-pipeline.mjs:2195-2201`.
