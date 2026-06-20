@@ -96,7 +96,24 @@ cannot consume the entire window with reasoning. Secondary options (trimming
 verbatim file embeds in the heal prompt; streaming heal turns so a partial answer
 survives) remain open but are less impactful than the token-cap fix.
 
+**Phase-231 dogfood (2026-06-20, `phase-231/heal-runaway-3`) — two findings:**
+(1) The runaway is **probabilistic in the agentic tool-call heal channel**: the
+detection fires on `finishReasons[-1] === 'length'` (the reference run reasoned to
+the window limit on sub-turn 1 before emitting any tool call — `turns:1`,
+`finish_length`, 0 content), but on the dogfood the model instead emitted tool
+calls each sub-turn and exhausted the 8-sub-turn budget (`turn_budget_exhausted`,
+NOT a runaway). So phase-231's predicate is correctly scoped, but live runaways
+recur only when the model reasons-to-length on sub-turn 1 — the limit-pushing
+ambitious dogfood is the reliable trigger. (2) A **distinct** heal failure mode
+showed up: heal turn-3 hit `HTTP 400 "Context size has been exceeded"`
+(`stopReason: 'repair_error'`) because the heal prompt grew to ~30.5k chars and
+crossed the 32K window. This elevates the "trim verbatim file embeds" secondary —
+it is not only about reasoning budget; the heal **prompt itself** can blow the
+window. Consider bounding the heal prompt size (cap/trim embedded file bodies,
+drop the largest sources) so the request is always sendable.
+
 Evidence: `final-audit/blog-platform/.kodr/runs/2026-06-20T04-45-40.838Z/repairs/`
-`turn-1/raw-response.json` + `turn-meta.json`. See also phase-231 `failures.jsonl`
-entry and `blog/231-heal-reasoning-runaway-fast-fail.md`.
+`turn-1/raw-response.json` + `turn-meta.json`; `phase-231/heal-runaway-3` run
+artifacts. See also phase-231 `failures.jsonl` entries and
+`blog/231-heal-reasoning-runaway-fast-fail.md`.
 
