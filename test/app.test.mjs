@@ -26,9 +26,9 @@ describe('parseArgs', () => {
 		assert.equal(options.baseUrl, 'http://localhost:1234/v1');
 		assert.equal(options.model, 'qwen/qwen3.6-35b-a3b');
 		assert.equal(options.timeoutMs, 600000);
-		assert.equal(options.contextWindow, 32768);
+		assert.equal(options.contextWindow, 262144);
 		assert.equal(options.completionReserve, 4096);
-		assert.equal(options.sessionContextChars, 114688);
+		assert.equal(options.sessionContextChars, 1032192);
 		assert.equal(options.modelProfile.id, 'qwen/qwen3.6-35b-a3b');
 		assert.equal(options.maxTurns, 8);
 		assert.equal(options.maxRetries, 7);
@@ -1340,8 +1340,8 @@ describe('run', () => {
 			);
 			assert.equal(summary.model, 'qwen/qwen3.6-35b-a3b');
 			assert.equal(summary.modelProfile.id, 'qwen/qwen3.6-35b-a3b');
-			assert.equal(summary.modelProfile.contextWindow, 32768);
-			assert.equal(summary.contextBudget.contextWindow, 32768);
+			assert.equal(summary.modelProfile.contextWindow, 262144);
+			assert.equal(summary.contextBudget.contextWindow, 262144);
 			assert.equal(summary.contextBudget.completionReserve, 4096);
 			assert.equal(summary.responseCount, 1);
 			assert.equal(summary.promptChars, 'Summarize the repo.'.length);

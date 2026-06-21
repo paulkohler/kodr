@@ -20,11 +20,11 @@ describe('model profiles', () => {
 		});
 
 		assert.equal(profile.matched, true);
-		assert.equal(profile.contextWindow, 32768);
+		assert.equal(profile.contextWindow, 262144);
 		assert.equal(profile.completionReserve, 4096);
 		assert.equal(profile.timeoutMs, 600000);
 		assert.equal(profile.nativeToolCalls, true);
-		assert.equal(sessionContextCharsForProfile(profile), 114688);
+		assert.equal(sessionContextCharsForProfile(profile), 1032192);
 		// S1: local measured default is 'none' (json_schema stalls both qwen3.6
 		// and gemma-4; json_object HTTP 400 from LM Studio — phase 112 A/B).
 		assert.equal(profile.structuredOutput, 'none');

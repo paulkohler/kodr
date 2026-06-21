@@ -40,7 +40,7 @@ const DEFAULT_PROFILES = [
 	{
 		baseUrl: LMSTUDIO_BASE_URL,
 		completionReserve: 4096,
-		contextWindow: 32768,
+		contextWindow: 262144,
 		firstTokenTimeoutMs: 120000,
 		id: 'qwen/qwen3.6-35b-a3b',
 		maxThinkingTokens: 4096,
@@ -54,7 +54,7 @@ const DEFAULT_PROFILES = [
 	{
 		baseUrl: LMSTUDIO_BASE_URL,
 		completionReserve: 4096,
-		contextWindow: 32768,
+		contextWindow: 262144,
 		firstTokenTimeoutMs: 120000,
 		id: 'qwen/qwen3.6-35b-a3b',
 		maxThinkingTokens: 4096,
