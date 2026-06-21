@@ -19,17 +19,6 @@ threaded into heal repair context for design intent (245).
 
 ## Candidates
 
-### lang:node skill: SQLite test isolation — reset state between tests
-Phase-245/262k dogfood: model generated a flat list of `test()` blocks sharing
-one `:memory:` DB. Three tests failed due to ordering bugs: "returns empty
-initially" ran after a `POST`, "returns list of 2" counted 3 because a prior
-test added one, "search finds note" searched for a note deleted by an earlier
-test. The API code was correct. The fix is to add a `beforeEach` that deletes
-from all tables (or creates a fresh DB via `app.locals.db = createDatabase(':memory:')`).
-Add to lang:node skill: when using a shared `:memory:` DB across top-level
-`test()` blocks, reset table state in `beforeEach` — don't rely on test
-execution order.
-
 ### Capped-retry zero-output on thinking models
 Phase-245 dogfood: after a staged-runaway is detected and a capped retry is
 issued (`max_thinking_tokens: 4096`, `max_tokens: 8192`), the model still burns

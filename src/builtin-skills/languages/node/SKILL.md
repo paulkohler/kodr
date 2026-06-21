@@ -94,6 +94,34 @@ In tests, always pass `':memory:'` explicitly:
 const db = createDatabase(':memory:');
 ```
 
+**SQLite test state reset** — a shared `:memory:` DB accumulates rows across
+`test()` blocks. A test that asserts "returns empty array initially" will fail
+if any earlier test inserted rows. Reset table state in `beforeEach`, or
+reassign a fresh DB per test:
+
+```js
+import { test, before, after, beforeEach } from 'node:test';
+let db;
+
+before(async () => {
+    db = createDatabase(':memory:');
+    // For servers that accept the DB via injection (e.g. app.locals.db),
+    // assign it here too: app.locals.db = db;
+    server = app.listen(0, ...);
+});
+
+// Wrong — state from test A leaks into test B:
+// test A creates a row; test B asserts length === 0; fails.
+
+// Correct — reset before every test:
+beforeEach(() => {
+    db.exec('DELETE FROM notes');
+    db.exec('DELETE FROM notes_fts'); // drop FTS rows too if present
+    // For server-injected DBs, reassign a fresh instance instead:
+    // app.locals.db = createDatabase(':memory:');
+});
+```
+
 **StatementSync row access** — `stmt.all()` and `stmt.get()` return
 **named-column objects**, not arrays. `row[0]` is always `undefined`.
 Use `row.columnName`:

@@ -110,6 +110,14 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /import\.meta\.url/);
 	});
 
+	it('lang:node warns that shared SQLite test DB accumulates state and recommends beforeEach reset', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /SQLite test state reset/);
+		assert.match(body, /beforeEach/);
+		assert.match(body, /DELETE FROM/);
+		assert.match(body, /app\.locals\.db/);
+	});
+
 	it('lang:node warns that StatementSync rows are named-column objects, not arrays', () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(body, /StatementSync row access/);

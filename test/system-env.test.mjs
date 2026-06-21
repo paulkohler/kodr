@@ -380,9 +380,10 @@ describe('prompt budget guard', () => {
 		// module-scope-side-effects pitfalls; ~11317 chars. Limit raised to 12000.
 		// Phase 238 added ESM cache-bust pitfall; ~12626 chars. Limit raised to 14000.
 		// Phase 243 added StatementSync row-access pitfall; ~13252 chars. Limit stays 14000.
+		// Phase 246 added SQLite test state reset pitfall; ~14221 chars. Limit raised to 15000.
 		assert.ok(
-			promptLen < 14000,
-			`Node/ESM system message must stay under 14000 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 15000,
+			`Node/ESM system message must stay under 15000 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
@@ -441,9 +442,10 @@ describe('prompt budget guard', () => {
 		// module-scope-side-effects pitfalls; ~10242 chars. Limit raised to 11000.
 		// Phase 238 added ESM cache-bust pitfall; ~11551 chars. Limit raised to 13000.
 		// Phase 243 added StatementSync row-access pitfall; ~12189 chars. Limit stays 13000.
+		// Phase 246 added SQLite test state reset pitfall; ~13146 chars. Limit raised to 14000.
 		assert.ok(
-			promptLen < 13000,
-			`Native mode system message must stay under 13000 chars; got ${promptLen} chars`,
+			promptLen < 14000,
+			`Native mode system message must stay under 14000 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -838,9 +840,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 		// Phase 227 added node:sqlite import-name, check-status-before-parse, and
 		// module-scope-side-effects pitfalls; ~11315 chars. Limit raised to 12000.
 		// Phase 238 added ESM cache-bust pitfall; ~12624 chars. Limit raised to 14000.
+		// Phase 246 added SQLite test state reset pitfall; ~14219 chars. Limit raised to 15000.
 		assert.ok(
-			context.systemPrompt.length < 14000,
-			`System message must stay under 14000 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 15000,
+			`System message must stay under 15000 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });
