@@ -554,6 +554,88 @@ describe('createChatCompletion streaming', () => {
 });
 
 describe('createChatCompletion errors', () => {
+	it('bounds non-streaming model response bodies', async () => {
+		const server = await startFakeModelServer({
+			responses: [
+				{
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: 'x'.repeat(512), role: 'assistant' },
+							},
+						],
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+		try {
+			await assert.rejects(
+				() =>
+					createChatCompletion(
+						{
+							baseUrl: server.baseUrl,
+							extraHeaders: {},
+							responseMaxBytes: 128,
+							timeoutMs: 5000,
+							wireNoStream: true,
+						},
+						{
+							messages: [{ role: 'user', content: 'hi' }],
+							model: 'test-model',
+						},
+					),
+				/exceeded 128 bytes/u,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('bounds streamed content and tool-call argument accumulation', async () => {
+		for (const delta of [
+			{ content: 'x'.repeat(512) },
+			{
+				tool_calls: [
+					{
+						index: 0,
+						id: 'call_1',
+						type: 'function',
+						function: {
+							arguments: JSON.stringify({ content: 'x'.repeat(512) }),
+							name: 'write_file',
+						},
+					},
+				],
+			},
+		]) {
+			const server = await startFakeModelServer({
+				responses: [streamResponse(sse([{ choices: [{ delta }] }]))],
+			});
+			try {
+				await assert.rejects(
+					() =>
+						createChatCompletion(
+							{
+								...streamOptions(server.baseUrl),
+								responseMaxBytes: 128,
+							},
+							{
+								messages: [{ role: 'user', content: 'hi' }],
+								model: 'test-model',
+							},
+						),
+					/exceeded 128 bytes/u,
+				);
+			} finally {
+				await server.close();
+			}
+		}
+	});
+
 	it('preserves transport failure details', async () => {
 		const server = createServer();
 		await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

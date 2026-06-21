@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -185,6 +186,55 @@ describe('startKodrServer', () => {
 				}),
 			/local-only/u,
 		);
+	});
+
+	it('rejects hostile origins, rebinding hosts, and non-JSON mutation bodies', async () => {
+		const calls = [];
+		const server = await startTestServer(async (request) => {
+			calls.push(request);
+			return { ok: true };
+		});
+
+		try {
+			const port = new URL(server.url).port;
+			const hostileOrigin = await fetch(`${server.url}/turn`, {
+				body: JSON.stringify({ prompt: 'apply attacker changes', yes: true }),
+				headers: {
+					'content-type': 'application/json',
+					origin: 'https://attacker.example',
+				},
+				method: 'POST',
+			});
+			const differentLocalOrigin = await fetch(`${server.url}/turn`, {
+				body: JSON.stringify({ prompt: 'cross local origins', yes: true }),
+				headers: {
+					'content-type': 'application/json',
+					origin: `http://localhost:${port}`,
+				},
+				method: 'POST',
+			});
+			const textPlain = await fetch(`${server.url}/turn`, {
+				body: JSON.stringify({ prompt: 'apply attacker changes', yes: true }),
+				headers: { 'content-type': 'text/plain' },
+				method: 'POST',
+			});
+			const reboundHost = await rawRequest(`${server.url}/turn`, {
+				body: JSON.stringify({ prompt: 'apply attacker changes', yes: true }),
+				headers: {
+					'content-type': 'application/json',
+					host: 'attacker.example',
+				},
+				method: 'POST',
+			});
+
+			assert.equal(hostileOrigin.status, 403);
+			assert.equal(differentLocalOrigin.status, 403);
+			assert.equal(textPlain.status, 415);
+			assert.equal(reboundHost.status, 403);
+			assert.equal(calls.length, 0);
+		} finally {
+			await server.close();
+		}
 	});
 });
 
@@ -828,6 +878,20 @@ async function waitFor(check, timeoutMs = 2000) {
 async function fetchRun(serverUrl, runId) {
 	const response = await fetch(`${serverUrl}/runs/${runId}`);
 	return response.json();
+}
+
+function rawRequest(url, options) {
+	return new Promise((resolve, reject) => {
+		const request = httpRequest(url, options, (response) => {
+			response.resume();
+			response.on('end', () => resolve({ status: response.statusCode }));
+		});
+		request.on('error', reject);
+		if (options.body) {
+			request.write(options.body);
+		}
+		request.end();
+	});
 }
 
 function testOptions() {

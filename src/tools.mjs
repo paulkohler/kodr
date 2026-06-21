@@ -1,6 +1,9 @@
 import { lookup } from 'node:dns/promises';
 import { readFile } from 'node:fs/promises';
-import { isIP } from 'node:net';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { BlockList, isIP } from 'node:net';
+import { Readable } from 'node:stream';
 import { listContextFiles } from './context-packer.mjs';
 import { createHooks, HookBlockedError } from './hooks.mjs';
 import {
@@ -13,6 +16,28 @@ import { runVerification } from './verification-runner.mjs';
 
 const DEFAULT_FETCH_TIMEOUT_MS = 10000;
 const DEFAULT_FETCH_MAX_BYTES = 20000;
+
+const BLOCKED_NETWORKS = new BlockList();
+for (const [network, prefix, family] of [
+	['0.0.0.0', 8, 'ipv4'],
+	['10.0.0.0', 8, 'ipv4'],
+	['100.64.0.0', 10, 'ipv4'],
+	['127.0.0.0', 8, 'ipv4'],
+	['169.254.0.0', 16, 'ipv4'],
+	['172.16.0.0', 12, 'ipv4'],
+	['192.0.0.0', 24, 'ipv4'],
+	['192.168.0.0', 16, 'ipv4'],
+	['198.18.0.0', 15, 'ipv4'],
+	['224.0.0.0', 4, 'ipv4'],
+	['240.0.0.0', 4, 'ipv4'],
+	['::', 128, 'ipv6'],
+	['::1', 128, 'ipv6'],
+	['fc00::', 7, 'ipv6'],
+	['fe80::', 10, 'ipv6'],
+	['ff00::', 8, 'ipv6'],
+]) {
+	BLOCKED_NETWORKS.addSubnet(network, prefix, family);
+}
 
 export class ToolError extends Error {
 	constructor(message) {
@@ -213,18 +238,23 @@ export async function fetchUrl(url, options = {}) {
 		throw new ToolError(`Blocked local or private URL: ${url}`);
 	}
 
-	await rejectResolvedPrivateHosts(parsed.hostname, url, options.lookupHost);
+	const target = await resolvePublicTarget(
+		parsed.hostname,
+		url,
+		options.lookupHost,
+	);
 
 	const timeoutMs = options.timeoutMs || DEFAULT_FETCH_TIMEOUT_MS;
 	const maxBytes = options.maxBytes || DEFAULT_FETCH_MAX_BYTES;
-	const fetchImpl = options.fetchImpl || fetch;
 	// Security: never follow redirects. The host checks above only validate the
 	// URL we were given; a redirect could send us to a private address (e.g. a
 	// cloud metadata endpoint) that was never validated. Reject 3xx outright.
-	const response = await fetchImpl(url, {
-		redirect: 'manual',
-		signal: AbortSignal.timeout(timeoutMs),
-	});
+	const response = options.fetchImpl
+		? await options.fetchImpl(url, {
+				redirect: 'manual',
+				signal: AbortSignal.timeout(timeoutMs),
+			})
+		: await (options.requestImpl || requestPinned)(parsed, target, timeoutMs);
 	if (response.status >= 300 && response.status < 400) {
 		throw new ToolError(`Refusing to follow redirect from ${url}`);
 	}
@@ -236,70 +266,93 @@ export async function fetchUrl(url, options = {}) {
 }
 
 function isBlockedHost(hostname) {
-	const lower = hostname.toLowerCase();
+	const lower = stripAddressBrackets(hostname).toLowerCase();
 	if (lower === 'localhost' || lower.endsWith('.localhost')) {
 		return true;
 	}
 
-	if (
-		lower === '127.0.0.1' ||
-		lower === '0.0.0.0' ||
-		lower === '::1' ||
-		lower === '[::1]'
-	) {
-		return true;
-	}
-
-	return isBlockedAddress(lower);
+	return isIP(lower) !== 0 && isBlockedAddress(lower);
 }
 
-async function rejectResolvedPrivateHosts(hostname, url, lookupHost = lookup) {
-	if (isIP(hostname)) {
-		return;
+async function resolvePublicTarget(hostname, url, lookupHost = lookup) {
+	const normalizedHost = stripAddressBrackets(hostname);
+	const literalFamily = isIP(normalizedHost);
+	if (literalFamily) {
+		if (isBlockedAddress(normalizedHost)) {
+			throw new ToolError(`Blocked local or private URL: ${url}`);
+		}
+		return { address: normalizedHost, family: literalFamily };
 	}
 
-	const addresses = await lookupHost(hostname, {
+	const addresses = await lookupHost(normalizedHost, {
 		all: true,
 		verbatim: true,
 	});
+	if (!Array.isArray(addresses) || addresses.length === 0) {
+		throw new ToolError(`URL host did not resolve: ${url}`);
+	}
 
 	for (const address of addresses) {
 		if (isBlockedAddress(address.address)) {
 			throw new ToolError(`Blocked local or private URL: ${url}`);
 		}
 	}
+	const selected = addresses[0];
+	return {
+		address: stripAddressBrackets(selected.address),
+		family: selected.family || isIP(stripAddressBrackets(selected.address)),
+	};
 }
 
 function isBlockedAddress(address) {
-	const lower = address.toLowerCase();
-
-	if (/^127\./u.test(lower) || lower === '0.0.0.0' || lower === '::1') {
+	const normalized = stripAddressBrackets(address).toLowerCase();
+	const family = isIP(normalized);
+	if (!family) {
 		return true;
 	}
-
-	if (
-		/^10\./u.test(lower) ||
-		/^192\.168\./u.test(lower) ||
-		/^169\.254\./u.test(lower)
-	) {
+	// Do not allow IPv4-mapped IPv6 literals. Treating these as ordinary IPv6
+	// can bypass IPv4 private-range checks, while accepting them provides no
+	// useful capability that a normal IPv4 literal does not already cover.
+	if (family === 6 && normalized.startsWith('::ffff:')) {
 		return true;
 	}
+	return BLOCKED_NETWORKS.check(normalized, family === 4 ? 'ipv4' : 'ipv6');
+}
 
-	const match = /^172\.(\d+)\./u.exec(lower);
-	if (match) {
-		const second = Number(match[1]);
-		return second >= 16 && second <= 31;
-	}
+function stripAddressBrackets(value) {
+	return value.replace(/^\[|\]$/gu, '');
+}
 
-	if (
-		lower.startsWith('fc') ||
-		lower.startsWith('fd') ||
-		lower.startsWith('fe80:')
-	) {
-		return true;
-	}
-
-	return false;
+function requestPinned(url, target, timeoutMs) {
+	return new Promise((resolve, reject) => {
+		const transport = url.protocol === 'https:' ? httpsRequest : httpRequest;
+		const request = transport(
+			{
+				headers: { accept: '*/*' },
+				hostname: stripAddressBrackets(url.hostname),
+				lookup(_hostname, lookupOptions, callback) {
+					if (lookupOptions?.all) {
+						callback(null, [target]);
+						return;
+					}
+					callback(null, target.address, target.family);
+				},
+				method: 'GET',
+				path: `${url.pathname}${url.search}`,
+				port: url.port || undefined,
+				protocol: url.protocol,
+				signal: AbortSignal.timeout(timeoutMs),
+			},
+			(incoming) => {
+				resolve({
+					body: Readable.toWeb(incoming),
+					status: incoming.statusCode || 0,
+				});
+			},
+		);
+		request.on('error', reject);
+		request.end();
+	});
 }
 
 async function readCappedText(response, maxBytes) {

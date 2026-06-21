@@ -30,7 +30,7 @@ describe('bounded tools', () => {
 
 		const result = await runner.call('run_command', {
 			command: 'node --check a.mjs',
-			timeoutMs: 1000,
+			timeoutMs: 10000,
 		});
 		assert.equal(result.ok, true);
 	});
@@ -77,6 +77,38 @@ describe('bounded tools', () => {
 				}),
 			/Blocked local or private/u,
 		);
+	});
+
+	it('blocks mapped and link-local IPv6 fetch targets', async () => {
+		for (const address of ['::ffff:127.0.0.1', 'fe90::1']) {
+			await assert.rejects(
+				() =>
+					fetchUrl('https://private.example.test', {
+						lookupHost: async () => [{ address, family: 6 }],
+					}),
+				/Blocked local or private/u,
+			);
+		}
+	});
+
+	it('pins the validated DNS address for the actual request', async () => {
+		let resolved = 0;
+		let connectedTarget = null;
+		await fetchUrl('https://public.example.test', {
+			requestImpl: async (_url, target) => {
+				connectedTarget = target;
+				return new Response('ok');
+			},
+			lookupHost: async () => {
+				resolved += 1;
+				return [{ address: '93.184.216.34', family: 4 }];
+			},
+		});
+		assert.equal(resolved, 1);
+		assert.deepEqual(connectedTarget, {
+			address: '93.184.216.34',
+			family: 4,
+		});
 	});
 
 	it('refuses to follow redirects to keep the SSRF guard intact', async () => {

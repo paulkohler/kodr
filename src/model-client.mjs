@@ -46,6 +46,7 @@ export class InterChunkIdleTimeoutError extends Error {
 // Default inter-chunk idle deadline. Once streaming has begun, no SSE data for
 // this long fails the turn. Overridden via model profile or CLI flag.
 export const DEFAULT_IDLE_TIMEOUT_MS = 120000;
+export const DEFAULT_MODEL_RESPONSE_MAX_BYTES = 16 * 1024 * 1024;
 
 // Aggregate per-turn transport facts into a run-level summary.
 // facts: Array<{ wire, timeToFirstTokenMs, firstTokenRetries }>
@@ -91,6 +92,7 @@ export async function createChatCompletion(options, body) {
 			body: requestBody,
 			extraHeaders: options.extraHeaders,
 			method: 'POST',
+			responseMaxBytes: options.responseMaxBytes,
 			timeoutMs: options.timeoutMs,
 		});
 	}
@@ -121,6 +123,7 @@ export async function createChatCompletion(options, body) {
 		method: 'POST',
 		onStreamContent: options.onStreamContent,
 		onToken: options.onToken,
+		responseMaxBytes: options.responseMaxBytes,
 		timeoutMs: options.timeoutMs,
 	};
 
@@ -265,6 +268,7 @@ async function requestStreamJson(url, options) {
 		options.firstTokenTimeoutMs,
 		options.idleTimeoutMs,
 		options.onToken,
+		responseByteLimit(options.responseMaxBytes),
 	);
 
 	const timeToFirstTokenMs = content.timeToFirstTokenMs;
@@ -398,6 +402,7 @@ async function requestRaw(url, options) {
 			bodyText,
 			headers,
 			method: options.method,
+			responseMaxBytes: responseByteLimit(options.responseMaxBytes),
 			timeoutMs: options.timeoutMs,
 		});
 	} catch (error) {
@@ -468,7 +473,7 @@ function requestWithNodeHttp(url, options) {
 				incoming.on('end', () => clearTimeout(timeoutId));
 				incoming.on('close', () => clearTimeout(timeoutId));
 				settled = true;
-				resolve(toModelResponse(incoming));
+				resolve(toModelResponse(incoming, options.responseMaxBytes));
 			},
 		);
 
@@ -495,7 +500,7 @@ function requestWithNodeHttp(url, options) {
 	});
 }
 
-function toModelResponse(incoming) {
+function toModelResponse(incoming, maxBytes) {
 	return {
 		get body() {
 			return Readable.toWeb(incoming);
@@ -503,20 +508,32 @@ function toModelResponse(incoming) {
 		ok: incoming.statusCode >= 200 && incoming.statusCode < 300,
 		status: incoming.statusCode,
 		text() {
-			return readIncomingText(incoming);
+			return readIncomingText(incoming, maxBytes);
 		},
 	};
 }
 
-function readIncomingText(incoming) {
+function readIncomingText(incoming, maxBytes) {
 	return new Promise((resolve, reject) => {
-		incoming.setEncoding('utf8');
-		let text = '';
+		const chunks = [];
+		let used = 0;
 		incoming.on('data', (chunk) => {
-			text += chunk;
+			const bytes = Buffer.from(chunk);
+			used += bytes.byteLength;
+			if (used > maxBytes) {
+				incoming.destroy();
+				reject(
+					new ModelClientError(`Model response exceeded ${maxBytes} bytes`, {
+						phase: 'response-size',
+						responseTextBytes: used,
+					}),
+				);
+				return;
+			}
+			chunks.push(bytes);
 		});
 		incoming.on('end', () => {
-			resolve(text);
+			resolve(Buffer.concat(chunks).toString('utf8'));
 		});
 		incoming.on('error', reject);
 	});
@@ -543,6 +560,7 @@ async function readServerSentEvents(
 	firstTokenTimeoutMs,
 	idleTimeoutMs,
 	onToken,
+	maxBytes,
 ) {
 	const reader = response.body?.getReader();
 	if (!reader) {
@@ -563,6 +581,7 @@ async function readServerSentEvents(
 	let firstTokenMs = null; // ms since readServerSentEvents was called
 	const readStart = Date.now();
 	let firstChunkSeen = false;
+	let usedBytes = 0;
 
 	const consume = (event) => {
 		const dataLines = event
@@ -659,6 +678,14 @@ async function readServerSentEvents(
 			firstChunkSeen = true;
 			firstTokenMs = Date.now() - readStart;
 		}
+		usedBytes += value?.byteLength || 0;
+		if (usedBytes > maxBytes) {
+			reader.cancel().catch(() => {});
+			throw new ModelClientError(`Model response exceeded ${maxBytes} bytes`, {
+				phase: 'response-size',
+				responseTextBytes: usedBytes,
+			});
+		}
 
 		buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
 		const events = buffer.split('\n\n');
@@ -678,6 +705,12 @@ async function readServerSentEvents(
 			};
 		}
 	}
+}
+
+function responseByteLimit(value) {
+	return Number.isInteger(value) && value > 0
+		? value
+		: DEFAULT_MODEL_RESPONSE_MAX_BYTES;
 }
 
 function sanitizeErrorDetails(details) {

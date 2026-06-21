@@ -99,6 +99,7 @@ export async function startKodrServer({ channel, cwd, options }) {
 		}),
 		runDirs: new Map(),
 		startedAt: new Date().toISOString(),
+		port: options.servePort,
 		webDir,
 	};
 
@@ -127,6 +128,7 @@ export async function startKodrServer({ channel, cwd, options }) {
 	const port =
 		typeof address === 'object' && address ? address.port : options.servePort;
 	const urlHost = options.serveHost === '::1' ? '[::1]' : options.serveHost;
+	state.port = port;
 
 	return {
 		closed,
@@ -142,6 +144,7 @@ export async function startKodrServer({ channel, cwd, options }) {
 
 async function handleHttpRequest(request, response, state) {
 	try {
+		assertRequestBoundary(request, state);
 		const url = new URL(
 			request.url || '/',
 			`http://${request.headers.host || '127.0.0.1'}`,
@@ -656,6 +659,13 @@ function displayRunDir(cwd, runDir) {
 }
 
 async function readJsonBody(request) {
+	const contentType = String(request.headers['content-type'] || '')
+		.split(';', 1)[0]
+		.trim()
+		.toLowerCase();
+	if (contentType !== 'application/json') {
+		throw new HttpError(415, 'Request body must use application/json');
+	}
 	let body = '';
 	for await (const chunk of request) {
 		body += chunk;
@@ -668,6 +678,47 @@ async function readJsonBody(request) {
 		return body.trim() ? JSON.parse(body) : {};
 	} catch {
 		throw new HttpError(400, 'Request body must be valid JSON');
+	}
+}
+
+function assertRequestBoundary(request, state) {
+	const host = parseAuthority(request.headers.host || '');
+	if (!host || !LOCAL_HOSTS.has(host.hostname) || host.port !== state.port) {
+		throw new HttpError(403, 'Request Host is not the local Kodr server');
+	}
+
+	const originValue = request.headers.origin;
+	if (!originValue) {
+		return;
+	}
+	const origin = parseAuthority(originValue);
+	if (
+		!origin ||
+		origin.protocol !== 'http:' ||
+		origin.hostname !== host.hostname ||
+		origin.port !== state.port
+	) {
+		throw new HttpError(403, 'Cross-origin requests are not allowed');
+	}
+}
+
+function parseAuthority(value) {
+	try {
+		const url = value.includes('://')
+			? new URL(value)
+			: new URL(`http://${value}`);
+		const port = url.port
+			? Number(url.port)
+			: url.protocol === 'https:'
+				? 443
+				: 80;
+		return {
+			hostname: url.hostname.replace(/^\[|\]$/gu, '').toLowerCase(),
+			port,
+			protocol: url.protocol,
+		};
+	} catch {
+		return null;
 	}
 }
 
