@@ -1,6 +1,7 @@
 import { open, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { getBuiltinSkills } from './builtin-skills.mjs';
 import { listContextFiles } from './context-packer.mjs';
 import { jailedPath, SafeWriteError } from './safe-writes.mjs';
 
@@ -289,15 +290,28 @@ export function parseSkillMarkdown(path, raw) {
 
 export async function loadSkills(cwd, requests, options = {}) {
 	const skills = await discoverSkills(cwd, options);
+	const indexSkills = [...skills];
+	const builtinSkills = getBuiltinSkills();
 	const loaded = [];
 
 	for (const request of requests) {
-		const matches = skills.filter((skill) => {
+		let matches = skills.filter((skill) => {
 			return skill.name === request || skill.path === request;
 		});
 
 		if (matches.length === 0) {
-			throw new SkillError(`No SKILL.md matched: ${request}`);
+			matches = builtinSkills.filter((skill) => {
+				return skill.name === request || skill.path === request;
+			});
+			if (matches.length === 1) {
+				indexSkills.push(matches[0]);
+			}
+		}
+
+		if (matches.length === 0) {
+			throw new SkillError(
+				`No discovered or built-in skill matched: ${request}`,
+			);
 		}
 
 		if (matches.length > 1) {
@@ -324,7 +338,7 @@ export async function loadSkills(cwd, requests, options = {}) {
 	}
 
 	return {
-		index: skills.map(({ body, ...skill }) => skill),
+		index: indexSkills.map(({ body, ...skill }) => skill),
 		loaded,
 	};
 }

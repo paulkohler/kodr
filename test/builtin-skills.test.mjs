@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import {
 	BuiltinSkillError,
 	getBuiltinSkill,
@@ -106,11 +110,28 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /import\.meta\.url/);
 	});
 
-	it('lang:node warns ESM cache-bust import does not reset module state', () => {
+	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
 		const { body } = getBuiltinSkill('lang:node');
-		assert.match(body, /ESM cache-bust import does not reset module state/);
-		assert.match(body, /query string is ignored for local files/);
+		assert.match(
+			body,
+			/Different query strings load distinct module\s+instances/,
+		);
+		assert.match(body, /same query string reuses the cached instance/);
 		assert.match(body, /createInventory\(\)/);
 		assert.match(body, /beforeEach/);
+
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-esm-query-cache-'));
+		const modulePath = join(cwd, 'counter.mjs');
+		await writeFile(
+			modulePath,
+			'globalThis.__kodrQueryProbe = (globalThis.__kodrQueryProbe ?? 0) + 1; export const value = globalThis.__kodrQueryProbe;\n',
+			'utf8',
+		);
+		const url = pathToFileURL(modulePath).href;
+		const first = await import(`${url}?case=first`);
+		const second = await import(`${url}?case=second`);
+		const firstAgain = await import(`${url}?case=first`);
+		assert.notEqual(first.value, second.value);
+		assert.equal(firstAgain, first);
 	});
 });

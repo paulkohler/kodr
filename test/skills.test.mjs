@@ -130,6 +130,20 @@ describe('Markdown skills', () => {
 		assert.match(renderSkillIndex(result.index), /beta/u);
 	});
 
+	it('loads an explicitly requested builtin skill outside the Kodr workspace', async () => {
+		const cwd = await mkWorkspace({ 'package.json': '{"type":"module"}\n' });
+		const result = await loadSkills(cwd, ['lang:node']);
+
+		assert.equal(result.loaded.length, 1);
+		assert.equal(result.loaded[0].name, 'lang:node');
+		assert.equal(result.loaded[0].builtin, true);
+		assert.match(result.loaded[0].body, /Node\.js \/ ESM Contract/u);
+		assert.equal(
+			result.index.some((skill) => skill.name === 'lang:node'),
+			true,
+		);
+	});
+
 	it('loads declared skill resources with a skill-directory jail', async () => {
 		const cwd = await mkWorkspace({
 			'skills/edit/SKILL.md': [

@@ -184,19 +184,17 @@ assert.match(found.headers.get('content-type') ?? '', /application\/json/);
 const item = await found.json();
 ```
 
-## Test isolation — no ESM cache-bust re-import
+## Test isolation — prefer factories over ESM cache busting
 
-**ESM cache-bust import does not reset module state** — do not try to get fresh
-module state per test with `import('./mod.mjs?t=' + Date.now())`. Node caches ESM
-modules by canonical file path; the query string is ignored for local files, so
-every `import()` returns the SAME cached instance and any module-scope `Map`,
-array, or counter stays shared across tests. State accumulates and assertions
-fail with counts off by prior-test totals. Test isolation must come from a
-FACTORY the test calls in `beforeEach`/per test — never from re-importing the
-module:
+Node caches ESM modules by URL. Different query strings load distinct module
+instances; the same query string reuses the cached instance. A timestamp is not
+a reliable uniqueness source because multiple calls can occur in the same
+millisecond, and continually importing unique URLs retains extra module
+instances for the life of the process. Use a factory for deterministic test
+isolation instead of `import('./mod.mjs?t=' + Date.now())`:
 
 ```js
-// Wrong — query string is ignored; same cached module, shared state leaks
+// Fragile — Date.now() can repeat and every unique URL creates another module
 async function freshInventory() {
   const mod = await import('../src/inventory.mjs?t=' + Date.now());
   return mod;

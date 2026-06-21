@@ -206,7 +206,10 @@ describe('one-shot healing', () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-wrong-path-'));
 		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
 		const failed = await runVerification(cwd, 'node --check bad.mjs', {
-			timeoutMs: 1000,
+			// This is a behavior test, not a timeout test. A one-second child-process
+			// deadline became load-sensitive when test files ran in parallel and could
+			// erase the failure path that the wrong-path classifier needs.
+			timeoutMs: 10000,
 		});
 
 		const prompts = [];
@@ -223,7 +226,7 @@ describe('one-shot healing', () => {
 				};
 			},
 			testCommand: 'node --check bad.mjs',
-			timeoutMs: 1000,
+			timeoutMs: 10000,
 		});
 
 		// D3 (revised): writes apply and verification decides; a second failing
