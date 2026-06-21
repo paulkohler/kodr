@@ -6,12 +6,14 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 240)
+## Current frontier (phase 242)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–240 for local thinking models (qwen3.6): reasoning-runaway fast-fail
+phases 213–242 for local thinking models (qwen3.6): reasoning-runaway fast-fail
 and heal cap (231/234/236), staged implement-turn runaway detect-and-retry (240),
+heal context-overflow retry with repair_context_overflow stop reason (241),
+terminal surfacing of staged runaway and heal overflow events (242),
 staged draft carryover fixes (235/237), W4 parity merge (233), ESM cache-bust
 pitfall (238), and the phase-239 hardening audit (network/model boundary
 hardening, CLI/pipeline seam extraction, skill loading corrections). The `--skill`

@@ -99,6 +99,13 @@ export function renderRunSummary(result) {
 		appendResponseBlock(lines, result.response);
 	}
 
+	if (result.staged?.runawayRetries > 0) {
+		lines.push(
+			`  (note: ${result.staged.runawayRetries} staged implement turn(s) hit reasoning ` +
+				`runaway and were retried with a capped max_tokens — see summary.json for evidence)`,
+		);
+	}
+
 	if (result.testResult) {
 		lines.push('');
 		lines.push(
@@ -139,9 +146,24 @@ export function renderRunSummary(result) {
 			lines.push(
 				`Repairs: not healed (reasoning_runaway) — the model exhausted its context window on reasoning without emitting a repair (finish_reason: length, ${reasoningTokens} reasoning tokens / ${contextSize} context). Its thinking budget is not being honored; try a smaller task or a model with an effective thinking cap.`,
 			);
+		} else if (hr.stopReason === 'repair_context_overflow') {
+			// Phase 242: LM Studio KV-cache from the main loop bled into the repair
+			// request and the server returned HTTP 400 on both the first attempt and
+			// the retry.
+			lines.push(
+				'Repairs: not healed (repair_context_overflow) — the repair request returned HTTP 400 ' +
+					'"Context size exceeded". LM Studio\'s KV-cache from the main loop may have carried ' +
+					'over; a retry was attempted. Retry the run or restart LM Studio if this persists.',
+			);
 		} else {
 			lines.push(
 				`Repairs: ${hr.healed ? 'healed' : 'not healed'} (${hr.stopReason})`,
+			);
+		}
+		if (hr.healContextOverflowRetries > 0) {
+			lines.push(
+				`  (note: ${hr.healContextOverflowRetries} repair turn(s) hit HTTP-400 context overflow ` +
+					`and were retried — LM Studio KV-cache bleed from main loop)`,
 			);
 		}
 	}
