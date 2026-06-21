@@ -264,7 +264,7 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			diagnostics,
 			originalTask: options.originalTask || '',
 			// Phase 245: pass staged plan into repair context for design intent.
-			stagedPlan: options.stagedPlan || '',
+			stagedPlan: options.stagedPlan,
 		});
 
 		// Build optional escalation / wrong-path-warning / test-delta extras
