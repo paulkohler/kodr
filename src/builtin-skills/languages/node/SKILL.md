@@ -100,8 +100,8 @@ Use `row.columnName`:
 
 ```js
 // Wrong — StatementSync rows are objects, not arrays
-const rows = db.prepare('SELECT id, title, body FROM notes').all();
-const title = rows[0][1];   // undefined — no numeric index
+const wrongRows = db.prepare('SELECT id, title, body FROM notes').all();
+const wrongTitle = wrongRows[0][1];   // undefined — no numeric index
 
 // Correct — access by the column name
 const rows = db.prepare('SELECT id, title, body FROM notes').all();

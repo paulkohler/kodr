@@ -115,7 +115,7 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /StatementSync row access/);
 		assert.match(body, /named-column objects/);
 		assert.match(body, /row\.columnName/);
-		assert.match(body, /rows\[0\]\[1\]/); // the wrong-pattern example (plural rows)
+		assert.match(body, /wrongRows\[0\]\[1\]/); // the wrong-pattern example uses wrongRows
 	});
 
 	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
