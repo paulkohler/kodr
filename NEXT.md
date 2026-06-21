@@ -60,12 +60,12 @@ the phase-237 staged `clearFiles` patch leak fix (`ProposalDraft.clearPatches(pa
 added symmetric to `clearFiles`, called alongside `clearFiles(appliedPaths)` at
 `run-pipeline.mjs:2195` — closing the staged half of the phase-235 draft-carryover
 asymmetry: an applied `edit_file` patch no longer leaks into every subsequent staged
-stage via `proposalPaths` and `mergeProposalWithDraft`), and the phase-238 `lang:node`
-ESM cache-bust pitfall (`import('./mod.mjs?t='+Date.now())` does NOT bust Node's ESM
-cache for local files — query string is ignored, same cached module instance returned;
-fix: export a factory and call it in `beforeEach` per test; surfaced in phase-236 dogfood
-with 5/27 failures; confirmed effective in phase-238 dogfood where the model named
-the anti-pattern it avoided).
+stage via `proposalPaths` and `mergeProposalWithDraft`), and the phase-238
+`lang:node` test-isolation guidance. Phase 239 corrected the mechanism: Node
+caches ESM by URL, so different queries create distinct instances; the observed
+`Date.now()` pattern was unreliable because timestamps can repeat, and unique
+imports retain module instances. The durable advice remains to export a factory
+and create fresh state in `beforeEach`.
 
 ## Candidates
 
@@ -176,4 +176,3 @@ Evidence: `final-audit/blog-platform/.kodr/runs/2026-06-20T04-45-40.838Z/repairs
 `turn-1/raw-response.json` + `turn-meta.json`; `phase-231/heal-runaway-3` and
 `final-audit-2/content-api` run artifacts. See also phase-231 + `final-audit-2`
 `failures.jsonl` entries and `blog/231-heal-reasoning-runaway-fast-fail.md`.
-

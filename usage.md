@@ -219,14 +219,16 @@ If `npm test` is requested for a generated native Node test suite that has no
 `package.json`, Kodr records the requested command and resolves verification to
 `node --test` instead of allowing npm to search a parent project.
 
-### Dry-Run A Task
+### Run Or Preview A Task
 
-Dry-run is the default. Kodr asks the model for a proposal, records artifacts,
-and shows what would be written without changing files.
+A normal CLI run favors completing the work: tools are enabled when supported,
+writes are applied through the safe-write path, and a detected test command runs.
+`--dry-run` asks for the same proposal and artifacts without changing files or
+running verification. JSON output remains dry unless `--yes` is explicit.
 
 ```sh
-./kodr run -p "Add a --version flag to the CLI"
 ./kodr run -p "Add a --version flag to the CLI" --dry-run
+./kodr run -p "Add a --version flag to the CLI"
 ```
 
 Useful options:
@@ -239,7 +241,7 @@ Useful options:
 
 ### Apply Changes
 
-On an interactive TTY, Kodr prompts before writing anything:
+Pass `--confirm` on an interactive TTY to restore the y/N apply prompt:
 
 ```
 Proposed writes:
@@ -253,7 +255,7 @@ dry-run summary are still written. If an accepted prompt triggers `--test` or
 `--heal`, those steps run automatically, exactly as `--yes` would.
 
 Pass `--dry-run` to skip the prompt and always produce a dry-run result.
-Pass `--yes` to skip the prompt and always apply.
+Pass `--yes` to explicitly apply in JSON or scripted contexts.
 Both flags work in non-TTY and `--json` contexts where the prompt never fires.
 
 ```sh
@@ -903,6 +905,11 @@ used by CLI and TUI flows. Besides the original synchronous routes
 (`GET /sessions`, `GET /sessions/:id`, `POST /turn`), it exposes asynchronous
 run control:
 
+Every request must use the server's actual local Host. Browser requests with an
+`Origin` header must be exactly same-origin, and JSON-body routes reject other
+content types. These checks prevent cross-site `text/plain` commands and DNS
+rebinding from treating the local control plane as a public web API.
+
 ```text
 GET  /health
 GET  /status
@@ -924,7 +931,7 @@ handle; the model work continues in the background. Unknown fields are
 rejected, and HTTP runs stay dry-run unless the body passes `"yes": true`:
 
 ```sh
-curl -s localhost:8787/runs -d '{
+curl -s localhost:8787/runs -H 'content-type: application/json' -d '{
   "prompt": "Create src/math.mjs with add()",
   "tools": true,
   "test": "npm test"
@@ -1129,7 +1136,9 @@ assistant> pending review:
   commands: /review /accept /reject /test
 ```
 
-By default, TUI turns dry-run proposed writes. Review them before applying.
+By default, TUI turns use tools and apply writes. `/apply off` switches future
+turns to pending-review mode; `/review`, `/accept`, and `/reject` then manage the
+proposal.
 
 ### Review And Apply
 
@@ -1230,7 +1239,9 @@ or write phase blog posts.
 
 ## Safety Defaults
 
-- Writes are dry-run unless `--yes` or TUI `/apply on` is used.
+- CLI and TUI runs apply through git-aware, undoable safe writes by default;
+  `--dry-run`, TUI `/apply off`, JSON without `--yes`, and HTTP without
+  `"yes": true` are proposal-only.
 - File reads and writes are jailed to the workspace.
 - Package locks are listed but not packed into context by default.
 - Model output, skills, memory, transcripts, and workspace files are untrusted.

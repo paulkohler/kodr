@@ -1,116 +1,184 @@
-# Kodr Architecture — Orientation Map
+# Kodr Architecture Assessment
 
-This is the map a cold session should read first. Kodr is **two products tangled
-together**: a lean daily-driver coding agent (call a local model → it edits files
-via tools → run commands → verify → apply) and a research harness for studying
-how local models behave under that agent. The complexity feeling comes from the
-second bleeding into the first — see the proportions below.
+This document describes the current system, its dependency boundaries, and its
+remaining architectural risks. It is an assessment, not a phase narrative.
 
-Sizes are a snapshot as of phase 223 (kodr 0.0.223): 74 `src/*.mjs` files,
-~27,400 lines. Counts are indicative of *proportion*, not exact over time.
+Snapshot: phase 239, Node.js 24, zero runtime dependencies. The repository has
+98 source modules under `src/` (about 32,300 lines) and 86 native `node:test`
+files (about 44,500 lines, including the extractable repomap package).
 
-## The five tiers
+## Executive assessment
 
-### Tier 1 — CORE: the daily driver (~9.0k lines, ~34%)
-The loop: prompt → model → tool-driven edits → run/verify → apply.
+Kodr has a sound architectural center: every user-facing surface converges on a
+shared request channel and a single run pipeline. Model output is treated as
+untrusted, writes pass through a workspace jail and backup layer, commands are
+allowlisted, and every run emits artifacts that make behavior inspectable.
 
-| Module | Role |
-|---|---|
-| `model-client`, `completion` | talk to the local model (HTTP, streaming, continuations) |
-| `tool-calls`, `tools` | `write_file`/`edit_file`/`read_file`/`list_files`/`run_command` + permissions; `ProposalDraft` capture |
-| `safe-writes`, `git-workspace`, `undo` | apply / diff / revert safely |
-| `context-packer` | build the prompt context within budget |
-| `json-extractor` | parse the model's proposal envelope *(its R0–R6 repair pile is really Tier 2)* |
-| `verification-runner`, `syntax-gate`, `dependency-installer` | make & check generated code |
-| `healing` | bounded self-repair after a failed verification |
-| `tui` | the terminal chat surface |
-| `session-compaction`, `loop-budgets`, `permission-policy`, `structured-output`, `edit-formats` | multi-turn memory, loop control, safety |
+The primary risk is concentration rather than missing structure. The core run
+state machine still carries generation, staged execution, apply, verification,
+healing, artifact, and session concerns in one module. The CLI parser has the
+same issue for option declaration, precedence, validation, and command grammar.
+Phase 239 extracted help text, run-summary rendering, and staged pipeline tests,
+but `run-pipeline.mjs` and `cli/args.mjs` remain the next decomposition targets.
 
-### Tier 2 — HARNESS SENSORS: core-adjacent, born from dogfooding (~1.5k, ~5%)
-Makes the core survive messy real local-model output. Half core, half research —
-**the tier to actively shrink.** `harness`, `post-write-sensor`, `system-env`,
-`model-profiles` (incl. context-window discovery), **+ the R0–R6 decode-artifact
-repair rules inside `json-extractor`**. Landing generation-params
-(temperature / `response_format`) could *delete* code here: fewer malformed
-envelopes → fewer repair rules needed.
+## System flow
 
-### Tier 3 — RESEARCH / LEARNING SURFACE: the stated mission (~3.1k, ~12%)
-Reads the artifacts the core writes; **never required for a run.**
-`forensics` (`kodr why`), `trends`, `eval`+`eval-runner`+`eval-trends`
-(`kodr evals`), `bench`, `compare`, `replay`, `routing` (`kodr route`), and the
-run archive they read: `run-registry`, `run-history`, `probe-persistence`.
+```mermaid
+flowchart LR
+    CLI["CLI: kodr run/check/..."] --> APP["app.mjs dispatcher"]
+    TUI["tui.mjs"] --> CHANNEL["handleChannelRequest"]
+    HTTP["server.mjs"] --> CHANNEL
+    APP --> CHANNEL
+    CHANNEL --> PIPELINE["run-pipeline.mjs"]
+    PIPELINE --> CONTEXT["context + skills + memory"]
+    PIPELINE --> MODEL["completion + model-client"]
+    MODEL --> TOOLS["tool-calls registry"]
+    TOOLS --> SAFE["safe-writes / verification / executors"]
+    SAFE --> PIPELINE
+    PIPELINE --> ARTIFACTS[".kodr/runs artifacts"]
+    ARTIFACTS --> RESEARCH["why / trends / route / eval / replay"]
+```
 
-### Tier 4 — ADVANCED CAPABILITIES: optional power features (~7.0k, ~26%)
-Everything beyond "chat + edit + run." All opt-in.
-- **Multi-agent / planning:** `orchestration`, `subagents`, `agents`, `task-plan`, `model-specs`, `workflow`, `cycles`
-- **Sandboxes:** `openshell-executor`, `openshell-worker`, `docker-executor`, `active-executor`
-- **External integrations:** `lsp-client`, `mcp-client`, `external-inspector-registry`, `inspection-output`
-- **Skills:** `skills`, `skill-execution`, `builtin-skills` (role / `lang:` / `model:` skills under `src/builtin-skills/`)
-- **Surfaces:** `server` (`kodr serve`), `watcher` (`kodr watch`), `command-hooks`, `hooks`, `memory`
+The important invariant is that CLI, TUI, and HTTP do not maintain independent
+execution implementations. They translate input into channel requests and use
+the same pipeline and artifact contracts.
 
-### Tier 5 — INFRA / UTIL (~0.6k, ~2%)
-`project-config`, `usage-normalizer`, `ansi`, `progress`, `artifacts`,
-`install-local`, `version`, `prompt-id`.
+## Architectural layers
 
-## Cross-cutting: the CLI entry (`app.mjs` + split-out modules)
-Phase 148 split the old 5,800-line `app.mjs` god-file along tier lines (pure,
-behavior-preserving, guarded by the test suite + an export-surface guard test).
-The layout now:
-- `app.mjs` (~500 lines) — the thin entry point: `main()`'s command dispatch,
-  `handleChannelRequest` (the channel), `listSessions`, the CLI approver/progress
-  helpers, and a **re-export barrel** preserving the public import surface.
-- `cli/args.mjs` — `parseArgs`, `assignValue`, option validators, `usage` help
-  text. `cli/defaults.mjs` — default constants. `cli/options.mjs` — shared input
-  helpers (`loadPrompt`, `workspaceContextOptions`, `resolved{Skills,Agents}Dirs`).
-- `commands/*.mjs` — one module per leaf subcommand (forensics, inspect, replay,
-  session, bench, serve, compare, probe, skills, init, eval). Handlers that need
-  the channel or `runPrompt` take them as injected params (extraction stays
-  one-directional — no module imports `app.mjs`).
-- `run-pipeline.mjs` (~3,330 lines) — the Tier-1 core: `runPrompt`,
-  `runStagedPrompt`, and ~35 private helpers (context discovery, executor init,
-  the run/tool loop, healing, writes, summary, `maybeCommitAppliedWrites`).
-- `render.mjs` — pure CLI renderers. `cli-errors.mjs` — `CliError` /
-  `NativeNoProposalError`. `parseManagementInstances` now lives in
-  `model-profiles.mjs`.
+### 1. Presentation and request routing
 
-Tier 4 now lazy-loads off these seams (phase 149, lever #2): a bare
-`run`/`chat`/`tui` does not statically import orchestration, the Docker/OpenShell
-sandboxes, LSP, MCP, or the web server. The static import graph reachable from
-`app.mjs` dropped **84 → 59 modules**. Each capability loads via a dynamic
-`import()` behind its flag/command:
-- `app.mjs` `main()` dynamic-imports each `commands/*` handler in its dispatch
-  branch → drops every command module + `server` (serve) + `subagents` (replay) +
-  the inspect→`external-inspector-registry`→`lsp-client` path.
-- `run-pipeline.mjs` dynamic-imports `orchestration` (`--subagent-stages`),
-  `openshell-worker` (worker mode), `external-inspector-registry` (inspection).
-- `active-executor.createActiveExecutor` (now async) dynamic-imports the
-  Docker/OpenShell backend only when its flag is set; the pure option helpers live
-  in light `sandbox-options.mjs` so `parseArgs` stays sandbox-free.
-- `post-write-sensor` dynamic-imports the registry + LSP only under `--lsp`;
-  `tools.mjs` builds the MCP client lazily on first `mcp:` call.
-A guard test (`test/lazy-load.test.mjs`) pins the bare-run graph so a future
-static import cannot quietly drag a Tier-4 module back onto the hot path.
+- `app.mjs` parses process-level intent, resolves CLI defaults, lazy-loads leaf
+  commands, and owns `handleChannelRequest`.
+- `cli/args.mjs`, `cli/options.mjs`, and `cli/defaults.mjs` resolve options.
+  `cli/usage.mjs` is presentation-only help text.
+- `tui.mjs` owns the line-oriented interactive session state.
+- `server.mjs` exposes the local HTTP/SSE surface. It validates local Host and
+  Origin values and requires JSON content types before dispatching mutations.
+- `commands/*.mjs` contain leaf command adapters. They depend inward on domain
+  modules and receive the shared channel or `runPrompt` when needed.
 
-## The takeaway
+### 2. Core run engine
 
-The research mission you set is only **~12%** of the code. The "too much" feeling
-was **Tier 4 (~26%, optional power features)** plus the **`app.mjs` god-file
-(~22%)**. The simple tool — Tier 1 + infra — is **~36%** and is intact and
-working.
+- `run-pipeline.mjs` is the main orchestration state machine. It builds context,
+  calls the model, interprets proposals and tool drafts, applies writes, runs
+  deterministic gates and tests, invokes healing, and finalizes artifacts.
+- `completion.mjs` manages continuation turns and loop budgets.
+- `model-client.mjs` owns OpenAI-compatible HTTP and SSE transport, deadlines,
+  usage extraction, and bounded response accumulation.
+- `tool-calls.mjs` owns the model-callable registry and `ProposalDraft`, which is
+  the bridge between native write tools and proposal-envelope fallback.
+- `run-summary.mjs` renders the human run result without participating in the
+  state machine.
 
-Levers to recover "simple" as a felt experience, in order:
-1. ~~**Split `app.mjs`** along tier lines~~ — **done (phase 148):** 5,806 → ~500
-   lines, dispatcher + `commands/*` + `cli/*` + `run-pipeline.mjs`, zero behavior
-   change. This was the biggest legibility win and it created the seams for #2.
-2. ~~**Make Tier 4 opt-in / lazy**~~ — **done (phase 149):** a bare `run`/`chat`/
-   `tui` no longer statically loads orchestration, Docker/OpenShell, LSP, MCP, or
-   the web server; static graph from `app.mjs` 84 → 59 modules, guarded by
-   `test/lazy-load.test.mjs`. See the cross-cutting section above.
-3. **Shrink Tier 2** once generation-params land — delete repair rules rather than add them.
-4. **Leave Tier 3 alone** — it's small and it's the point of the project.
+The proposal draft and the on-disk workspace are separate states in proposal
+mode. In live mode, writes land immediately but still record backup and manifest
+metadata. Changes to this boundary require tests for both modes and for staged
+and healing reuse of the shared draft.
 
-## Where else to look
-- `roadmap.md` — phase progress. `NEXT.md` — forward candidates (loose, FIFO).
-- `process/decisions.jsonl`, `process/failures.jsonl` — why things are the way they are; real failure forensics.
-- `blog/` — narrative of important harness/app failures per phase.
-- `AGENTS.md` (repo root `CLAUDE.md`) — the constitution and the Required Loop.
+### 3. Safety and verification
+
+- `safe-writes.mjs` validates workspace-relative paths, rejects symlink escape,
+  prepares diffs and backups, and applies whole files or exact patches.
+- `git-workspace.mjs` and `undo.mjs` record tree state, constrain git commands,
+  and restore the last unchanged applied run.
+- `verification-runner.mjs`, `syntax-gate.mjs`, `smoke-check.mjs`, and
+  `cross-ref-sensor.mjs` form the deterministic verification layer.
+- `permission-policy.mjs`, `command-hooks.mjs`, and `skill-execution.mjs` gate
+  effects that extend beyond ordinary jailed reads and writes.
+- `active-executor.mjs` selects host, Docker, or OpenShell execution. Heavy
+  backends stay behind dynamic imports.
+
+The verification allowlist prevents shell parsing, but package-manager test
+commands still execute workspace-owned package scripts. That is an explicit
+trusted-workspace boundary, not a sandbox guarantee.
+
+### 4. Context and inspection
+
+- `context-packer.mjs` builds bounded whole-file or file-map context.
+- `repomap/*`, `inspection-output.mjs`, and
+  `external-inspector-registry.mjs` provide structural inspection and optional
+  LSP enrichment.
+- `skills.mjs`, `builtin-skills.mjs`, `agents.mjs`, and `system-env.mjs` assemble
+  untrusted instructions and environment facts with byte limits.
+- `memory.mjs` and `session-compaction.mjs` preserve multi-turn continuity while
+  retaining raw conversations separately from compact model-facing messages.
+
+`src/repomap` mirrors `packages/repomap/src` so the CLI and extractable package
+share behavior. A sync test protects this duplication, but a generated package
+or workspace-based source-of-truth would be cleaner if publishing resumes.
+
+### 5. Optional orchestration and research surfaces
+
+- `orchestration.mjs`, `subagents.mjs`, `agents.mjs`, `workflow.mjs`, and
+  `cycles.mjs` implement planning and multi-agent execution.
+- `forensics.mjs`, `trends.mjs`, `routing.mjs`, `eval*.mjs`, `bench.mjs`,
+  `compare.mjs`, and `replay.mjs` consume run artifacts. They are not required
+  for a normal run.
+- `server.mjs` and `src/web/*` provide a local UI over the shared channel.
+- Docker, OpenShell, LSP, MCP, orchestration, and web command paths are lazy
+  loaded so the basic local run does not import every optional capability.
+
+## Data and state
+
+The workspace is the source of truth for code. `.kodr/runs/<id>/` is an
+append-only evidence record containing prompts, context, raw request/response,
+conversation, proposed and applied writes, verification, usage, and summary
+metadata. `.kodr/backups/` supports undo, while `.kodr/last-run` identifies the
+latest session for continuation and forensics.
+
+In-memory state is intentionally short-lived except for a TUI session or HTTP
+server process. The HTTP run registry is operational state, not the durable run
+archive; completed evidence belongs in the run directory.
+
+## Trust boundaries
+
+Kodr must assume the following are hostile or malformed:
+
+- model responses and native tool arguments;
+- workspace source, package scripts, memory, `AGENTS.md`, and skills;
+- HTTP requests to the local server;
+- fetched network content and DNS answers;
+- replayed artifacts and external inspector output.
+
+Current boundary mechanisms include workspace path jailing, symlink rejection,
+proposal/apply separation, git-aware backups, command allowlists, permission
+prompts, response and context byte limits, redirect refusal, DNS-address pinning,
+local HTTP Host/Origin validation, and optional Docker/OpenShell execution.
+
+These mechanisms reduce risk but do not make host execution safe for an
+untrusted repository. `npm test`, hooks, LSP servers, and explicitly approved
+skill helpers can execute repository-controlled code.
+
+## Testing architecture
+
+Tests use `node:test` and Node built-ins. The fake model and LSP servers exercise
+real HTTP framing without external services. Focused suites cover transport,
+safe writes, verification, server routing, sensors, tools, and orchestration.
+
+Phase 239 moved staged state-machine coverage out of the 9,692-line
+`app.test.mjs`; the resulting files are approximately 6,600 lines for general
+app integration and 3,200 lines for staged execution. This is still large, but
+the failure domain is now explicit. Behavior tests should avoid tight real-time
+subprocess deadlines unless timeout behavior itself is under test.
+
+## Current hotspots and recommended direction
+
+1. **Split the core run state machine.** `runPrompt` is still roughly 1,640
+   lines and `runStagedPrompt` roughly 640. Extract explicit context-build,
+   model-loop, apply/verify, and finalization services with data-only inputs and
+   outputs. Preserve the shared artifact and proposal contracts.
+2. **Make CLI options declarative.** `parseArgs` remains roughly 840 lines.
+   A single option schema should drive parsing, validation, config precedence,
+   and help generation so documentation cannot drift from behavior again.
+3. **Keep historical reasoning out of control flow.** Production comments
+   should explain invariants and failure modes; phase chronology belongs in
+   phase, process, and blog records.
+4. **Eliminate the repomap mirror when packaging permits.** Prefer one source
+   tree and a deterministic package build over two committed copies.
+5. **Continue real boundary probes.** Mocked tests are necessary but not
+   sufficient for LM Studio, Docker, OpenShell, LSP, DNS, and browser security
+   behavior.
+
+The architecture is viable and well tested. The next quality gains come from
+making the existing state transitions smaller and explicit, not from adding
+more execution modes.

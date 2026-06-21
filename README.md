@@ -23,17 +23,20 @@ Check the toolchain and command surface:
 ```sh
 npm test
 npm run format
+npm run check
 ./kodr --help
 ```
 
-Point a run at a local OpenAI-compatible model. Writes stay dry-run until you pass `--yes`:
+Point a run at a local OpenAI-compatible model. A normal `kodr run` uses tools,
+applies accepted writes, and runs a detected test command. Use `--dry-run` to
+preview only; `--json` also stays dry unless paired with `--yes`:
 
 ```sh
 # Inspect the connection and what would be sent
 ./kodr probe
 ./kodr run -p "Add a --version flag to the CLI" --dry-run
 
-# Apply the proposed writes and verify with the project's tests
+# Apply and verify (the explicit flags are useful for scripts)
 ./kodr run -p "Add a --version flag to the CLI" --yes --test "npm test"
 ```
 
@@ -69,7 +72,15 @@ Start a local JSON HTTP control plane for scripted runs and future web UI experi
 ./kodr serve
 ```
 
-The server is local-only and dependency-free. `POST /runs` submits a turn and returns a run handle immediately; `GET /runs/:id` reports queued/running/completed state, `GET /runs/:id/events` streams progress over SSE, and bounded artifact routes expose the finished run's known files. The original `GET /sessions`, `GET /sessions/:id`, and `POST /turn` routes remain, and every route flows through the same channel handler used by the CLI and TUI. See [usage.md](./usage.md#serve-the-local-channel) for the full API.
+The server is local-only and dependency-free. It enforces local Host and
+same-origin browser requests, and JSON-body routes require
+`application/json`. `POST /runs` submits a turn and returns a run handle
+immediately; `GET /runs/:id` reports queued/running/completed state,
+`GET /runs/:id/events` streams progress over SSE, and bounded artifact routes
+expose the finished run's known files. The original `GET /sessions`,
+`GET /sessions/:id`, and `POST /turn` routes remain, and every route flows
+through the same channel handler used by the CLI and TUI. See
+[usage.md](./usage.md#serve-the-local-channel) for the full API.
 
 Inspect source structure without calling a model:
 
@@ -126,7 +137,7 @@ Each `kodr run` writes inspectable artifacts under `.kodr/runs/...`, including p
 
 ## Security Boundaries
 
-Kodr treats model output, workspace files, `AGENTS.md`, `SKILL.md`, skill resources, skill helper scripts, replay artifacts, and fetched network content as untrusted input. File reads and writes are jailed to the workspace, model-proposed writes stay dry-run until `--yes`, and Markdown skills plus declared skill resources are byte-capped before entering the model context. Declared skill helper scripts require explicit approval and an active sandbox executor; Kodr does not silently execute them on the host.
+Kodr treats model output, workspace files, `AGENTS.md`, `SKILL.md`, skill resources, skill helper scripts, replay artifacts, and fetched network content as untrusted input. File reads and writes are jailed to the workspace; normal CLI/TUI runs apply through git-aware, undoable safe writes, while `--dry-run` and JSON/HTTP requests without explicit `yes` remain proposal-only. Markdown skills, declared skill resources, and model responses are byte-capped. Declared skill helper scripts require explicit approval and an active sandbox executor; Kodr does not silently execute them on the host.
 
 Verification commands are allowlisted and run without a shell, but `npm test` and `npm run test` still execute trusted workspace package scripts. Safe writes create backups for existing files before applying changes, record the workspace git tree state, and back `kodr undo`, which reverts the last applied run and refuses when applied files were edited afterwards. Git use is allowlisted (`status`, `diff`, `add`, `commit`, `checkout`, `rev-parse`); opt-in `--commit` commits exactly the applied files, and there is no push or arbitrary git.
 
