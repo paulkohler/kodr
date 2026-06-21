@@ -1965,9 +1965,18 @@ async function runStagedPrompt({
 			const draftBeforeCheck = completion.proposalDraft ?? null;
 			const stageDraftNonEmpty =
 				draftBeforeCheck !== null && !draftBeforeCheck.isEmpty;
+			// Phase 244: proximity guard — only classify as runaway when token
+			// usage is near the staged-retry cap (max(completionReserve, 8192)).
+			const stagedCap = Math.max(
+				Number.isInteger(options.completionReserve) &&
+					options.completionReserve > 0
+					? options.completionReserve
+					: 0,
+				8192,
+			);
 			if (
 				!stageDraftNonEmpty &&
-				isReasoningRunaway(completion.text, completion, false)
+				isReasoningRunaway(completion.text, completion, false, stagedCap)
 			) {
 				const lb = completion.loopBudget || {};
 				currentStageRunawayEvidence = {

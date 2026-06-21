@@ -151,14 +151,23 @@ export function renderWrongPathWarning(writes, failurePaths) {
 //   raw) on its current no-progress/invalid_proposal path.
 // - finishLength gate: FALSE on 'stop' with empty content (a legit decline keeps the
 //   existing no-progress handling).
-export function isReasoningRunaway(text, raw, proposalNonEmpty) {
+export function isReasoningRunaway(text, raw, proposalNonEmpty, cap = null) {
 	if (proposalNonEmpty) return false;
 	if ((text || '').trim().length > 0) return false;
 	if (!raw) return false;
 	const finishLength =
 		raw.finishReasons?.at(-1) === 'length' ||
 		raw.loopBudget?.stopReason === 'finish_length';
-	return finishLength === true;
+	if (!finishLength) return false;
+	// Proximity guard: when we know the cap, require near-cap token usage.
+	// Genuine runaways burn their full budget (phase-242: 4094/4096). A
+	// finish_reason:length at far below cap indicates a different truncation
+	// cause (e.g. context window, not max_tokens).
+	if (cap != null) {
+		const completionTokens = raw.loopBudget?.completionTokens ?? Infinity;
+		return completionTokens >= cap * 0.95;
+	}
+	return true;
 }
 
 export class HealingTimeoutError extends Error {
@@ -365,8 +374,20 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 		// try. This guarantees a runaway is classified 'reasoning_runaway' and never
 		// 'invalid_proposal'. Short-circuit also prevents a doomed escalation second
 		// turn (verified: a 3402-char escalation prompt also ran away to empty).
+		// Phase 244: pass completionReserve as the proximity cap so near-cap
+		// token usage is required before classifying as runaway.
+		const healCap =
+			typeof options.completionReserve === 'number' &&
+			options.completionReserve > 0
+				? options.completionReserve
+				: null;
 		if (
-			isReasoningRunaway(completion.text, completion.raw, turnProposalNonEmpty)
+			isReasoningRunaway(
+				completion.text,
+				completion.raw,
+				turnProposalNonEmpty,
+				healCap,
+			)
 		) {
 			const lb = completion.raw?.loopBudget || {};
 			const runawayEvidence = {

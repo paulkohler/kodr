@@ -19,15 +19,6 @@ finds nothing (239).
 
 ## Candidates
 
-### Reasoning-runaway proximity guard (improve isReasoningRunaway precision)
-`isReasoningRunaway` fires on `finish_reason=length` + zero answer tokens. A
-false-positive could occur if a legitimate large heal answer hits the 4096-token
-cap and gets classified as runaway. Phase-242 showed runaways hit 4094–4096/4096
-(at-cap). Add a proximity check: only classify as runaway when
-`completionTokens >= cap * 0.95` (or similar). Improves precision across both
-heal (healing.mjs) and staged-retry (run-pipeline.mjs) paths. Low risk: raises the
-bar for triggering, no behavior change for genuine runaways at cap.
-
 ### Include staged plan in heal repair context
 Phase-242-audit: the heal model repeatedly hypothesised "database reset" rather
 than reading the staged plan where the bug (`r[0]` positional indexing) was

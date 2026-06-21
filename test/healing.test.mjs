@@ -1529,6 +1529,43 @@ describe('reasoning-token runaway (phase 231)', () => {
 		assert.equal(result.repairs.at(-1).stopReason, 'reasoning_runaway');
 	});
 
+	// Phase 244: proximity guard tests.
+	// Test A — near-cap (4094/4096): should classify as runaway
+	it('244A: near-cap (4094/4096) classifies as runaway', () => {
+		const raw4094 = {
+			finishReasons: ['length'],
+			loopBudget: { completionTokens: 4094 },
+		};
+		assert.equal(isReasoningRunaway('', raw4094, false, 4096), true);
+	});
+
+	// Test B — far-below-cap (100 tokens, cap 4096): should NOT classify as runaway
+	it('244B: far-below-cap (100/4096) does not classify as runaway', () => {
+		const raw100 = {
+			finishReasons: ['length'],
+			loopBudget: { completionTokens: 100 },
+		};
+		assert.equal(isReasoningRunaway('', raw100, false, 4096), false);
+	});
+
+	// Test C — no cap (backward compat): should still return true
+	it('244C: no cap (backward compat) still classifies as runaway', () => {
+		const rawLength = {
+			finishReasons: ['length'],
+			loopBudget: { completionTokens: 999 },
+		};
+		assert.equal(isReasoningRunaway('', rawLength, false), true);
+	});
+
+	// Test D — near-cap staged (7800/8192): should classify as runaway
+	it('244D: near-cap staged (7800/8192) classifies as runaway', () => {
+		const raw7800 = {
+			finishReasons: ['length'],
+			loopBudget: { completionTokens: 7800 },
+		};
+		assert.equal(isReasoningRunaway('', raw7800, false, 8192), true);
+	});
+
 	// (g) raw present but loopBudget absent: still a runaway (finishReasons signal
 	// alone), evidence fields degrade to null without throwing.
 	it('runaway with raw but no loopBudget captures null token evidence', async () => {

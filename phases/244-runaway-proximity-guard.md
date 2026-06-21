@@ -97,11 +97,11 @@ Where `rawXYZ` is `{ finishReasons: ['length'], loopBudget: { completionTokens: 
 
 ## Done Criteria
 
-- [ ] `isReasoningRunaway` accepts optional `cap` parameter, returns false when
+- [x] `isReasoningRunaway` accepts optional `cap` parameter, returns false when
   `completionTokens < cap × 0.95`
-- [ ] Heal call site passes `completionReserve` as cap
-- [ ] Staged-retry call site passes `max(completionReserve, 8192)` as cap
-- [ ] Four new tests covering near-cap true, far-below false, no-cap true, staged-cap
-- [ ] All existing tests pass (null default preserves current behavior)
-- [ ] `npm run format` clean, `npm run check` clean
-- [ ] Blog post written
+- [x] Heal call site passes `completionReserve` as cap
+- [x] Staged-retry call site passes `max(completionReserve, 8192)` as cap
+- [x] Four new tests covering near-cap true, far-below false, no-cap true, staged-cap
+- [x] All existing tests pass (null default preserves current behavior)
+- [x] `npm run format` clean, `npm run check` clean
+- [x] Blog post written
