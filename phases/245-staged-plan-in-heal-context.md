@@ -121,11 +121,11 @@ include the plan section (regression guard).
 
 ## Done Criteria
 
-- [ ] `runStagedPrompt` captures and returns `planScratchpad` from the plan stage
-- [ ] `runHealingIfNeeded` passes `stagedPlan` from the staged result to the heal loop
-- [ ] `buildRepairContext` includes `stagedPlan` in the returned context object
-- [ ] `renderLoopRepairPrompt` includes "Implementation plan" section when non-empty
-- [ ] Three tests: buildRepairContext passes through, prompt includes section, empty guard
-- [ ] All existing tests pass
-- [ ] `npm run format` clean, `npm run check` clean
-- [ ] Blog post written
+- [x] `runStagedPrompt` captures and returns `planScratchpad` from the plan stage
+- [x] `runHealingIfNeeded` passes `stagedPlan` from the staged result to the heal loop
+- [x] `buildRepairContext` includes `stagedPlan` in the returned context object
+- [x] `renderLoopRepairPrompt` includes "Implementation plan" section when non-empty
+- [x] Three tests: buildRepairContext passes through, prompt includes section, empty guard
+- [x] All existing tests pass
+- [x] `npm run format` clean, `npm run check` clean
+- [x] Blog post written

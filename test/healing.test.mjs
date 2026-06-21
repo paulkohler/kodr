@@ -14,6 +14,7 @@ import {
 	isReasoningRunaway,
 	oneShotHeal,
 	renderEscalationPrompt,
+	renderLoopRepairPrompt,
 	renderWrongPathWarning,
 	runSelfHealingLoop,
 	writesReferenceTask,
@@ -1730,6 +1731,79 @@ describe('Phase 241: repair_context_overflow stop reason', () => {
 			'a 400 without context-overflow message must not be classified as repair_context_overflow',
 		);
 		assert.equal(result.healed, false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 245 — Staged plan in heal repair context
+// ---------------------------------------------------------------------------
+
+describe('Phase 245: staged plan in repair context', () => {
+	// Test A: buildRepairContext passes through stagedPlan
+	it('buildRepairContext includes stagedPlan from options', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-245a-'));
+		const context = await buildRepairContext(
+			cwd,
+			{ ok: false, stdout: '', stderr: '' },
+			{ stagedPlan: 'Stage 1: create db.mjs with positional columns r[0]' },
+		);
+		assert.equal(
+			context.stagedPlan,
+			'Stage 1: create db.mjs with positional columns r[0]',
+		);
+	});
+
+	// Test B: renderLoopRepairPrompt includes "Implementation plan" when non-empty
+	it('renderLoopRepairPrompt includes Implementation plan section when stagedPlan is present', () => {
+		const repairContext = {
+			tests: { ok: false, stdout: 'not ok 1 - db query failed', stderr: '' },
+			scratchpad: '',
+			originalTask: 'Build a kv store',
+			stagedPlan:
+				'Stage 1: create db.mjs using StatementSync\nStage 2: add routes',
+			failurePaths: ['db.mjs'],
+			files: [],
+			diagnostics: null,
+		};
+		const prompt = renderLoopRepairPrompt(repairContext, {
+			index: 1,
+			maxTurns: 3,
+		});
+		assert.match(prompt, /Implementation plan \(from staged run\)/u);
+		assert.match(prompt, /Stage 1: create db\.mjs/u);
+	});
+
+	// Test C: renderLoopRepairPrompt omits the plan section when stagedPlan is empty/absent
+	it('renderLoopRepairPrompt omits Implementation plan section when stagedPlan is absent', () => {
+		const repairContext = {
+			tests: { ok: false, stdout: 'not ok 1', stderr: '' },
+			scratchpad: '',
+			originalTask: 'Fix the bug',
+			stagedPlan: '',
+			failurePaths: [],
+			files: [],
+			diagnostics: null,
+		};
+		const prompt = renderLoopRepairPrompt(repairContext, {
+			index: 1,
+			maxTurns: 2,
+		});
+		assert.doesNotMatch(prompt, /Implementation plan/u);
+
+		// Also test absent stagedPlan field (no key at all)
+		const repairContextNoKey = {
+			tests: { ok: false, stdout: 'not ok 1', stderr: '' },
+			scratchpad: '',
+			originalTask: '',
+			failurePaths: [],
+			files: [],
+			diagnostics: null,
+		};
+		const promptNoKey = renderLoopRepairPrompt(repairContextNoKey, {
+			index: 1,
+			maxTurns: 2,
+		});
+		assert.doesNotMatch(promptNoKey, /Implementation plan/u);
 	});
 });
 

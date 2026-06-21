@@ -19,14 +19,6 @@ finds nothing (239).
 
 ## Candidates
 
-### Include staged plan in heal repair context
-Phase-242-audit: the heal model repeatedly hypothesised "database reset" rather
-than reading the staged plan where the bug (`r[0]` positional indexing) was
-introduced. The plan stage text is written to the run artifact but NOT passed to
-the repair prompt. Including it as `plan` in `repairContext` would give the repair
-model intent context — especially valuable for staged runs where the plan contains
-the root cause.
-
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met. Needs a human call and won't resurface on its own.

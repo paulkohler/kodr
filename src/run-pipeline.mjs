@@ -1907,6 +1907,9 @@ async function runStagedPrompt({
 	conversations.push(...planCompletion.messages);
 	lastText = planCompletion.text;
 	scratchpad = planProposal?.scratchpad || '';
+	// Phase 245: capture the plan scratchpad for heal repair context so the
+	// repair model has the design intent that produced the code under repair.
+	const planScratchpad = scratchpad;
 	proposalMessages.push(...(planProposal?.messages || []));
 	stageRecords.push({
 		fileCount: planProposal ? proposalPaths(planProposal).length : 0,
@@ -2378,6 +2381,8 @@ async function runStagedPrompt({
 		postWriteDiagnostics,
 		registry,
 		runDir,
+		// Phase 245: forward the plan stage scratchpad into the heal repair context.
+		stagedPlan: planScratchpad,
 		systemPrompt: context.systemPrompt,
 		testResult,
 		writeCount: allWrites.length,
@@ -2551,6 +2556,9 @@ async function runStagedPrompt({
 		runDir,
 		installResult,
 		healingResult,
+		// Phase 245: plan stage scratchpad for heal context (callers may forward
+		// this to runHealingIfNeeded so the repair model sees design intent).
+		planScratchpad,
 		scratchpad,
 		testResult,
 		taskPlan,
@@ -2628,6 +2636,9 @@ async function runHealingIfNeeded({
 	postWriteDiagnostics,
 	registry,
 	runDir,
+	// Phase 245: plan stage scratchpad from a staged run; forwarded to
+	// buildRepairContext so the repair model sees the design intent.
+	stagedPlan = '',
 	systemPrompt,
 	testResult,
 	writeCount = null,
@@ -2686,6 +2697,8 @@ async function runHealingIfNeeded({
 		diagnostics: postWriteDiagnostics,
 		// C1 (phase 125): anchor every repair turn to the original task.
 		originalTask: options.prompt || '',
+		// Phase 245: pass the staged plan so buildRepairContext can include it.
+		stagedPlan,
 		maxTurns: Math.max(1, Math.min(options.maxTurns, 3)),
 		repairTurn: async ({ prompt }) => {
 			// Phase 235: the shared registry.proposalDraft is reused from the main run

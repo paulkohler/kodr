@@ -263,6 +263,8 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			scratchpad,
 			diagnostics,
 			originalTask: options.originalTask || '',
+			// Phase 245: pass staged plan into repair context for design intent.
+			stagedPlan: options.stagedPlan || '',
 		});
 
 		// Build optional escalation / wrong-path-warning / test-delta extras
@@ -663,6 +665,9 @@ export async function buildRepairContext(cwd, testResult, options = {}) {
 		// or (greenfield) inventing an unrelated module with its own passing test.
 		originalTask: options.originalTask || '',
 		scratchpad: options.scratchpad || '',
+		// Phase 245: plan stage scratchpad from a staged run; gives the repair
+		// model the design intent that introduced the code under repair.
+		stagedPlan: options.stagedPlan || '',
 		tests: testResult,
 	};
 }
@@ -675,7 +680,7 @@ The previous verification failed. Use this test output and propose exactly one r
 ${lastTest}`;
 }
 
-function renderLoopRepairPrompt(
+export function renderLoopRepairPrompt(
 	repairContext,
 	{ index, maxTurns, wrongPathWarning = '', testDelta = null },
 ) {
@@ -701,6 +706,12 @@ ${file.content}
 	const taskSection = repairContext.originalTask
 		? `\n\n## Original task\nThe repair must serve this original request — do not solve a different or simpler problem:\n${repairContext.originalTask}`
 		: '';
+	// Phase 245: include staged plan as context when the failure originated from
+	// a staged run. This gives the repair model the design intent (and any
+	// root-cause assumptions) that produced the code it is now repairing.
+	const stagedPlanSection = repairContext.stagedPlan
+		? `\n\n## Implementation plan (from staged run)\n${repairContext.stagedPlan}`
+		: '';
 	const testDeltaSection =
 		testDelta && !testDelta.improved && testDelta.before > 0
 			? `\n\n## Test progress\nTests still failing with same count (${testDelta.after} failures). The previous repair did not address the root cause.`
@@ -709,7 +720,7 @@ ${file.content}
 	return `Repair turn ${index} of ${maxTurns}.
 
 The previous verification failed. Propose one small repair as JSON with optional files, patches, and scratchpad fields. Prefer patches. Touch the failing path unless the stack trace clearly points elsewhere.
-${taskSection}${diagnosticsSection}${wrongPathSection}${testDeltaSection}
+${taskSection}${stagedPlanSection}${diagnosticsSection}${wrongPathSection}${testDeltaSection}
 ## tests.json
 \`\`\`json
 ${tests}

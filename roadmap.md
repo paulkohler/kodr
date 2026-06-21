@@ -244,7 +244,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 242 Surface Staged-Runaway and Heal-Overflow Events in CLI
 - [x] 243 lang:node skill: StatementSync row-access pitfall
 - [x] 244 Reasoning-Runaway Proximity Guard
-- [ ] 245 Staged Plan in Heal Repair Context
+- [x] 245 Staged Plan in Heal Repair Context
 
 ## Phase Contract
 
