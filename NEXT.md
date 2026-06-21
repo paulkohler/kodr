@@ -6,18 +6,37 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 242)
+## Current frontier (phase 245)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–242: reasoning-runaway fast-fail and heal cap (231/234/236), staged
-implement-turn runaway detect-and-retry with `completionCapMode:'staged-retry'`
-(240), heal context-overflow retry and `repair_context_overflow` stop reason
-(241), terminal surfacing of staged-runaway and heal-overflow events (242). The
-`--skill` flag falls through to the builtin registry when workspace discovery
-finds nothing (239).
+phases 213–245: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
+terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
+StatementSync row-access pitfall (243), reasoning-runaway proximity guard to
+prevent false-positives on legitimate capped completions (244), staged plan text
+threaded into heal repair context for design intent (245).
 
 ## Candidates
+
+### Capped-retry zero-output on thinking models
+Phase-245 dogfood: after a staged-runaway is detected and a capped retry is
+issued (`max_thinking_tokens: 4096`, `max_tokens: 8192`), the model still burns
+all 8,192 tokens on reasoning and emits 0 content chars (`finish=length`). The
+proximity guard (phase 244) correctly skips the false-positive, but the retry is
+wasted. Root cause: `max_thinking_tokens` may not be honored by LM Studio, or
+the effective ceiling needs to be `max_thinking_tokens + output_budget` to
+guarantee output tokens are available. Investigation: probe whether LM Studio
+honors `max_thinking_tokens` on the retry call; if not, try setting `max_tokens`
+to a much lower cap (e.g. `2048`) to force output before exhaustion.
+
+### lang:node FTS5 trigger vs manual delete conflict
+Phase-245 dogfood: model set up an `AFTER DELETE` trigger on the notes table
+that automatically removed rows from the FTS5 table, AND also issued a manual
+FTS5 delete in the `deleteNote()` function. The double-delete corrupted the FTS5
+index (`ERR_SQLITE_ERROR: database disk image is malformed`). Add a pitfall to
+the lang:node FTS5 section: if using triggers for FTS5 sync, do not also issue
+manual FTS content table commands — pick one or the other.
 
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the
