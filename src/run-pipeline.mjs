@@ -53,6 +53,7 @@ import {
 import {
 	healRepairTurnBudget,
 	isNothingGenerated,
+	isReasoningRunaway,
 	runSelfHealingLoop,
 } from './healing.mjs';
 import {
@@ -1876,6 +1877,9 @@ async function runStagedPrompt({
 	let lastText = '';
 	let done = false;
 	let noProgressTurns = 0;
+	// Phase 240: staged reasoning-runaway fast-fail.
+	// Counts retries across all stages; written into summary.staged.
+	let stagedRunawayRetries = 0;
 
 	const planCompletion = await completeWithToolCalls(
 		options,
@@ -1923,8 +1927,10 @@ async function runStagedPrompt({
 			safeWriteSteering ? `\n## Harness note\n${safeWriteSteering}` : '',
 		].join('\n');
 		safeWriteSteering = null;
+		// Phase 240: reset per-stage runaway evidence at the top of each iteration.
+		let currentStageRunawayEvidence = null;
 
-		const completion = await completeWithToolCalls(
+		let completion = await completeWithToolCalls(
 			{ ...options, inStagedPipeline: true },
 			model,
 			stagePrompt,
@@ -1935,6 +1941,49 @@ async function runStagedPrompt({
 		finishReasons.push(...completion.finishReasons);
 		conversations.push(...completion.messages);
 		lastText = completion.text;
+
+		// Phase 240: staged reasoning-runaway fast-fail — symmetric to phase-231
+		// heal-turn detection. If the model spent its token budget on CoT with an
+		// empty answer (finish_reason=length, content_len=0) AND no draft is present,
+		// retry once with completionCapMode:'staged-retry' (floor 8192) so the model
+		// has a bounded budget that still leaves room for a large file. If the retry
+		// also runaways, fall through to the existing ProposalMissingError path.
+		{
+			const draftBeforeCheck = completion.proposalDraft ?? null;
+			const stageDraftNonEmpty =
+				draftBeforeCheck !== null && !draftBeforeCheck.isEmpty;
+			if (
+				!stageDraftNonEmpty &&
+				isReasoningRunaway(completion.text, completion, false)
+			) {
+				const lb = completion.loopBudget || {};
+				currentStageRunawayEvidence = {
+					finishReason: completion.finishReasons?.at(-1) ?? null,
+					completionTokens: lb.completionTokens ?? null,
+					promptTokens: lb.promptTokens ?? null,
+					totalTokens: lb.tokens ?? null,
+					stageIndex,
+				};
+				const retryOpts = {
+					...options,
+					inStagedPipeline: true,
+					completionCapMode: 'staged-retry',
+				};
+				const retryCompletion = await completeWithToolCalls(
+					retryOpts,
+					model,
+					stagePrompt,
+					stageContext.systemPrompt,
+					registry,
+				);
+				responses.push(...retryCompletion.responses);
+				finishReasons.push(...retryCompletion.finishReasons);
+				conversations.push(...retryCompletion.messages);
+				lastText = retryCompletion.text;
+				completion = retryCompletion;
+				stagedRunawayRetries += 1;
+			}
+		}
 
 		let proposal;
 		try {
@@ -2220,6 +2269,9 @@ async function runStagedPrompt({
 			responseChars: completion.text.length,
 			writeCount: writeResult.writes.length,
 			...(done ? { done: true } : {}),
+			...(currentStageRunawayEvidence
+				? { runawayRetry: true, runaway: currentStageRunawayEvidence }
+				: {}),
 		});
 		if (done) {
 			break;
@@ -2396,6 +2448,9 @@ async function runStagedPrompt({
 			maxExecutionStages,
 			maxStageWrites,
 			stages: stageRecords,
+			...(stagedRunawayRetries > 0
+				? { runawayRetries: stagedRunawayRetries }
+				: {}),
 		},
 		tested: testResult !== null,
 		timestamp: new Date().toISOString(),

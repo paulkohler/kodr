@@ -279,6 +279,46 @@ describe('completion cap request shaping', () => {
 		assert.equal(Object.hasOwn(request, 'max_tokens'), false);
 	});
 
+	// Phase 240: staged-retry mode uses max(completionReserve, 8192) floor.
+	it('staged-retry: adds max_tokens = max(completionReserve, 8192) when completionReserve < 8192', () => {
+		// completionReserve=4096 < 8192 floor → cap must be 8192.
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096, completionCapMode: 'staged-retry' },
+			{ messages, model },
+		);
+
+		assert.equal(request.max_tokens, 8192);
+	});
+
+	it('staged-retry: uses completionReserve when it exceeds 8192 floor', () => {
+		// completionReserve=16384 > 8192 → cap must be 16384.
+		const request = buildChatRequestBody(
+			{ completionReserve: 16384, completionCapMode: 'staged-retry' },
+			{ messages, model },
+		);
+
+		assert.equal(request.max_tokens, 16384);
+	});
+
+	it('staged-retry: adds max_tokens = 8192 when completionReserve is unset', () => {
+		// No completionReserve → floor wins at 8192.
+		const request = buildChatRequestBody(
+			{ completionCapMode: 'staged-retry' },
+			{ messages, model },
+		);
+
+		assert.equal(request.max_tokens, 8192);
+	});
+
+	it('staged-retry: caller override wins (max_tokens already present)', () => {
+		const request = buildChatRequestBody(
+			{ completionReserve: 4096, completionCapMode: 'staged-retry' },
+			{ messages, model, max_tokens: 99 },
+		);
+
+		assert.equal(request.max_tokens, 99);
+	});
+
 	// NOTE: this suite proves applyCompletionCap RESPONDS to the marker. That the
 	// run-pipeline repairOptions bag actually SETS completionCapMode:'heal' (and the
 	// main loop does not) is a wiring fact proven LIVE by the phase-236 dogfood,

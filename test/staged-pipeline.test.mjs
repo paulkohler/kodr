@@ -3187,3 +3187,322 @@ describe('Phase 235 — heal draft carryover (stale no-op write suppression)', (
 	// 'inter-turn carryover' test in healing.test.mjs's ProposalDraft.clear()
 	// describe — no always-pass placeholder is kept here.
 });
+
+// ---------------------------------------------------------------------------
+// Phase 240 — Staged Reasoning-Runaway Fast-Fail
+// ---------------------------------------------------------------------------
+
+describe('Phase 240 — staged reasoning-runaway fast-fail', () => {
+	// Helper: build a staged-runaway response (finish_reason=length, empty content).
+	// Provenance: phase-238-audit/rest-api-sqlite-2 conversation.json turn 11.
+	function makeLengthTurn(chatId = 'chatcmpl_staged_len') {
+		return {
+			body: {
+				choices: [
+					{
+						finish_reason: 'length',
+						message: { content: '', role: 'assistant' },
+					},
+				],
+				id: chatId,
+				object: 'chat.completion',
+				usage: {
+					completion_tokens: 23000,
+					prompt_tokens: 9709,
+					total_tokens: 32709,
+				},
+			},
+			method: 'POST',
+			status: 200,
+			url: '/v1/chat/completions',
+		};
+	}
+
+	// Test A: stage 1 runaways (finish_reason=length + empty), retry returns a
+	// valid proposal. Assert: stage record has runawayRetry:true, file is written.
+	it('(A) runaway then retry-succeeds: stage record carries runawayRetry:true and file is written', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p240-a-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/answer.mjs","done"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: finish_reason=length, empty content — reasoning runaway.
+				makeLengthTurn('chatcmpl_p240a_runaway'),
+				// Stage 1 retry: returns a valid proposal with the file.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const answer = 42;\n',
+								path: 'src/answer.mjs',
+							},
+						],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["create src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create src/answer.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p240a-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p240a-out', 'summary.json'), 'utf8'),
+			);
+
+			// Stage 1 record must carry runawayRetry:true.
+			const stage1 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-1',
+			);
+			assert.ok(stage1, 'implement-1 stage record must exist');
+			assert.equal(
+				stage1.runawayRetry,
+				true,
+				`stage1 must have runawayRetry:true, got: ${JSON.stringify(stage1)}`,
+			);
+			assert.ok(
+				stage1.runaway,
+				`stage1 must have runaway evidence, got: ${JSON.stringify(stage1)}`,
+			);
+			assert.equal(
+				stage1.runaway.finishReason,
+				'length',
+				`runaway.finishReason must be 'length'`,
+			);
+			// File must have been written.
+			assert.ok(
+				stage1.writeCount >= 1,
+				`stage1.writeCount must be >= 1, got: ${stage1.writeCount}`,
+			);
+			// staged.runawayRetries must reflect the retry count.
+			assert.equal(
+				summary.staged?.runawayRetries,
+				1,
+				`staged.runawayRetries must be 1, got: ${summary.staged?.runawayRetries}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// Test B: stage 1 runaways, retry also runaways.
+	// Assert: writeError.name === 'ProposalMissingError', no infinite loop.
+	it('(B) double-runaway: retry also runaways, falls through to ProposalMissingError', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p240-b-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: first runaway.
+				makeLengthTurn('chatcmpl_p240b_run1'),
+				// Stage 1 retry: also runaways (no infinite loop — only one retry).
+				makeLengthTurn('chatcmpl_p240b_run2'),
+			],
+		});
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create src/answer.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p240b-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p240b-out', 'summary.json'), 'utf8'),
+			);
+
+			// Run must have failed with ProposalMissingError.
+			assert.equal(
+				summary.writeError?.name,
+				'ProposalMissingError',
+				`writeError.name must be ProposalMissingError, got: ${summary.writeError?.name}`,
+			);
+			// Only exactly two model calls after the plan (the original runaway + one retry,
+			// no further retries). Total = plan + runaway + retry = 3 calls.
+			const completionCalls = server.recordings.filter(
+				(r) => r.url === '/v1/chat/completions',
+			);
+			assert.equal(
+				completionCalls.length,
+				3,
+				`must make exactly 3 model calls (plan + runaway + 1 retry), got: ${completionCalls.length}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+
+	// Test C: stage 1 returns finish_reason=stop with empty content (not a runaway).
+	// Assert: stage record has no runawayRetry field (the length gate is the distinction).
+	// Note: the E4 empty-turn nudge fires for stop+empty (existing pipeline behavior),
+	// so the total call count is plan + stage1-stop-empty + E4-nudge-response = 3.
+	// The key invariant is that NO staged-retry fires (runawayRetry absent on stage record).
+	it('(C) stop+empty is NOT a runaway: no runawayRetry on stage record (length gate is discriminator)', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p240-c-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: finish_reason=stop, empty content — NOT a runaway.
+				// The length gate (isReasoningRunaway) must NOT fire for 'stop'.
+				{
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: '', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_p240c_stop',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// E4 empty-turn nudge response: also stop+empty (let ProposalMissingError fire).
+				{
+					body: {
+						choices: [
+							{
+								finish_reason: 'stop',
+								message: { content: '', role: 'assistant' },
+							},
+						],
+						id: 'chatcmpl_p240c_nudge',
+						object: 'chat.completion',
+					},
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			const result = await main(
+				[
+					'run',
+					'-p',
+					'Create src/answer.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p240c-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			const summary = JSON.parse(
+				await readFile(join(cwd, 'p240c-out', 'summary.json'), 'utf8'),
+			);
+
+			// Should fail with ProposalMissingError (stop+empty is not a runaway).
+			assert.equal(
+				summary.writeError?.name,
+				'ProposalMissingError',
+				`writeError.name must be ProposalMissingError, got: ${summary.writeError?.name}`,
+			);
+			// Stage 1 record must NOT have runawayRetry (no staged-retry fired).
+			const stage1 = summary.staged?.stages?.find(
+				(s) => s.name === 'implement-1',
+			);
+			assert.ok(stage1, 'implement-1 stage record must exist');
+			assert.equal(
+				stage1.runawayRetry,
+				undefined,
+				`stage1 must NOT have runawayRetry for stop+empty, got: ${stage1.runawayRetry}`,
+			);
+			// staged.runawayRetries must be absent (no retries fired).
+			assert.equal(
+				summary.staged?.runawayRetries,
+				undefined,
+				`staged.runawayRetries must be absent, got: ${summary.staged?.runawayRetries}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});

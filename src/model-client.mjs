@@ -177,10 +177,27 @@ export function buildChatRequestBody(options, body) {
 function applyCompletionCap(options, body) {
 	// Phase 236: heal-only. No heal marker -> no cap (main loop / staged stay
 	// uncapped, their known-good pre-234 behavior).
-	if (options.completionCapMode !== 'heal') {
+	// Phase 240: also cap staged-retry turns at max(completionReserve, 8192) so
+	// a large file generate is not starved (phase-236 probe: 4096 cap, 0 answer
+	// chars on a two-file task — hence the 8192 floor).
+	if (
+		options.completionCapMode !== 'heal' &&
+		options.completionCapMode !== 'staged-retry'
+	) {
 		return body;
 	}
-	const cap = options.completionReserve;
+	// staged-retry: floor at 8192 so large file generation is not starved.
+	// heal: use completionReserve directly (tight cap intentional for fast-fail).
+	const cap =
+		options.completionCapMode === 'staged-retry'
+			? Math.max(
+					Number.isInteger(options.completionReserve) &&
+						options.completionReserve > 0
+						? options.completionReserve
+						: 0,
+					8192,
+				)
+			: options.completionReserve;
 	// Only a positive integer is a usable cap. '', undefined, 0, non-integers ->
 	// no cap (don't break non-profile callers / tests that omit it).
 	if (!Number.isInteger(cap) || cap <= 0) {
