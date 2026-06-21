@@ -163,7 +163,7 @@ export function isReasoningRunaway(text, raw, proposalNonEmpty, cap = null) {
 	// Genuine runaways burn their full budget (phase-242: 4094/4096). A
 	// finish_reason:length at far below cap indicates a different truncation
 	// cause (e.g. context window, not max_tokens).
-	if (cap != null) {
+	if (cap !== null) {
 		const completionTokens = raw.loopBudget?.completionTokens ?? Infinity;
 		return completionTokens >= cap * 0.95;
 	}

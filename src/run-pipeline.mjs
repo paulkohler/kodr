@@ -1968,7 +1968,7 @@ async function runStagedPrompt({
 			// Phase 244: proximity guard — only classify as runaway when token
 			// usage is near the staged-retry cap (max(completionReserve, 8192)).
 			const stagedCap = Math.max(
-				Number.isInteger(options.completionReserve) &&
+				typeof options.completionReserve === 'number' &&
 					options.completionReserve > 0
 					? options.completionReserve
 					: 0,
