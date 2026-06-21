@@ -266,7 +266,9 @@ export function isContextOverflow(error) {
 	return (
 		error instanceof ModelClientError &&
 		error.details?.status === 400 &&
-		/context.size|context window|exceeded/i.test(error.message)
+		/context[\s_]?size|context window|context.{0,20}exceeded/i.test(
+			error.message,
+		)
 	);
 }
 

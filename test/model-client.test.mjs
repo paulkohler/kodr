@@ -1207,19 +1207,40 @@ describe('onToken callback (phase 134)', () => {
 });
 
 // Phase 241: isContextOverflow unit tests.
+// Use production-format error messages: model-client.mjs emits
+// `POST ${url} returned HTTP ${status}: ${body}` at line ~454.
+const URL_400 = 'http://localhost:1234/v1/chat/completions';
 describe('isContextOverflow', () => {
-	it('returns true for HTTP-400 ModelClientError with "Context size" message', () => {
-		const err = new ModelClientError('Context size has been exceeded', {
-			status: 400,
-		});
+	it('returns true for HTTP-400 with "Context size" in body (production format)', () => {
+		const err = new ModelClientError(
+			`POST ${URL_400} returned HTTP 400: Context size has been exceeded`,
+			{ status: 400 },
+		);
 		assert.equal(isContextOverflow(err), true);
 	});
 
-	it('returns true for "context window" variant', () => {
-		const err = new ModelClientError('context window exceeded', {
-			status: 400,
-		});
+	it('returns true for "context window exceeded" variant', () => {
+		const err = new ModelClientError(
+			`POST ${URL_400} returned HTTP 400: context window exceeded`,
+			{ status: 400 },
+		);
 		assert.equal(isContextOverflow(err), true);
+	});
+
+	it('returns false for standalone "rate limit exceeded" (false-positive guard)', () => {
+		const err = new ModelClientError(
+			`POST ${URL_400} returned HTTP 400: rate limit exceeded`,
+			{ status: 400 },
+		);
+		assert.equal(isContextOverflow(err), false);
+	});
+
+	it('returns false for standalone "quota exceeded" (false-positive guard)', () => {
+		const err = new ModelClientError(
+			`POST ${URL_400} returned HTTP 400: quota exceeded`,
+			{ status: 400 },
+		);
+		assert.equal(isContextOverflow(err), false);
 	});
 
 	it('returns false for HTTP-400 without a context-overflow message', () => {
@@ -1230,9 +1251,10 @@ describe('isContextOverflow', () => {
 	});
 
 	it('returns false for HTTP-500 even with "Context size" message', () => {
-		const err = new ModelClientError('Context size has been exceeded', {
-			status: 500,
-		});
+		const err = new ModelClientError(
+			`POST ${URL_400} returned HTTP 500: Context size has been exceeded`,
+			{ status: 500 },
+		);
 		assert.equal(isContextOverflow(err), false);
 	});
 
