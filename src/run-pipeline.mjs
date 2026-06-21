@@ -1935,7 +1935,7 @@ async function runStagedPrompt({
 			`Implement one coherent slice only, with at most ${maxStageWrites} total file writes or patches.`,
 			'The workspace does not change unless you include files or patches in this response. Do not claim a stage is complete unless this response includes the corresponding files or patches.',
 			'Prefer tests and runnable support files early. If existing files need small edits, use patches instead of full rewrites.',
-			'If all work is complete, return status OK with no files or patches and include a message containing STAGED_DONE.',
+			'Only when you have no remaining planned files or patches to write for this stage, signal completion by returning status OK with no files or patches and a message containing STAGED_DONE. Do not signal STAGED_DONE to skip unwritten files.',
 			noProgressTurns > 0
 				? `Previous implementation turn made no file changes. Correct that now by returning 1-${maxStageWrites} files or patches.`
 				: '',

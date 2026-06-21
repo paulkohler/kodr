@@ -405,7 +405,7 @@ export async function completeWithToolCalls(
 								content: staged
 									? 'Turn budget exhausted. Finish the current STAGE now — do not call any tools. ' +
 										'Write any remaining file with write_file. ' +
-										'If all files are already written, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]} to complete this stage.'
+										'Only if you have no remaining planned files to write for this stage, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]}. Do not signal STAGED_DONE to skip unwritten files — write them first.'
 									: 'Turn budget exhausted. Return the final JSON proposal now — do not call any tools.',
 								role: 'user',
 							},
@@ -503,7 +503,7 @@ export async function completeWithToolCalls(
 										? `You have made this identical tool call ${count} times. ` +
 											'Stop retrying. Call write_file for the next file you need to write. ' +
 											'Do not run tests or npm install — verification runs automatically after all stages complete. ' +
-											'If all files are already written, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]} to complete this stage.'
+											'Only if you have no remaining planned files to write for this stage, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]}. Do not signal STAGED_DONE to skip unwritten files — write them first.'
 										: `You have made this identical tool call ${count} times. ` +
 											'Stop retrying. Return your final proposal now — the harness will apply writes and run verification automatically.',
 								})
@@ -514,7 +514,7 @@ export async function completeWithToolCalls(
 										? 'This exact tool call was already made. ' +
 											'Call write_file for the next file you need to write. ' +
 											'Do not run tests or npm install. ' +
-											'If all files are already written, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]} to complete this stage.'
+											'Only if you have no remaining planned files to write for this stage, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]}. Do not signal STAGED_DONE to skip unwritten files — write them first.'
 										: 'This exact tool call was already made. Stop calling tools and return the final JSON proposal now.',
 								});
 				} else {
@@ -948,7 +948,7 @@ export function createBuiltinRegistry(cwd, options = {}) {
 							'Files have not been applied to disk yet — run_command cannot access pending writes.',
 						hint: staged
 							? 'Apply file changes via write_file tool calls. Do not run commands or tests until all files are written — verification runs automatically after all stages complete. ' +
-								'If all files are already written, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]} to complete this stage.'
+								'Only if you have no remaining planned files to write for this stage, return {"status":"OK","files":[],"messages":[{"level":"info","content":"STAGED_DONE"}]}. Do not signal STAGED_DONE to skip unwritten files — write them first.'
 							: 'Return the final JSON proposal envelope now. The harness will apply your writes and run verification automatically.',
 					};
 				}
