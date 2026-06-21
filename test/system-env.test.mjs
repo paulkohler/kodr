@@ -379,6 +379,7 @@ describe('prompt budget guard', () => {
 		// Phase 227 added node:sqlite import-name, check-status-before-parse, and
 		// module-scope-side-effects pitfalls; ~11317 chars. Limit raised to 12000.
 		// Phase 238 added ESM cache-bust pitfall; ~12626 chars. Limit raised to 14000.
+		// Phase 243 added StatementSync row-access pitfall; ~13252 chars. Limit stays 14000.
 		assert.ok(
 			promptLen < 14000,
 			`Node/ESM system message must stay under 14000 chars for a greenfield task; got ${promptLen} chars`,
@@ -439,6 +440,7 @@ describe('prompt budget guard', () => {
 		// Phase 227 added node:sqlite import-name, check-status-before-parse, and
 		// module-scope-side-effects pitfalls; ~10242 chars. Limit raised to 11000.
 		// Phase 238 added ESM cache-bust pitfall; ~11551 chars. Limit raised to 13000.
+		// Phase 243 added StatementSync row-access pitfall; ~12189 chars. Limit stays 13000.
 		assert.ok(
 			promptLen < 13000,
 			`Native mode system message must stay under 13000 chars; got ${promptLen} chars`,

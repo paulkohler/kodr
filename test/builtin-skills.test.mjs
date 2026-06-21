@@ -110,6 +110,14 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /import\.meta\.url/);
 	});
 
+	it('lang:node warns that StatementSync rows are named-column objects, not arrays', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /StatementSync row access/);
+		assert.match(body, /named-column objects/);
+		assert.match(body, /row\.columnName/);
+		assert.match(body, /rows\[0\]\[1\]/); // the wrong-pattern example (plural rows)
+	});
+
 	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(

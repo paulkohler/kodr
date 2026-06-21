@@ -10,52 +10,42 @@ will resurface on its own.
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–242 for local thinking models (qwen3.6): reasoning-runaway fast-fail
-and heal cap (231/234/236), staged implement-turn runaway detect-and-retry (240),
-heal context-overflow retry with repair_context_overflow stop reason (241),
-terminal surfacing of staged runaway and heal overflow events (242),
-staged draft carryover fixes (235/237), W4 parity merge (233), ESM cache-bust
-pitfall (238), and the phase-239 hardening audit (network/model boundary
-hardening, CLI/pipeline seam extraction, skill loading corrections). The `--skill`
-flag now falls through to the builtin registry when workspace discovery finds
-nothing.
+phases 213–242: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+implement-turn runaway detect-and-retry with `completionCapMode:'staged-retry'`
+(240), heal context-overflow retry and `repair_context_overflow` stop reason
+(241), terminal surfacing of staged-runaway and heal-overflow events (242). The
+`--skill` flag falls through to the builtin registry when workspace discovery
+finds nothing (239).
 
 ## Candidates
 
+### Reasoning-runaway proximity guard (improve isReasoningRunaway precision)
+`isReasoningRunaway` fires on `finish_reason=length` + zero answer tokens. A
+false-positive could occur if a legitimate large heal answer hits the 4096-token
+cap and gets classified as runaway. Phase-242 showed runaways hit 4094–4096/4096
+(at-cap). Add a proximity check: only classify as runaway when
+`completionTokens >= cap * 0.95` (or similar). Improves precision across both
+heal (healing.mjs) and staged-retry (run-pipeline.mjs) paths. Low risk: raises the
+bar for triggering, no behavior change for genuine runaways at cap.
+
+### Include staged plan in heal repair context
+Phase-242-audit: the heal model repeatedly hypothesised "database reset" rather
+than reading the staged plan where the bug (`r[0]` positional indexing) was
+introduced. The plan stage text is written to the run artifact but NOT passed to
+the repair prompt. Including it as `plan` in `repairContext` would give the repair
+model intent context — especially valuable for staged runs where the plan contains
+the root cause.
+
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the
-precondition is now met, so this needs a human call and won't resurface on its
-own.
+precondition is now met. Needs a human call and won't resurface on its own.
 
 ### llms.txt doc-lookup pattern for skills
 BLOCKED on exposing a fetch tool to the model-callable registry (network-egress
 security boundary: SSRF / private-IP / size guards, permission-gated, real
-integration run required per AGENTS.md). Do not add `## Documentation` sections
-to builtin skills until the fetch prerequisite lands.
+integration run required per AGENTS.md).
 
 ### Smoke-as-verification in the heal loop
-Phase 184 wired a smoke-driven second heal pass, but in-loop verification still
-uses `options.testCommand`. Full smoke-as-verification requires pluggable
-verification backends (callers pass a `verify` function). Significant architecture
-change — not plannable without an interface sketch.
-
-### lang:node skill — node:sqlite StatementSync positional-indexing pitfall
-Phase-242-audit (sqlite-api): the model used `r[0]`, `r[1]`, `r[2]` to index into
-`StatementSync.all()` / `get()` results. `node:sqlite` returns plain named-column
-objects (`{id, title, body}`), NOT arrays — `r[0]` is always `undefined`. The
-heal loop then went into a reasoning-runaway trying to diagnose "why GET fails when
-POST works," spending 4094/4096 reasoning tokens without emitting a repair.
-Fix direction: add a fourth pitfall to `lang:node` SKILL.md:
-  > **Pitfall 4: StatementSync row access — use named columns, not positional index.**
-  > `db.prepare("SELECT …").all()` returns `[{id: 1, name: 'hello'}]`, NOT arrays.
-  > `row[0]` is undefined. Always use `row.columnName`.
-Parallel to phase-227's pitfall trio (DatabaseSync import, check-status-before-parse,
-module-scope side effects). Evidence: `phase-242-audit/sqlite-api` summary.json +
-`conversation.json` repair turn 1 reasoning_content.
-
-### Completion cap tightness — heal-specific residual (watch-for-it)
-`completionReserve:4096` may be too tight for a large multi-file heal answer.
-The 2026-06-20 probe used only 1601 tokens (well under 4096), so no false
-positive yet. If observed: raise `completionReserve` (e.g. 8192) or add a
-token-count heuristic to `isReasoningRunaway` (e.g. treat length+zero-answer as
-runaway only if completionTokens is near the cap).
+Needs pluggable verification backends (callers pass a `verify` function instead
+of `testCommand`). Significant architecture change — not plannable without an
+interface sketch.

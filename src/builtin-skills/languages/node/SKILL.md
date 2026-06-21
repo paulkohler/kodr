@@ -94,6 +94,24 @@ In tests, always pass `':memory:'` explicitly:
 const db = createDatabase(':memory:');
 ```
 
+**StatementSync row access** — `stmt.all()` and `stmt.get()` return
+**named-column objects**, not arrays. `row[0]` is always `undefined`.
+Use `row.columnName`:
+
+```js
+// Wrong — StatementSync rows are objects, not arrays
+const rows = db.prepare('SELECT id, title, body FROM notes').all();
+const title = rows[0][1];   // undefined — no numeric index
+
+// Correct — access by the column name
+const rows = db.prepare('SELECT id, title, body FROM notes').all();
+const title = rows[0].title;  // 'hello'
+
+// Also correct for a single row
+const row = db.prepare('SELECT id, title FROM notes WHERE id = ?').get(1);
+const id = row.id;  // 1 (number, not BigInt unless PRAGMA applied)
+```
+
 ## HTTP integration test patterns
 
 Always write integration tests inline with `before`/`after` hooks — never use `child_process.fork()`, `spawn()`, or `exec()` to start the server under test. Subprocess teardown bypasses `closeAllConnections` and assertion failures inside the subprocess don't propagate as test failures.
