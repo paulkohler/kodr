@@ -39,6 +39,20 @@ uses `options.testCommand`. Full smoke-as-verification requires pluggable
 verification backends (callers pass a `verify` function). Significant architecture
 change — not plannable without an interface sketch.
 
+### lang:node skill — node:sqlite StatementSync positional-indexing pitfall
+Phase-242-audit (sqlite-api): the model used `r[0]`, `r[1]`, `r[2]` to index into
+`StatementSync.all()` / `get()` results. `node:sqlite` returns plain named-column
+objects (`{id, title, body}`), NOT arrays — `r[0]` is always `undefined`. The
+heal loop then went into a reasoning-runaway trying to diagnose "why GET fails when
+POST works," spending 4094/4096 reasoning tokens without emitting a repair.
+Fix direction: add a fourth pitfall to `lang:node` SKILL.md:
+  > **Pitfall 4: StatementSync row access — use named columns, not positional index.**
+  > `db.prepare("SELECT …").all()` returns `[{id: 1, name: 'hello'}]`, NOT arrays.
+  > `row[0]` is undefined. Always use `row.columnName`.
+Parallel to phase-227's pitfall trio (DatabaseSync import, check-status-before-parse,
+module-scope side effects). Evidence: `phase-242-audit/sqlite-api` summary.json +
+`conversation.json` repair turn 1 reasoning_content.
+
 ### Completion cap tightness — heal-specific residual (watch-for-it)
 `completionReserve:4096` may be too tight for a large multi-file heal answer.
 The 2026-06-20 probe used only 1601 tokens (well under 4096), so no false
