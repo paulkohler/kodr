@@ -26,6 +26,7 @@ import { extractProposal } from './json-extractor.mjs';
 import {
 	buildChatRequestBody,
 	firstModelId,
+	isContextOverflow,
 	listModels,
 } from './model-client.mjs';
 import { loadMemory } from './memory.mjs';
@@ -680,6 +681,11 @@ export async function runPrompt(options, io) {
 				summary.healStopReason = healingResult?.stopReason || '';
 				if (healingResult?.goalSubstitutionSuspected) {
 					summary.goalSubstitutionSuspected = true;
+				}
+				// Phase 241: surface context-overflow retries in summary when non-zero.
+				if (healingResult?.healContextOverflowRetries > 0) {
+					summary.healContextOverflowRetries =
+						healingResult.healContextOverflowRetries;
 				}
 				// Phase 157: surface the deterministic gates in subagent-stages summaries
 				// too (omitted when not run — no JS written, sandbox active, --no-smoke).
@@ -1657,6 +1663,13 @@ export async function runPrompt(options, io) {
 		) {
 			summary.goalSubstitutionSuspected = true;
 		}
+		// Phase 241: surface context-overflow retries in summary when non-zero.
+		const totalContextOverflowRetries =
+			(healingResult?.healContextOverflowRetries ?? 0) +
+			(smokeHealResult?.healContextOverflowRetries ?? 0);
+		if (totalContextOverflowRetries > 0) {
+			summary.healContextOverflowRetries = totalContextOverflowRetries;
+		}
 		summary.installed = installResult !== null;
 		// C1 (phase 121) + phase 156: a syntax failure or a definitive load failure
 		// makes the run not-ok even with no testCommand — a file that does not parse,
@@ -2426,6 +2439,10 @@ async function runStagedPrompt({
 		...(healingResult?.goalSubstitutionSuspected
 			? { goalSubstitutionSuspected: true }
 			: {}),
+		// Phase 241: surface context-overflow retries when non-zero.
+		...(healingResult?.healContextOverflowRetries > 0
+			? { healContextOverflowRetries: healingResult.healContextOverflowRetries }
+			: {}),
 		loopBudget,
 		model,
 		modelProfile: options.modelProfile || null,
@@ -2650,7 +2667,11 @@ async function runHealingIfNeeded({
 		completionCapMode: 'heal',
 	};
 
-	return runSelfHealingLoop(cwd, testResult, {
+	// Phase 241: count context-overflow retries for diagnostics. Declared here so
+	// the repairTurn callback can close over it.
+	let contextOverflowRetries = 0;
+
+	const healingResult = await runSelfHealingLoop(cwd, testResult, {
 		apply: true,
 		artifactDir: join(runDir, 'repairs'),
 		diagnostics: postWriteDiagnostics,
@@ -2671,21 +2692,35 @@ async function runHealingIfNeeded({
 			if (options.tools && registry) {
 				registry.proposalDraft?.clear();
 			}
-			const completion =
+
+			// Phase 241: one retry on context-overflow HTTP-400 (LM Studio KV-cache bleed).
+			// The 200ms pause gives the server a window to flush its session state.
+			const callCompletion = () =>
 				options.tools && registry
-					? await completeWithToolCalls(
+					? completeWithToolCalls(
 							repairOptions,
 							model,
 							prompt,
 							systemPrompt,
 							registry,
 						)
-					: await completeWithContinuations(
+					: completeWithContinuations(
 							repairOptions,
 							model,
 							prompt,
 							systemPrompt,
 						);
+
+			let completion;
+			try {
+				completion = await callCompletion();
+			} catch (firstError) {
+				if (!isContextOverflow(firstError)) throw firstError;
+				contextOverflowRetries += 1;
+				await new Promise((resolve) => setTimeout(resolve, 200));
+				completion = await callCompletion(); // propagate if this also throws
+			}
+
 			const raw = {
 				finishReasons: completion.finishReasons,
 				loopBudget: completion.loopBudget,
@@ -2722,6 +2757,13 @@ async function runHealingIfNeeded({
 			: {}),
 		commandRunner,
 	});
+
+	// Phase 241: surface context-overflow retries in the result for callers to add
+	// to run summary metadata when non-zero.
+	if (contextOverflowRetries > 0 && healingResult) {
+		healingResult.healContextOverflowRetries = contextOverflowRetries;
+	}
+	return healingResult;
 }
 
 async function finalizeExecutorArtifacts(

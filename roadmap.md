@@ -240,6 +240,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 238 lang:node skill: ESM cache-bust import does not reset module state
 - [x] 239 Hardening Audit Fixes
 - [x] 240 Staged Reasoning-Runaway Fast-Fail
+- [x] 241 Heal Context-Overflow Retry
 
 ## Phase Contract
 

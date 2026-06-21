@@ -7,6 +7,7 @@ import {
 	firstAssistantMessage,
 	FirstTokenTimeoutError,
 	InterChunkIdleTimeoutError,
+	isContextOverflow,
 	isOllamaCloudModel,
 	ModelClientError,
 	shouldUseAnthropicRootCacheControl,
@@ -1202,5 +1203,41 @@ describe('onToken callback (phase 134)', () => {
 
 		assert.ok(threwInCallback, 'onToken should have been called');
 		assert.equal(result.body.choices[0].message.content, 'data');
+	});
+});
+
+// Phase 241: isContextOverflow unit tests.
+describe('isContextOverflow', () => {
+	it('returns true for HTTP-400 ModelClientError with "Context size" message', () => {
+		const err = new ModelClientError('Context size has been exceeded', {
+			status: 400,
+		});
+		assert.equal(isContextOverflow(err), true);
+	});
+
+	it('returns true for "context window" variant', () => {
+		const err = new ModelClientError('context window exceeded', {
+			status: 400,
+		});
+		assert.equal(isContextOverflow(err), true);
+	});
+
+	it('returns false for HTTP-400 without a context-overflow message', () => {
+		const err = new ModelClientError('Bad request: invalid body', {
+			status: 400,
+		});
+		assert.equal(isContextOverflow(err), false);
+	});
+
+	it('returns false for HTTP-500 even with "Context size" message', () => {
+		const err = new ModelClientError('Context size has been exceeded', {
+			status: 500,
+		});
+		assert.equal(isContextOverflow(err), false);
+	});
+
+	it('returns false for a plain Error (not ModelClientError)', () => {
+		const err = new Error('Context size has been exceeded');
+		assert.equal(isContextOverflow(err), false);
 	});
 });

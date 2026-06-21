@@ -20,30 +20,6 @@ nothing.
 
 ## Candidates
 
-### Heal request HTTP-400 "Context size exceeded" after a heavy main loop (diagnose-first)
-A heal/repair request returns `HTTP 400 "Context size has been exceeded"`
-(`stopReason: 'repair_error'`) after a long delay (~200–240s) following a
-context-heavy staged run — observed in TWO dogfoods (`phase-231/heal-runaway-3`
-turn-3, and `final-audit-2/content-api` turn-1). **The cause is NOT kodr
-over-sending the repair prompt.** Re-derived from `final-audit-2` turn-1: the
-repair-context was EMPTY (`repair-context.json` `files:[]`), the prompt was small
-(~14k chars), there was NO `raw-response.json` (it 400'd on the FIRST request,
-zero sub-turns), yet it still 400'd after 207s. A 14k prompt cannot exceed a 32k
-window — so the lever is the **LM Studio session/KV-cache state carrying over from
-the heavy main loop** (77k cumulative prompt tokens), not the heal prompt size.
-(This SUPERSEDES the earlier "tool-call sub-turn accumulation" framing — that did
-not hold for the empty-context turn-1 case.) Fix direction: detect the
-`repair_error` HTTP-400 and retry the heal with a fresh session / cache reset, or
-ensure the heal request starts a clean server session rather than appending to the
-main loop's context. Diagnose first: confirm whether kodr reuses a session id /
-KV cache between the main loop and the heal request, and whether a reset clears
-the 400.
-
-Evidence: `final-audit/blog-platform/.kodr/runs/2026-06-20T04-45-40.838Z/repairs/`
-`turn-1/raw-response.json` + `turn-meta.json`; `phase-231/heal-runaway-3` and
-`final-audit-2/content-api` run artifacts. See also phase-231 + `final-audit-2`
-`failures.jsonl` entries and `blog/231-heal-reasoning-runaway-fast-fail.md`.
-
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met, so this needs a human call and won't resurface on its

@@ -5,6 +5,7 @@ import { writeJson, writeText } from './artifacts.mjs';
 import { renderDiagnosticsForModel } from './harness.mjs';
 import { buildWorkspaceContext } from './context-packer.mjs';
 import { extractJson } from './json-extractor.mjs';
+import { isContextOverflow } from './model-client.mjs';
 import { prepareChanges, prepareWrites } from './safe-writes.mjs';
 import { runVerification } from './verification-runner.mjs';
 
@@ -292,6 +293,9 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 			const elapsedMs = Date.now() - turnStart;
 			const serialized = serializeError(error);
 			const isTimeout = error instanceof HealingTimeoutError;
+			// Phase 241: retry-exhausted context-overflow surfaces as its own stop reason
+			// so it is diagnosable without manual artifact inspection.
+			const isContextOverflowError = isContextOverflow(error);
 			// D1: persist elapsed and limit alongside the error for diagnostics
 			const errorDetail = {
 				...serialized,
@@ -307,7 +311,11 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 				timeoutMs: turnTimeoutMs,
 				usage: null,
 			});
-			stopReason = isTimeout ? 'timeout' : 'repair_error';
+			stopReason = isTimeout
+				? 'timeout'
+				: isContextOverflowError
+					? 'repair_context_overflow'
+					: 'repair_error';
 			repairs.push({
 				completionChars: 0,
 				durationMs: elapsedMs,

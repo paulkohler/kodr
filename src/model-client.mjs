@@ -258,6 +258,18 @@ export function isAnthropicModel(model) {
 	return typeof model === 'string' && model.includes('anthropic/');
 }
 
+/** True when a ModelClientError is an LM Studio HTTP-400 "Context size exceeded".
+ * Phase 241: LM Studio's KV-cache from a heavy main loop can bleed into the
+ * next request and cause a 400 even with a small (~14k char) repair prompt.
+ * This is server-side state; kodr sends no session IDs. */
+export function isContextOverflow(error) {
+	return (
+		error instanceof ModelClientError &&
+		error.details?.status === 400 &&
+		/context.size|context window|exceeded/i.test(error.message)
+	);
+}
+
 export function isOllamaCloudModel(model) {
 	return typeof model === 'string' && model.endsWith(':cloud');
 }

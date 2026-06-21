@@ -18,6 +18,7 @@ import {
 	runSelfHealingLoop,
 	writesReferenceTask,
 } from '../src/healing.mjs';
+import { ModelClientError } from '../src/model-client.mjs';
 import { ProposalDraft } from '../src/tool-calls.mjs';
 import { runVerification } from '../src/verification-runner.mjs';
 
@@ -1625,6 +1626,73 @@ describe('ProposalDraft.clear() (phase 235)', () => {
 			'export const main = false;\n',
 			'content is the heal turn write, not the stale main-run write',
 		);
+	});
+});
+
+// Phase 241: context-overflow stop reason tests.
+// These tests pass context-overflow errors directly from repairTurn to
+// exercise healing.mjs's catch-block classification (the retry path lives
+// in run-pipeline.mjs's repairTurn wrapper and is exercised separately).
+describe('Phase 241: repair_context_overflow stop reason', () => {
+	function makeContextOverflowError() {
+		const err = new ModelClientError('Context size has been exceeded', {
+			status: 400,
+		});
+		return err;
+	}
+
+	it('emits repair_context_overflow when repairTurn throws context-overflow on both calls', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-241-double-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			artifactDir: join(cwd, '.kodr-241-double'),
+			maxTurns: 1,
+			repairTurn: async () => {
+				throw makeContextOverflowError();
+			},
+			testCommand: 'node --check bad.mjs',
+			turnTimeoutMs: 5000,
+		});
+
+		assert.equal(
+			result.stopReason,
+			'repair_context_overflow',
+			'stop reason must be repair_context_overflow, not the generic repair_error',
+		);
+		assert.equal(result.healed, false);
+		assert.equal(result.repairs.length, 1);
+		assert.equal(result.repairs[0].ok, false);
+	});
+
+	it('emits repair_error (not repair_context_overflow) for a non-context-overflow HTTP-400', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-241-other-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		const result = await runSelfHealingLoop(cwd, failed, {
+			artifactDir: join(cwd, '.kodr-241-other'),
+			maxTurns: 1,
+			repairTurn: async () => {
+				throw new ModelClientError('Bad request: invalid body', {
+					status: 400,
+				});
+			},
+			testCommand: 'node --check bad.mjs',
+			turnTimeoutMs: 5000,
+		});
+
+		assert.equal(
+			result.stopReason,
+			'repair_error',
+			'a 400 without context-overflow message must not be classified as repair_context_overflow',
+		);
+		assert.equal(result.healed, false);
 	});
 });
 
