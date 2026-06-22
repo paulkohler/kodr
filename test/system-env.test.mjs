@@ -386,9 +386,10 @@ describe('prompt budget guard', () => {
 		// Phase 238 added ESM cache-bust pitfall; ~12626 chars. Limit raised to 14000.
 		// Phase 243 added StatementSync row-access pitfall; ~13252 chars. Limit stays 14000.
 		// Phase 246 added SQLite test state reset pitfall; ~14221 chars. Limit raised to 15000.
+		// Phase 249 added createApp(db) injection pitfall; ~16590 chars. Limit raised to 17000.
 		assert.ok(
-			promptLen < 15000,
-			`Node/ESM system message must stay under 15000 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 17000,
+			`Node/ESM system message must stay under 17000 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
@@ -448,9 +449,10 @@ describe('prompt budget guard', () => {
 		// Phase 238 added ESM cache-bust pitfall; ~11551 chars. Limit raised to 13000.
 		// Phase 243 added StatementSync row-access pitfall; ~12189 chars. Limit stays 13000.
 		// Phase 246 added SQLite test state reset pitfall; ~13146 chars. Limit raised to 14000.
+		// Phase 249 added createApp(db) injection pitfall; ~15497 chars. Limit raised to 16000.
 		assert.ok(
-			promptLen < 14000,
-			`Native mode system message must stay under 14000 chars; got ${promptLen} chars`,
+			promptLen < 16000,
+			`Native mode system message must stay under 16000 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -1043,9 +1045,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 		// module-scope-side-effects pitfalls; ~11315 chars. Limit raised to 12000.
 		// Phase 238 added ESM cache-bust pitfall; ~12624 chars. Limit raised to 14000.
 		// Phase 246 added SQLite test state reset pitfall; ~14219 chars. Limit raised to 15000.
+		// Phase 249 added createApp(db) injection pitfall; ~16588 chars. Limit raised to 17000.
 		assert.ok(
-			context.systemPrompt.length < 15000,
-			`System message must stay under 15000 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 17000,
+			`System message must stay under 17000 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });

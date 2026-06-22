@@ -126,6 +126,14 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /wrongRows\[0\]\[1\]/); // the wrong-pattern example uses wrongRows
 	});
 
+	it('lang:node teaches the createApp(db) factory for db injection', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /createApp\(db\)/);
+		assert.match(body, /Inject the DB/);
+		assert.match(body, /routes close over it|close over the/i);
+		assert.match(body, /UNIQUE constraint failed/);
+	});
+
 	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(

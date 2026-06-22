@@ -248,6 +248,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 246 lang:node skill: SQLite test state reset pitfall
 - [x] 247 System prompt hardening: package.json rule, read-before-write, staged awareness, prefer tool calls
 - [x] 248 Task-gate lang:node SQLite/HTTP skill sections
+- [x] 249 lang:node skill: db injection (createApp factory) pitfall
 
 ## Phase Contract
 

@@ -6,28 +6,19 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 248)
+## Current frontier (phase 249)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–248: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+phases 213–249: reasoning-runaway fast-fail and heal cap (231/234/236), staged
 implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
 terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
 StatementSync row-access pitfall (243), reasoning-runaway proximity guard (244),
 staged plan text in heal repair context (245), SQLite test state reset pitfall (246),
-system prompt hardening (247), task-gating SQLite/HTTP skill sections (248).
+system prompt hardening (247), task-gating SQLite/HTTP skill sections (248),
+db-injection createApp(db) pitfall (249).
 
 ## Candidates
-
-### lang:node pitfall: db injection anti-pattern
-Phase-248 ambitious dogfood: model wrote `const db = createDatabase()` at module
-scope in `server.mjs`, then the test created a separate `:memory:` db. `beforeEach`
-resets the test's db but the server's routes close over the module-scope one.
-Categories created in test 1 persisted across resets, causing UNIQUE constraint
-failures in 12/22 tests. Fix pattern: export `createApp(db)` factory; test passes
-its own db at construction time. The `import.meta.url` listen-guard pitfall covers
-the `app.listen()` placement problem; this is the missing companion pitfall for db
-placement.
 
 ### SQLite skill gate: add FTS5 and :memory: as gate keywords
 Phase-248 dogfood: the task used schema notation (`categories(id INTEGER PRIMARY KEY

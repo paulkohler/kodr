@@ -173,6 +173,48 @@ before(async () => {
 });
 ```
 
+**Inject the DB — `createApp(db)` factory** — do not open the database at module
+scope and let routes close over it. A `const db = createDatabase()` at module
+scope is unreachable from tests: setting `app.locals.db` does nothing because the
+routes use the closed-over variable, so the server's DB accumulates rows while the
+test resets its own — causing `UNIQUE constraint failed` and dirty-state failures.
+Export a `createApp(db)` factory that takes the DB as an argument; the test
+constructs the app with the DB it controls:
+
+```js
+// Wrong — module-scope db; routes close over it, tests cannot reach it
+const db = createDatabase();
+export const app = express();
+app.post('/categories', (req, res) => { /* uses module-scope db */ });
+
+// Correct — factory takes the db; the caller (and the test) owns it
+export function createApp(db) {
+  const app = express();
+  app.post('/categories', (req, res) => { /* uses injected db */ });
+  return app;
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const app = createApp(createDatabase(process.env.DB_PATH ?? 'data.sqlite'));
+  const port = parseInt(process.env.PORT) || 3000;
+  app.listen(port, () => console.log(`Listening on ${port}`));
+}
+```
+
+In tests, build the app with a fresh `:memory:` DB and reset its tables in
+`beforeEach`:
+
+```js
+import { createApp } from '../src/server.mjs';
+let db, app, server, port;
+before(async () => {
+  db = createDatabase(':memory:');
+  app = createApp(db);
+  await new Promise(r => { server = app.listen(0, () => { port = server.address().port; r(); }); });
+});
+beforeEach(() => { db.exec('DELETE FROM expenses'); db.exec('DELETE FROM categories'); });
+```
+
 **Module-scope side effects** — the listen guard above is one instance of a
 general rule: run no side-effectful startup at import time. Do not call
 `createDatabase()`, `createServer()`, `app.listen()`, or any bootstrap at module
