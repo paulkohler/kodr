@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
 	captureEnvironmentFacts,
+	gateLanguageGuidance,
 	renderBehavioursBlock,
 	renderEnvironmentBlock,
 	renderLanguageGuidanceBlock,
@@ -453,6 +454,37 @@ describe('prompt budget guard', () => {
 		);
 	});
 
+	// Phase 248: task-gating reduces prompt size for non-SQLite/HTTP tasks
+	it('gated node prompt (plain task) is significantly shorter than ungated', async () => {
+		const cwd = await mkWorkspace({
+			'app.mjs': 'export function add(a, b) { return a + b; }',
+		});
+		const facts = {
+			cwd,
+			date: '2026-06-12',
+			gitBranch: 'main',
+			gitRepo: true,
+			model: 'google/gemma-4-26b-a4b',
+			nodeVersion: 'v24.16.0',
+			osRelease: 'Darwin 25.5.0',
+			platform: 'darwin',
+			shell: 'zsh',
+		};
+		const ungated = await buildWorkspaceContext(cwd, {
+			environmentFacts: facts,
+			toolsMode: true,
+		});
+		const gated = await buildWorkspaceContext(cwd, {
+			environmentFacts: facts,
+			toolsMode: true,
+			taskPrompt: 'add a slugify function to utils.mjs',
+		});
+		assert.ok(
+			gated.systemPrompt.length < ungated.systemPrompt.length * 0.6,
+			`Gated prompt (${gated.systemPrompt.length}) should be at least 40% smaller than ungated (${ungated.systemPrompt.length})`,
+		);
+	});
+
 	it('envelope mode is shorter than auto mode (no write tools)', async () => {
 		const cwd = await mkWorkspace({
 			'app.mjs': 'export function add(a, b) { return a + b; }',
@@ -486,6 +518,144 @@ describe('prompt budget guard', () => {
 });
 
 // ---------------------------------------------------------------------------
+// gateLanguageGuidance — phase 248
+// ---------------------------------------------------------------------------
+
+describe('gateLanguageGuidance', () => {
+	const SQLITE_MARKER = 'node:sqlite pitfalls';
+	const HTTP_MARKER = 'HTTP integration test patterns';
+	const BUSBOY_MARKER = 'busboy v1';
+	const ALWAYS_MARKER = 'Test isolation';
+
+	function makeBody() {
+		return [
+			'# Node.js / ESM Contract\n- ESM only\n',
+			'## node:sqlite pitfalls (Node.js 24)\n- DatabaseSync pitfalls\n',
+			'## HTTP integration test patterns\n- express server setup\n',
+			'## Test isolation — prefer factories over ESM cache busting\n- use factories\n',
+			'## busboy v1\n- Busboy is not a constructor\n',
+		].join('');
+	}
+
+	it('returns full body when taskContext is empty string', () => {
+		const body = makeBody();
+		assert.equal(gateLanguageGuidance(body, ''), body);
+	});
+
+	it('returns full body when taskContext is falsy', () => {
+		const body = makeBody();
+		assert.equal(gateLanguageGuidance(body, null), body);
+	});
+
+	it('includes sqlite section when task mentions sqlite', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'use node:sqlite to store items',
+		);
+		assert.match(result, new RegExp(SQLITE_MARKER));
+	});
+
+	it('excludes sqlite section for a non-database task', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'write a string-utils module',
+		);
+		assert.doesNotMatch(result, new RegExp(SQLITE_MARKER));
+	});
+
+	it('includes sqlite section when task mentions DatabaseSync', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'fix the DatabaseSync import',
+		);
+		assert.match(result, new RegExp(SQLITE_MARKER));
+	});
+
+	it('includes http section when task mentions express', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'build an express REST API',
+		);
+		assert.match(result, new RegExp(HTTP_MARKER));
+	});
+
+	it('excludes http section for a non-server task', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'write a string-utils module',
+		);
+		assert.doesNotMatch(result, new RegExp(HTTP_MARKER));
+	});
+
+	it('includes http section when task mentions app.listen', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'fix app.listen port binding',
+		);
+		assert.match(result, new RegExp(HTTP_MARKER));
+	});
+
+	it('includes busboy section when task mentions busboy', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'handle multipart upload with busboy',
+		);
+		assert.match(result, new RegExp(BUSBOY_MARKER));
+	});
+
+	it('excludes busboy section for a task without busboy', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'write a string-utils module',
+		);
+		assert.doesNotMatch(result, new RegExp(BUSBOY_MARKER));
+	});
+
+	it('always includes the preamble', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'write a string-utils module',
+		);
+		assert.match(result, /# Node\.js \/ ESM Contract/u);
+		assert.match(result, /ESM only/u);
+	});
+
+	it('always includes non-gated sections (test isolation)', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'write a string-utils module',
+		);
+		assert.match(result, new RegExp(ALWAYS_MARKER));
+	});
+
+	it('excludes both sqlite and http for a plain task', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'add a slugify function to utils.mjs',
+		);
+		assert.doesNotMatch(result, new RegExp(SQLITE_MARKER));
+		assert.doesNotMatch(result, new RegExp(HTTP_MARKER));
+		assert.doesNotMatch(result, new RegExp(BUSBOY_MARKER));
+		assert.match(result, new RegExp(ALWAYS_MARKER));
+	});
+
+	it('includes all sections when task mentions everything', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'build a sqlite-backed express app with busboy uploads',
+		);
+		assert.match(result, new RegExp(SQLITE_MARKER));
+		assert.match(result, new RegExp(HTTP_MARKER));
+		assert.match(result, new RegExp(BUSBOY_MARKER));
+		assert.match(result, new RegExp(ALWAYS_MARKER));
+	});
+
+	it('returns body unchanged when no ## headers present', () => {
+		const body = 'no sections here\n- just a rule\n';
+		assert.equal(gateLanguageGuidance(body, 'any task'), body);
+	});
+});
+
 // renderLanguageGuidanceBlock — C2 (phase 121)
 // ---------------------------------------------------------------------------
 
@@ -580,6 +750,34 @@ describe('renderLanguageGuidanceBlock', () => {
 			renderLanguageGuidanceBlock({ guidance: '# x', isNodeEsm: false }),
 			'',
 		);
+	});
+
+	// Phase 248: task-gating via taskContext
+	it('applies gating when taskContext is provided — excludes sqlite section for plain task', () => {
+		const block = renderLanguageGuidanceBlock({
+			isNodeEsm: true,
+			taskContext: 'add a slugify function to utils.mjs',
+		});
+		assert.doesNotMatch(block, /node:sqlite pitfalls/u);
+		assert.doesNotMatch(block, /HTTP integration test patterns/u);
+		assert.match(block, /# Node\.js \/ ESM Contract/u);
+	});
+
+	it('applies gating — includes sqlite section when task mentions node:sqlite', () => {
+		const block = renderLanguageGuidanceBlock({
+			isNodeEsm: true,
+			taskContext: 'add a route that queries node:sqlite',
+		});
+		assert.match(block, /node:sqlite pitfalls/u);
+	});
+
+	it('no gating when taskContext is absent (full body returned)', () => {
+		const gated = renderLanguageGuidanceBlock({
+			isNodeEsm: true,
+			taskContext: '',
+		});
+		const full = renderLanguageGuidanceBlock({ isNodeEsm: true });
+		assert.equal(gated, full);
 	});
 });
 

@@ -6,27 +6,18 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 245)
+## Current frontier (phase 248)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–245: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+phases 213–248: reasoning-runaway fast-fail and heal cap (231/234/236), staged
 implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
 terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
-StatementSync row-access pitfall (243), reasoning-runaway proximity guard to
-prevent false-positives on legitimate capped completions (244), staged plan text
-threaded into heal repair context for design intent (245).
+StatementSync row-access pitfall (243), reasoning-runaway proximity guard (244),
+staged plan text in heal repair context (245), SQLite test state reset pitfall (246),
+system prompt hardening (247), task-gating SQLite/HTTP skill sections (248).
 
 ## Candidates
-
-### Task-gate the SQLite/HTTP skill recipes
-The lang:node skill body (~11k chars) is injected into every Node.js prompt regardless
-of whether the task touches SQLite or HTTP. For a string-utils task this is pure
-noise that buries the behavioural rules. The `detectNodeEsm` signal fires on any
-`.mjs` file — too coarse. Consider task-gating the SQLite section behind a
-`node:sqlite` import or schema keyword detect, and the HTTP section behind an
-express/fetch import detect. Would halve typical prompt size and lift behavioural
-guidance into visible position. (Opus review 2026-06-22, priority 5.)
 
 ### Staged pipeline: remind model to write package.json for third-party deps
 Phase-246 staged dogfood: model wrote server.mjs importing express but never

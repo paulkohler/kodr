@@ -95,6 +95,49 @@ export function renderBehavioursBlock() {
 }
 
 /**
+ * Filters lang:node skill sections by task relevance. The preamble (content
+ * before the first ## header) is always included. Each ## section is included
+ * when no gate rule matches the header, or when the task context satisfies the
+ * gate's keyword pattern.
+ *
+ * Gate rules (matched against lowercased header):
+ *   "sqlite" → include if taskContext matches /sqlite|DatabaseSync|CREATE TABLE/i
+ *   "http"   → include if taskContext matches /express|node:http|http\.create|server\.listen|app\.listen/i
+ *   "busboy" → include if taskContext matches /busboy|multipart|upload/i
+ *   other    → always include (test-isolation section, etc.)
+ *
+ * Passing an empty taskContext disables filtering (all sections returned).
+ *
+ * @param {string} body        Full skill body
+ * @param {string} taskContext Task prompt text
+ * @returns {string}
+ */
+export function gateLanguageGuidance(body, taskContext) {
+	if (!taskContext) return body;
+	const preambleEnd = body.search(/^## /mu);
+	if (preambleEnd === -1) return body;
+	const preamble = body.slice(0, preambleEnd);
+	const sections = body.slice(preambleEnd).split(/(?=^## )/mu);
+	const kept = [preamble];
+	for (const section of sections) {
+		if (!section.trim()) continue;
+		const header = (section.match(/^## (.+)/u)?.[1] ?? '').toLowerCase();
+		let gate;
+		if (header.includes('sqlite')) {
+			gate = /sqlite|DatabaseSync|CREATE TABLE/iu;
+		} else if (header.includes('http')) {
+			gate = /express|node:http|http\.create|server\.listen|app\.listen/iu;
+		} else if (header.includes('busboy')) {
+			gate = /busboy|multipart|upload/iu;
+		}
+		if (!gate || gate.test(taskContext)) {
+			kept.push(section);
+		}
+	}
+	return kept.join('').trimEnd();
+}
+
+/**
  * Returns the `# Node.js / ESM Contract` block when the workspace signals
  * a Node/ESM project, otherwise returns ''.
  *
@@ -108,6 +151,10 @@ export function renderBehavioursBlock() {
  * workspace file list, OR a task prompt naming a `.mjs`/`.cjs` target. Computed
  * once at session start and captured in `facts.isNodeEsm` (byte-stable).
  *
+ * When `facts.taskContext` is provided and the language is `node`, the body is
+ * filtered through `gateLanguageGuidance` to strip SQLite/HTTP/busboy sections
+ * not relevant to the task. Empty taskContext returns the full unfiltered body.
+ *
  * Content is terse and evidence-traceable (≤4 lines):
  * 1. ESM only — import/export; no require/module.exports; no top-level return.
  *    (gpt-oss CJS-in-ESM, devstral illegal return — phases 117/119-validation)
@@ -119,7 +166,7 @@ export function renderBehavioursBlock() {
  * The builtin body carries a trailing newline; `.trim()` makes the rendered
  * block byte-identical to the phase-121 hardcoded block (prefix stability).
  *
- * @param {{ language?: string, isNodeEsm?: boolean, guidance?: string }} [facts]
+ * @param {{ language?: string, isNodeEsm?: boolean, guidance?: string, taskContext?: string }} [facts]
  * @returns {string}
  */
 export function renderLanguageGuidanceBlock(facts) {
@@ -138,7 +185,11 @@ export function renderLanguageGuidanceBlock(facts) {
 		typeof facts.guidance === 'string' && facts.guidance.trim()
 			? facts.guidance
 			: builtinBody;
-	return guidance.trim();
+	const body = guidance.trim();
+	if (language === 'node' && facts?.taskContext) {
+		return gateLanguageGuidance(body, facts.taskContext);
+	}
+	return body;
 }
 
 /**

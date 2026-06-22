@@ -116,6 +116,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			memory,
 			modelGuidance,
 			skills,
+			taskContext: options.taskPrompt || '',
 			toolsMode,
 			toolWritesMode,
 		});
@@ -167,6 +168,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 			memory,
 			modelGuidance,
 			skills,
+			taskContext: options.taskPrompt || '',
 			toolWritesMode,
 		});
 		return {
@@ -236,6 +238,7 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 		modelGuidance,
 		omittedFiles,
 		skills,
+		taskContext: options.taskPrompt || '',
 		toolWritesMode,
 	});
 	return {
@@ -498,6 +501,7 @@ export function renderPromptSections(context = {}) {
 			context?.languageGuidance?.guidance,
 			context?.modelGuidance?.guidance,
 			context?.languageGuidance?.language,
+			context?.taskContext ?? '',
 		),
 		// environment: session-stable facts (cwd, git, node, model, date)
 		environment: context?.environmentFacts
@@ -681,6 +685,8 @@ export function renderKodrCorePrompt(context = {}, options = {}) {
 // isNodeEsm (C2, phase 121): adds the ESM contract block when true. Non-Node
 // workspaces receive an identical prompt to phase 120 (byte-stable regression).
 // language (phase 210): explicit language tag ('node'|'rust'); shadows isNodeEsm.
+// taskContext (phase 248): task prompt text; enables per-section gating of the
+// lang:node skill so SQLite/HTTP sections only appear when the task references them.
 function renderStableSection(
 	editFormat = 'patch',
 	toolsMode = false,
@@ -689,6 +695,7 @@ function renderStableSection(
 	languageGuidance = undefined,
 	modelGuidanceBody = undefined,
 	language = undefined,
+	taskContext = '',
 ) {
 	const parts = [
 		renderKodrBaseContract(editFormat, toolWritesMode),
@@ -700,6 +707,7 @@ function renderStableSection(
 	const langBlock = renderLanguageGuidanceBlock({
 		guidance: languageGuidance,
 		language: language ?? (isNodeEsm ? 'node' : null),
+		taskContext,
 	});
 	if (langBlock) {
 		parts.push(langBlock);
