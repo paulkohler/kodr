@@ -45,6 +45,24 @@ guarantee output tokens are available. Investigation: probe whether LM Studio
 honors `max_thinking_tokens` on the retry call; if not, try setting `max_tokens`
 to a much lower cap (e.g. `2048`) to force output before exhaustion.
 
+### lang:node DatabaseSync in preamble — training-prior override
+Phases 255/256 ambitious dogfoods: despite a complete Import Name pitfall in the
+SQLite section, the model continues using `import { Database } from 'node:sqlite'`
+because the SQLite section is long (~22K chars) and the import pitfall is buried
+inside it. The preamble (lines 1–30) is always visible regardless of gating.
+Adding a one-liner to the preamble (`import { DatabaseSync } from 'node:sqlite'
+— the only export; no Database, no open, no default`) would anchor the correct
+form at the top of every Node/ESM prompt, matching how Phase 256 put the hook-async
+pitfall in the preamble to successfully prevent done-callback usage.
+
+### lang:node dynamic import inside describe() causes parse failure
+Phase-256 ambitious dogfood: model wrote `const http = await import('node:http')`
+inside a `describe()` callback body. Top-level `await` outside async functions is
+illegal — the module fails to parse with SyntaxError. All static imports from
+`node:*` should be at the module top level. Add a pitfall note: dynamic `await
+import(...)` inside a function body is a SyntaxError; use a static top-level
+import instead.
+
 ### lang:node IncomingMessage has no .text() or .json() — use event streaming
 Phase-252 dogfood: model wrote `const body = await req.text()` inside an
 `http.createServer` handler. `IncomingMessage` is a Node.js stream with no
