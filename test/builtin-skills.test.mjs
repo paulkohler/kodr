@@ -138,7 +138,7 @@ describe('builtin skills bundle', () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(body, /FTS5 trigger vs manual sync/);
 		assert.match(body, /database disk image is malformed/);
-		assert.match(body, /double-delete|duplicate/i);
+		assert.match(body, /Mixing triggers and manual/);
 		assert.match(body, /pick one/i);
 	});
 
