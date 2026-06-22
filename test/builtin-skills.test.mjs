@@ -158,6 +158,7 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /stale terms/);
 		assert.match(body, /VALUES \('delete', old\.id/);
 		assert.match(body, /articles_au.*AFTER UPDATE/s);
+		assert.match(body, /INSERT INTO articles_fts\(rowid.*new\.id/s);
 	});
 
 	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
