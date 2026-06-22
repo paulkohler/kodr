@@ -43,7 +43,10 @@ const DEFAULT_PROFILES = [
 		contextWindow: 262144,
 		firstTokenTimeoutMs: 120000,
 		id: 'qwen/qwen3.6-35b-a3b',
-		maxThinkingTokens: 4096,
+		// LM Studio ignores max_thinking_tokens for this model (probe 2026-06-20:
+		// only max_tokens is honored, bounding reasoning+answer together). Set to
+		// 16384 for models/providers that do observe it.
+		maxThinkingTokens: 16384,
 		nativeToolCalls: true,
 		provider: 'local',
 		responseEnvelope: 'json',
@@ -57,7 +60,7 @@ const DEFAULT_PROFILES = [
 		contextWindow: 262144,
 		firstTokenTimeoutMs: 120000,
 		id: 'qwen/qwen3.6-35b-a3b',
-		maxThinkingTokens: 4096,
+		maxThinkingTokens: 16384,
 		nativeToolCalls: true,
 		provider: 'lmstudio',
 		responseEnvelope: 'json',

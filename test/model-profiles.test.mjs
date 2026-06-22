@@ -368,7 +368,7 @@ describe('model profiles', () => {
 			model: 'qwen/qwen3.6-35b-a3b',
 			provider: 'local',
 		});
-		assert.equal(profile.maxThinkingTokens, 4096);
+		assert.equal(profile.maxThinkingTokens, 16384);
 		assert.equal(profile.wireNoStream, true);
 	});
 
@@ -377,7 +377,7 @@ describe('model profiles', () => {
 			model: 'qwen/qwen3.6-35b-a3b',
 			provider: 'local',
 		});
-		assert.equal(options.maxThinkingTokens, 4096);
+		assert.equal(options.maxThinkingTokens, 16384);
 		assert.equal(options.wireNoStream, true);
 	});
 
