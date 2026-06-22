@@ -45,6 +45,15 @@ to a much lower cap (e.g. `2048`) to force output before exhaustion.
 ### lang:node external-content FTS5 trigger patterns
 Phase-251 ambitious dogfood: model wrote incorrect DELETE and UPDATE triggers for a `content='articles'` external-content FTS5 table. The DELETE trigger used `DELETE FROM articles_fts WHERE rowid = old.id` (wrong — causes "missing row N from content table" on next search). The UPDATE trigger used `UPDATE articles_fts SET ...` (wrong — stale terms leak). The correct patterns are undocumented: DELETE uses the pseudo-row delete syntax (`INSERT INTO fts(fts, rowid, title, body) VALUES('delete', old.id, old.title, old.body)`); UPDATE requires a pseudo-row delete + reinsert. Add these correct trigger templates to the SKILL.md FTS5 section.
 
+### lang:node node:sqlite import wrong-form expansion
+Phase-253 dogfood: model cycled through three wrong import forms before max_turns:
+`import { open } from 'node:sqlite'` (no such export), `import sqlite from
+'node:sqlite'; new sqlite.Database(...)` (sqlite.Database not a constructor), and
+`import { Database } from 'node:sqlite'` (already in the skill). Also used
+`await db.exec()` / `await db.run()` throughout — node:sqlite has no async API.
+Expand the existing Import Name pitfall to also show the `open` and default-export
+wrong forms, and add a note that all node:sqlite methods are synchronous (no await).
+
 ### lang:node IncomingMessage has no .text() or .json() — use event streaming
 Phase-252 dogfood: model wrote `const body = await req.text()` inside an
 `http.createServer` handler. `IncomingMessage` is a Node.js stream with no

@@ -89,6 +89,7 @@ SELECT id, title FROM articles WHERE articles_fts MATCH ?
 SELECT id, title FROM articles_fts WHERE articles_fts MATCH ?
 
 -- Correct option B: JOIN the FTS table to the base table for extra base columns
+-- (bare alias f in WHERE f MATCH is valid here — f resolves to the FTS5 table, not a column)
 SELECT a.id, a.title FROM articles_fts f JOIN articles a ON a.id = f.rowid WHERE f MATCH ?
 ```
 
