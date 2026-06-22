@@ -107,7 +107,7 @@ let db, server, port;
 
 before(async () => {
     db = createDatabase(':memory:');
-    app.locals.db = db; // inject into server
+    app.locals.db = db; // inject into server — only works if routes read req.app.locals.db
     await new Promise(r => { server = app.listen(0, () => { port = server.address().port; r(); }); });
 });
 
@@ -129,6 +129,12 @@ beforeEach(() => {
 If `app` is only declared inside `before()`, `beforeEach` cannot see it —
 `ReferenceError: app is not defined`. Always import or declare server/DB
 references at module scope.
+
+`app.locals.db` injection works **only when routes read `req.app.locals.db` on
+every request**. If routes instead close over a module-scope `const db`, the
+`app.locals.db` assignment is silently ignored and the server's DB accumulates
+state across `beforeEach` resets. Use the `createApp(db)` factory pattern below
+when routes are written with a module-scope DB variable.
 
 **StatementSync row access** — `stmt.all()` and `stmt.get()` return
 **named-column objects**, not arrays. `row[0]` is always `undefined`.
