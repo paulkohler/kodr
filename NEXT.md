@@ -6,11 +6,11 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 252)
+## Current frontier (phase 253)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–252: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+phases 213–253: reasoning-runaway fast-fail and heal cap (231/234/236), staged
 implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
 terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
 StatementSync row-access pitfall (243), reasoning-runaway proximity guard (244),
@@ -18,7 +18,8 @@ staged plan text in heal repair context (245), SQLite test state reset pitfall (
 system prompt hardening (247), task-gating SQLite/HTTP skill sections (248),
 db-injection createApp(db) pitfall (249), --prompt-file context-signal threading (250),
 SQLite gate keyword refinement (FTS5/:memory:) and staged planning max_tokens cap (251),
-FTS5 trigger vs manual delete conflict pitfall (252).
+FTS5 trigger vs manual delete conflict pitfall (252),
+FROM-base/WHERE-fts FTS5 MATCH failure form pitfall (253).
 
 ## Candidates
 
@@ -41,11 +42,17 @@ guarantee output tokens are available. Investigation: probe whether LM Studio
 honors `max_thinking_tokens` on the retry call; if not, try setting `max_tokens`
 to a much lower cap (e.g. `2048`) to force output before exhaustion.
 
-### lang:node FTS5 query form gap (FROM base_table WHERE fts_table MATCH)
-Phase-251 ambitious dogfood: model wrote `SELECT ... FROM articles WHERE articles_fts MATCH ?` — using the base table in FROM but the FTS virtual table name in WHERE. SQLite error: "no such column: articles_fts". The existing SKILL.md pitfall covers the alias form (`WHERE f MATCH ?` — alias not accepted) but not this FROM-base/WHERE-fts variant. Add a new Wrong example to the FTS5 MATCH syntax pitfall showing this third failure form, with the correct fix: query the FTS table directly (`FROM articles_fts WHERE articles_fts MATCH ?`) or use a JOIN.
-
 ### lang:node external-content FTS5 trigger patterns
 Phase-251 ambitious dogfood: model wrote incorrect DELETE and UPDATE triggers for a `content='articles'` external-content FTS5 table. The DELETE trigger used `DELETE FROM articles_fts WHERE rowid = old.id` (wrong — causes "missing row N from content table" on next search). The UPDATE trigger used `UPDATE articles_fts SET ...` (wrong — stale terms leak). The correct patterns are undocumented: DELETE uses the pseudo-row delete syntax (`INSERT INTO fts(fts, rowid, title, body) VALUES('delete', old.id, old.title, old.body)`); UPDATE requires a pseudo-row delete + reinsert. Add these correct trigger templates to the SKILL.md FTS5 section.
+
+### lang:node IncomingMessage has no .text() or .json() — use event streaming
+Phase-252 dogfood: model wrote `const body = await req.text()` inside an
+`http.createServer` handler. `IncomingMessage` is a Node.js stream with no
+`.text()` or `.json()` methods (those exist on the Web Fetch `Request` API).
+The correct pattern for reading a JSON body in node:http is to collect `data`
+chunks and call `JSON.parse` on the concatenated string. Add a pitfall to the
+lang:node HTTP section showing the wrong form and the correct stream-collector
+pattern.
 
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the

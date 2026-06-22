@@ -252,6 +252,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 250 Thread resolved --prompt-file text into workspaceContextOptions
 - [x] 251 SQLite gate refinement and staged planning max_tokens cap
 - [x] 252 lang:node FTS5 Trigger vs Manual Delete Conflict
+- [x] 253 lang:node FTS5 Query Form Gap
 
 ## Phase Contract
 

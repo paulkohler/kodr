@@ -78,6 +78,20 @@ SELECT f.rowid, f.title FROM articles_fts f WHERE f MATCH ?
 SELECT rowid, title FROM articles_fts WHERE articles_fts MATCH ?
 ```
 
+Also wrong — using the base table in `FROM` but the FTS virtual table name in
+`WHERE`. SQLite error: "no such column: articles_fts":
+
+```sql
+-- Wrong: articles is the base table; articles_fts is not a column of articles
+SELECT id, title FROM articles WHERE articles_fts MATCH ?
+
+-- Correct option A: query the FTS table directly
+SELECT id, title FROM articles_fts WHERE articles_fts MATCH ?
+
+-- Correct option B: JOIN the FTS table to the base table for extra base columns
+SELECT a.id, a.title FROM articles_fts f JOIN articles a ON a.id = f.rowid WHERE f MATCH ?
+```
+
 **FTS5 trigger vs manual sync — pick one** — if you use `AFTER INSERT`,
 `AFTER UPDATE`, and `AFTER DELETE` triggers to keep an FTS5 virtual table in
 sync with its base table, do **not** also issue manual FTS5 content-table

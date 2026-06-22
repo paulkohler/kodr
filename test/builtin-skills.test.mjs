@@ -142,6 +142,14 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /pick one/i);
 	});
 
+	it('lang:node covers the FROM-base/WHERE-fts FTS5 MATCH failure form', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /FROM articles WHERE articles_fts MATCH/);
+		assert.match(body, /no such column: articles_fts/);
+		assert.match(body, /FROM articles_fts WHERE articles_fts MATCH/);
+		assert.match(body, /JOIN articles.*ON.*rowid/s);
+	});
+
 	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(
