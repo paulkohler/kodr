@@ -6,35 +6,20 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 250)
+## Current frontier (phase 251)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–250: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+phases 213–251: reasoning-runaway fast-fail and heal cap (231/234/236), staged
 implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
 terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
 StatementSync row-access pitfall (243), reasoning-runaway proximity guard (244),
 staged plan text in heal repair context (245), SQLite test state reset pitfall (246),
 system prompt hardening (247), task-gating SQLite/HTTP skill sections (248),
-db-injection createApp(db) pitfall (249), --prompt-file context-signal threading (250).
+db-injection createApp(db) pitfall (249), --prompt-file context-signal threading (250),
+SQLite gate keyword refinement (FTS5/:memory:) and staged planning max_tokens cap (251).
 
 ## Candidates
-
-### SQLite skill gate: add FTS5 and :memory: as gate keywords
-Phase-248 dogfood: the task used schema notation (`categories(id INTEGER PRIMARY KEY
-...)`) with an FTS5 virtual table but never wrote `sqlite`, `DatabaseSync`, or
-`CREATE TABLE`. Gate correctly didn't fire — but the model needed the SQLite
-pitfalls. Add `FTS5` and `:memory:` to `/sqlite|DatabaseSync|CREATE TABLE/i` so
-schema-focused tasks without the literal word "sqlite" still pull in the section.
-
-### Staged planning request needs max_tokens for thinking models
-Phase-248 dogfood: `--staged --prompt-file` timed out 3× on the planning stage.
-The staged planning API call does not set `max_tokens`. For qwen3.6-35b-a3b,
-LM Studio ignores `max_thinking_tokens` and only honors `max_tokens`. Without a
-`max_tokens` bound, the model reasons indefinitely past 600s. Auto-staged (keyword
-detection) works because it uses the full-system-prompt path. Fix: set `max_tokens`
-on staged planning requests using the profile's `completionReserve` or a dedicated
-planning cap.
 
 ### Staged pipeline: remind model to write package.json for third-party deps
 Phase-246 staged dogfood: model wrote server.mjs importing express but never

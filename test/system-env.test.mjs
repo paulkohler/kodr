@@ -573,6 +573,41 @@ describe('gateLanguageGuidance', () => {
 		assert.match(result, new RegExp(SQLITE_MARKER));
 	});
 
+	// Phase 251: FTS5, :memory:, node:sqlite gate keywords.
+	it('includes sqlite section when task mentions FTS5', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'add an FTS5 virtual table for search',
+		);
+		assert.match(result, new RegExp(SQLITE_MARKER));
+	});
+
+	it('includes sqlite section when task mentions :memory:', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'open a :memory: database for the test',
+		);
+		assert.match(result, new RegExp(SQLITE_MARKER));
+	});
+
+	it('includes sqlite section when task mentions node:sqlite', () => {
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'import DatabaseSync from node:sqlite',
+		);
+		assert.match(result, new RegExp(SQLITE_MARKER));
+	});
+
+	it('includes sqlite section for schema notation with FTS5 but no literal sqlite', () => {
+		// Phase-248 regression: task used abbreviated schema notation with FTS5
+		// but none of the original keywords (sqlite/DatabaseSync/CREATE TABLE).
+		const result = gateLanguageGuidance(
+			makeBody(),
+			'build categories(id INTEGER PRIMARY KEY, name TEXT) with an FTS5 index',
+		);
+		assert.match(result, new RegExp(SQLITE_MARKER));
+	});
+
 	it('includes http section when task mentions express', () => {
 		const result = gateLanguageGuidance(
 			makeBody(),

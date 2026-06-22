@@ -325,6 +325,12 @@ describe('completion cap request shaping', () => {
 	// main loop does not) is a wiring fact proven LIVE by the phase-236 dogfood,
 	// which inspects raw-request.json: max_tokens present on a heal turn, absent on a
 	// main-loop turn. A hand-built options bag here cannot catch that wiring no-op.
+	//
+	// Phase 251: the staged PLANNING call (run-pipeline.mjs) now also sets
+	// completionCapMode:'staged-retry'. The wiring is exercised by the
+	// 'Phase 251 — runStagedPrompt planning request max_tokens cap' describe
+	// block in test/staged-pipeline.test.mjs, which drives a real staged run
+	// against the fake server and asserts max_tokens appears on the plan request.
 });
 
 describe('prompt cache request shaping', () => {

@@ -250,6 +250,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 248 Task-gate lang:node SQLite/HTTP skill sections
 - [x] 249 lang:node skill: db injection (createApp factory) pitfall
 - [x] 250 Thread resolved --prompt-file text into workspaceContextOptions
+- [x] 251 SQLite gate refinement and staged planning max_tokens cap
 
 ## Phase Contract
 

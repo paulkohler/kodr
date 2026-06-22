@@ -3506,3 +3506,111 @@ describe('Phase 240 — staged reasoning-runaway fast-fail', () => {
 		}
 	});
 });
+
+// Phase 251 — staged planning request carries max_tokens cap
+// ---------------------------------------------------------------------------
+
+describe('Phase 251 — runStagedPrompt planning request max_tokens cap', () => {
+	it('planning request carries max_tokens = 8192 (staged-retry floor, completionReserve=4096)', async () => {
+		// Provenance: phase-248 dogfood (~/src/kodr-testing/phase-248/expense-tracker/).
+		// Planning stage timed out 3× at 600s. qwen3.6 completionReserve=4096 < 8192
+		// floor, so staged-retry cap yields max_tokens=8192.
+		// This test drives a full staged run against the fake server and asserts
+		// the planning request (first POST whose user message contains
+		// 'Return a plan only') carries max_tokens=8192.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-p251-plan-cap-'));
+
+		const server = await startFakeModelServer({
+			responses: [
+				// Plan turn.
+				{
+					body: proposalResponse({
+						files: [],
+						messages: [{ content: 'Plan ready.', level: 'info' }],
+						scratchpad: '{"plan":["create src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+				// Stage 1: write the file and signal done.
+				{
+					body: proposalResponse({
+						files: [
+							{
+								content: 'export const answer = 42;\n',
+								path: 'src/answer.mjs',
+							},
+						],
+						messages: [{ content: 'STAGED_DONE', level: 'info' }],
+						scratchpad: '{"done":["src/answer.mjs"]}',
+					}),
+					method: 'POST',
+					status: 200,
+					url: '/v1/chat/completions',
+				},
+			],
+		});
+
+		try {
+			await main(
+				[
+					'run',
+					'-p',
+					'Create src/answer.mjs',
+					'--staged',
+					'--base-url',
+					server.baseUrl,
+					'--out',
+					'p251-plan-cap-out',
+					'--timeout-ms',
+					'10000',
+					'--yes',
+					'--json',
+				],
+				{
+					cwd,
+					env: {},
+					stderr: { write: () => {} },
+					stdout: { write: () => {} },
+				},
+			);
+
+			// Find the planning request: first POST to /v1/chat/completions whose
+			// user message contains 'Return a plan only'.
+			const planRequest = server.recordings.find(
+				(r) =>
+					r.method === 'POST' &&
+					r.url === '/v1/chat/completions' &&
+					(r.requestBody?.messages ?? []).some((m) =>
+						String(m.content ?? '').includes('Return a plan only'),
+					),
+			);
+			assert.ok(planRequest, 'planning request was made');
+			// staged-retry cap: max(completionReserve=4096, 8192) = 8192.
+			assert.equal(
+				planRequest.requestBody.max_tokens,
+				8192,
+				`planning request must carry max_tokens=8192, got: ${planRequest.requestBody.max_tokens}`,
+			);
+
+			// Execute-stage request must NOT carry max_tokens (unchanged).
+			const execRequest = server.recordings.find(
+				(r) =>
+					r.method === 'POST' &&
+					r.url === '/v1/chat/completions' &&
+					(r.requestBody?.messages ?? []).some((m) =>
+						String(m.content ?? '').includes('implementation stage'),
+					),
+			);
+			assert.ok(execRequest, 'execute-stage request was made');
+			assert.equal(
+				execRequest.requestBody.max_tokens,
+				undefined,
+				`execute-stage request must NOT carry max_tokens, got: ${execRequest.requestBody.max_tokens}`,
+			);
+		} finally {
+			await server.close();
+		}
+	});
+});

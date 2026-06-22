@@ -1894,8 +1894,13 @@ async function runStagedPrompt({
 	// Counts retries across all stages; written into summary.staged.
 	let stagedRunawayRetries = 0;
 
+	// Phase 251: cap the planning request's reasoning. LM Studio ignores
+	// max_thinking_tokens for qwen3.6 and honors only max_tokens, so an uncapped
+	// plan call reasons past the 600s timeout (phase-248 dogfood: 3× timeout).
+	// Reuse the staged-retry cap = max(completionReserve, 8192) — a plan only emits
+	// a stage breakdown, and the 8192 floor leaves room for a multi-stage plan.
 	const planCompletion = await completeWithToolCalls(
-		options,
+		{ ...options, completionCapMode: 'staged-retry' },
 		model,
 		`${prompt}\n\n## Kodr staged execution\nReturn a plan only. Do not include files or patches. Put a concise implementation plan in scratchpad, grouped into small stages of at most ${maxStageWrites} files each.`,
 		context.systemPrompt,

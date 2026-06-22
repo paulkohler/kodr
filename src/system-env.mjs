@@ -101,7 +101,8 @@ export function renderBehavioursBlock() {
  * gate's keyword pattern.
  *
  * Gate rules (matched against lowercased header):
- *   "sqlite" → include if taskContext matches /sqlite|DatabaseSync|CREATE TABLE/i
+ *   "sqlite" → include if taskContext matches
+ *              /sqlite|DatabaseSync|CREATE TABLE|FTS5|:memory:|node:sqlite/i
  *   "http"   → include if taskContext matches /express|node:http|http\.create|server\.listen|app\.listen/i
  *   "busboy" → include if taskContext matches /busboy|multipart|upload/i
  *   other    → always include (test-isolation section, etc.)
@@ -124,7 +125,7 @@ export function gateLanguageGuidance(body, taskContext) {
 		const header = (section.match(/^## (.+)/u)?.[1] ?? '').toLowerCase();
 		let gate;
 		if (header.includes('sqlite')) {
-			gate = /sqlite|DatabaseSync|CREATE TABLE/iu;
+			gate = /sqlite|DatabaseSync|CREATE TABLE|FTS5|:memory:|node:sqlite/iu;
 		} else if (header.includes('http')) {
 			gate = /express|node:http|http\.create|server\.listen|app\.listen/iu;
 		} else if (header.includes('busboy')) {
