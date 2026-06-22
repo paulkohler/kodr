@@ -2171,6 +2171,98 @@ describe('run', () => {
 		}
 	});
 
+	// Phase 250: --prompt-file resolvedPrompt threads into workspaceContextOptions.
+	// A greenfield workspace with no .mjs files should still get the Node/ESM
+	// guidance block when the prompt file names a .mjs target, because
+	// detectNodeEsm picks up the greenfield .mjs cue from taskPrompt.
+	// The Node/ESM block lives in context.systemPrompt, not in the workspace-file
+	// section emitted by renderContextMarkdown, so we assert on result.context.
+	it('--show-context --prompt-file: Node/ESM block present for .mjs prompt', async () => {
+		const server = await startFakeModelServer();
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-show-context-pf-'));
+			// Greenfield: no .mjs, no package.json — ESM must come from the prompt.
+			await writeFile(
+				join(cwd, 'task.md'),
+				'Create a calculator in calc.mjs with node:test coverage.',
+				'utf8',
+			);
+
+			const result = await main(
+				[
+					'run',
+					'--show-context',
+					'--no-inspect-context',
+					'--prompt-file',
+					'task.md',
+					'--base-url',
+					server.baseUrl,
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.ok, true);
+			// The lang:node builtin skill starts with "# Node.js / ESM Contract".
+			// context.systemPrompt holds the full rendered system prompt.
+			assert.match(result.context.systemPrompt, /Node\.js \/ ESM Contract/u);
+			// isNodeEsm must be true — greenfield detection fired from the prompt text.
+			assert.equal(result.context.isNodeEsm, true);
+			// No model call made.
+			assert.equal(server.recordings.length, 0);
+		} finally {
+			await server.close();
+		}
+	});
+
+	it('--show-context --prompt-file: no Node/ESM block when prompt has no .mjs cue', async () => {
+		const server = await startFakeModelServer();
+
+		try {
+			const cwd = await mkdtemp(join(tmpdir(), 'kodr-show-context-pf-nocue-'));
+			// Greenfield: no .mjs, no package.json.
+			await writeFile(
+				join(cwd, 'task.md'),
+				'Build a simple web scraper.',
+				'utf8',
+			);
+
+			const result = await main(
+				[
+					'run',
+					'--show-context',
+					'--no-inspect-context',
+					'--prompt-file',
+					'task.md',
+					'--base-url',
+					server.baseUrl,
+				],
+				{
+					cwd,
+					env: {},
+					stderr: captureStream(),
+					stdout: captureStream(),
+				},
+			);
+
+			assert.equal(result.ok, true);
+			// Without a .mjs cue the ESM block must NOT be injected.
+			assert.doesNotMatch(
+				result.context.systemPrompt,
+				/Node\.js \/ ESM Contract/u,
+			);
+			assert.equal(result.context.isNodeEsm, false);
+			assert.equal(server.recordings.length, 0);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it('injects an inspection-derived plan before inspect-context model runs', async () => {
 		const server = await startFakeModelServer({
 			responses: [

@@ -9,7 +9,12 @@ import { join } from 'node:path';
 import { CliError } from '../cli-errors.mjs';
 import { jailedPath } from '../safe-writes.mjs';
 
-export function workspaceContextOptions(options, cwd) {
+// Phase 250: resolvedPrompt is the already-loaded file text (from loadPrompt /
+// loadOptionalPrompt). Prefer it over the raw flag value via `??` so an
+// explicitly-resolved empty string is respected while `undefined` (callers that
+// pass only two args) falls through to options.prompt. The trailing `?? ''`
+// keeps the never-undefined contract.
+export function workspaceContextOptions(options, cwd, resolvedPrompt) {
 	return {
 		completionReserve: options.completionReserve,
 		contextWindow: options.contextWindow,
@@ -19,7 +24,10 @@ export function workspaceContextOptions(options, cwd) {
 		// C2 (phase 121): the task text is an ESM signal for greenfield workspaces
 		// (a prompt naming a .mjs/.cjs target triggers the Node/ESM contract block
 		// even before any file exists on disk).
-		taskPrompt: options.prompt || '',
+		// Phase 250: prefer resolvedPrompt (--prompt-file text) over the raw flag;
+		// options.prompt is '' for --prompt-file runs so the ESM cue would otherwise
+		// never reach detectNodeEsm / detectRust / gateLanguageGuidance.
+		taskPrompt: resolvedPrompt ?? options.prompt ?? '',
 		// C3 (phase 122): resolved skill dirs so a project/user `lang:node` override
 		// in a dot-folder tier can shadow the builtin Node/ESM guidance.
 		...(cwd ? { skillsDirs: resolvedSkillsDirs(options, cwd) } : {}),

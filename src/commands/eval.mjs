@@ -32,6 +32,11 @@ export async function runEval(options, io, runPrompt) {
 
 	const runDir = await createRunArtifacts(io.cwd, options.out);
 	const memory = await loadMemory(io.cwd);
+	// Phase 250: intentionally two-arg — eval builds a suite-level base context
+	// for proposal cases only. Each case's own evalCase.prompt is the task; there
+	// is no single CLI prompt to thread here, and workspace cases re-derive their
+	// own context inside runWorkspaceCase. options.prompt is typically unset for
+	// eval runs. Passing undefined falls through to the existing behaviour.
 	const context = await buildWorkspaceContext(io.cwd, {
 		memory,
 		...workspaceContextOptions(options, io.cwd),

@@ -153,7 +153,7 @@ to mention phase 249 (db-injection createApp(db) pitfall), consistent with how
 - [x] NEXT.md db-injection entry deleted; frontier line updated to 249.
 - [x] Roadmap line `249 lang:node skill: db injection (createApp factory) pitfall`
       checked.
-- [ ] Commit captures the phase.
+- [x] Commit captures the phase.
 
 ## Notes
 

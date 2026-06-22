@@ -19,7 +19,7 @@ export async function runCompare(options, io) {
 	const context = await buildWorkspaceContext(io.cwd, {
 		memory,
 		skills,
-		...workspaceContextOptions(options, io.cwd),
+		...workspaceContextOptions(options, io.cwd, prompt),
 	});
 	const { compDir, comparison } = await runComparison(
 		options,

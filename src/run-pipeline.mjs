@@ -392,7 +392,7 @@ export async function runPrompt(options, io) {
 				memory,
 				skills,
 				toolsMode: options.tools,
-				...workspaceContextOptions(options, io.cwd),
+				...workspaceContextOptions(options, io.cwd, prompt),
 			});
 		} else {
 			skills = await loadSkills(io.cwd, options.skills, {
@@ -423,7 +423,7 @@ export async function runPrompt(options, io) {
 				memory,
 				skills,
 				toolsMode: options.tools,
-				...workspaceContextOptions(options, io.cwd),
+				...workspaceContextOptions(options, io.cwd, prompt),
 			});
 			initialMessages = [
 				{ role: 'system', content: context.systemPrompt },
@@ -1925,7 +1925,7 @@ async function runStagedPrompt({
 			memory,
 			skills,
 			toolsMode: options.tools,
-			...workspaceContextOptions(options, io.cwd),
+			...workspaceContextOptions(options, io.cwd, prompt),
 		});
 		const stagePrompt = [
 			prompt,

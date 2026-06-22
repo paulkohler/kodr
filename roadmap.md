@@ -249,6 +249,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 247 System prompt hardening: package.json rule, read-before-write, staged awareness, prefer tool calls
 - [x] 248 Task-gate lang:node SQLite/HTTP skill sections
 - [x] 249 lang:node skill: db injection (createApp factory) pitfall
+- [x] 250 Thread resolved --prompt-file text into workspaceContextOptions
 
 ## Phase Contract
 

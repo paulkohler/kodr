@@ -6,17 +6,17 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 249)
+## Current frontier (phase 250)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–249: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+phases 213–250: reasoning-runaway fast-fail and heal cap (231/234/236), staged
 implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
 terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
 StatementSync row-access pitfall (243), reasoning-runaway proximity guard (244),
 staged plan text in heal repair context (245), SQLite test state reset pitfall (246),
 system prompt hardening (247), task-gating SQLite/HTTP skill sections (248),
-db-injection createApp(db) pitfall (249).
+db-injection createApp(db) pitfall (249), --prompt-file context-signal threading (250).
 
 ## Candidates
 

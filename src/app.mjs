@@ -229,7 +229,7 @@ export async function main(argv, io) {
 			const context = await buildWorkspaceContext(io.cwd, {
 				inspection,
 				memory,
-				...workspaceContextOptions(options, io.cwd),
+				...workspaceContextOptions(options, io.cwd, prompt),
 			});
 			io.stdout.write(renderContextMarkdown(context));
 			return { ok: true, command: 'run', context };
