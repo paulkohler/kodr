@@ -14,6 +14,19 @@ let server, port; // module-scope so all test() blocks can share them
 before(async () => { ... });
 after(async () => { ... });
 ```
+- Hook callbacks: `node:test` hooks (`before`, `after`, `beforeEach`, `afterEach`) must be **async** or return a **Promise**. The `done` callback pattern from Mocha/Jest does not exist — `done` is not injected; calling it throws `TypeError: done is not a function`.
+
+```js
+// Wrong — done is not a function in node:test; throws at runtime
+before((done) => { server.listen(0, done); });
+before((done) => { connect(options, done); });
+
+// Correct A — async/await
+before(async () => { await new Promise(res => server.listen(0, res)); });
+
+// Correct B — return a Promise directly
+before(() => new Promise(res => server.listen(0, res)));
+```
 - CLI argv: `process.argv` entries are separate tokens (`--top` and `3` are two entries); parse flags with a token loop, not a single-string regex.
 - ANSI truncation: truncate terminal strings by visible width, not raw `.length`. Raw length over-counts when ANSI colour codes are present, clipping mid-sequence and producing garbage output. Use the pattern below.
 

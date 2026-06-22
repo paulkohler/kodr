@@ -391,9 +391,10 @@ describe('prompt budget guard', () => {
 		// Phase 253 added FROM-base/WHERE-fts FTS5 MATCH failure form; ~19097 chars. Limit raised to 19500. // Phase 253
 		// Phase 254 added external-content FTS5 trigger patterns; ~20725 chars. Limit raised to 21000. // Phase 254
 		// Phase 255 added import wrong-form expansion + synchronous pitfall; ~21619 chars. Limit raised to 22000. // Phase 255
+		// Phase 256 added node:test hook async pitfall; ~22257 chars. Limit raised to 22500. // Phase 256
 		assert.ok(
-			promptLen < 22000,
-			`Node/ESM system message must stay under 22000 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 22500,
+			`Node/ESM system message must stay under 22500 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
@@ -458,9 +459,10 @@ describe('prompt budget guard', () => {
 		// Phase 253 added FROM-base/WHERE-fts FTS5 MATCH failure form; ~18004 chars. Limit raised to 18500. // Phase 253
 		// Phase 254 added external-content FTS5 trigger patterns; ~19632 chars. Limit raised to 20000. // Phase 254
 		// Phase 255 added import wrong-form expansion + synchronous pitfall; ~20526 chars. Limit raised to 21000. // Phase 255
+		// Phase 256 added node:test hook async pitfall; ~21164 chars. Limit raised to 21500. // Phase 256
 		assert.ok(
-			promptLen < 21000,
-			`Native mode system message must stay under 21000 chars; got ${promptLen} chars`,
+			promptLen < 21500,
+			`Native mode system message must stay under 21500 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -1093,9 +1095,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 		// Phase 253 added FROM-base/WHERE-fts FTS5 MATCH failure form; ~19095 chars. Limit raised to 19500. // Phase 253
 		// Phase 254 added external-content FTS5 trigger patterns; ~20723 chars. Limit raised to 21000. // Phase 254
 		// Phase 255 added import wrong-form expansion + synchronous pitfall; ~21617 chars. Limit raised to 22000. // Phase 255
+		// Phase 256 added node:test hook async pitfall; ~22255 chars. Limit raised to 22500. // Phase 256
 		assert.ok(
-			context.systemPrompt.length < 22000,
-			`System message must stay under 22000 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 22500,
+			`System message must stay under 22500 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });

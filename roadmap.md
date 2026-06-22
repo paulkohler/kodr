@@ -255,6 +255,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 253 lang:node FTS5 Query Form Gap
 - [x] 254 lang:node External-Content FTS5 Trigger Patterns
 - [x] 255 lang:node node:sqlite Import Wrong-Form Expansion
+- [x] 256 lang:node node:test Hook Async Pattern
 
 ## Phase Contract
 

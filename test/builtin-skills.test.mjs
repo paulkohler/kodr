@@ -131,6 +131,15 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /app\.locals\.db/);
 	});
 
+	it('lang:node warns that node:test hooks must be async — no done callback', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /done is not a function/i);
+		assert.match(body, /before\(\(done\)/);
+		assert.match(body, /server\.listen\(0, done\)/);
+		assert.match(body, /Correct A/);
+		assert.match(body, /new Promise\(res => server\.listen\(0, res\)\)/);
+	});
+
 	it('lang:node warns that StatementSync rows are named-column objects, not arrays', () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(body, /StatementSync row access/);

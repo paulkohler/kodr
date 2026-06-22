@@ -6,11 +6,11 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 255)
+## Current frontier (phase 256)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–255: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+phases 213–256: reasoning-runaway fast-fail and heal cap (231/234/236), staged
 implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
 terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
 StatementSync row-access pitfall (243), reasoning-runaway proximity guard (244),
@@ -21,7 +21,8 @@ SQLite gate keyword refinement (FTS5/:memory:) and staged planning max_tokens ca
 FTS5 trigger vs manual delete conflict pitfall (252),
 FROM-base/WHERE-fts FTS5 MATCH failure form pitfall (253),
 external-content FTS5 trigger pseudo-row delete syntax (254),
-node:sqlite import wrong-form expansion and synchronous pitfall (255).
+node:sqlite import wrong-form expansion and synchronous pitfall (255),
+node:test hook async pitfall — no done callback (256).
 
 ## Candidates
 
@@ -43,15 +44,6 @@ the effective ceiling needs to be `max_thinking_tokens + output_budget` to
 guarantee output tokens are available. Investigation: probe whether LM Studio
 honors `max_thinking_tokens` on the retry call; if not, try setting `max_tokens`
 to a much lower cap (e.g. `2048`) to force output before exhaustion.
-
-### lang:node node:test hooks must return a Promise or be async — no done callback
-Phase-255 dogfood: model wrote `before((done) => { ... })` — the `done` callback
-pattern is not supported by `node:test`. The hook fires synchronously, `done` is
-not a function, and calling it would throw. The correct forms are
-`before(async () => { ... })` or `before(() => new Promise(...))`. Add a pitfall
-to the lang:node Tests section noting that `node:test` lifecycle hooks (`before`,
-`after`, `beforeEach`, `afterEach`) must be async or return a Promise; the callback
-pattern from Mocha/Jest does not exist here.
 
 ### lang:node IncomingMessage has no .text() or .json() — use event streaming
 Phase-252 dogfood: model wrote `const body = await req.text()` inside an
