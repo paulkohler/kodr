@@ -48,6 +48,12 @@ index (`ERR_SQLITE_ERROR: database disk image is malformed`). Add a pitfall to
 the lang:node FTS5 section: if using triggers for FTS5 sync, do not also issue
 manual FTS content table commands — pick one or the other.
 
+### lang:node FTS5 query form gap (FROM base_table WHERE fts_table MATCH)
+Phase-251 ambitious dogfood: model wrote `SELECT ... FROM articles WHERE articles_fts MATCH ?` — using the base table in FROM but the FTS virtual table name in WHERE. SQLite error: "no such column: articles_fts". The existing SKILL.md pitfall covers the alias form (`WHERE f MATCH ?` — alias not accepted) but not this FROM-base/WHERE-fts variant. Add a new Wrong example to the FTS5 MATCH syntax pitfall showing this third failure form, with the correct fix: query the FTS table directly (`FROM articles_fts WHERE articles_fts MATCH ?`) or use a JOIN.
+
+### lang:node external-content FTS5 trigger patterns
+Phase-251 ambitious dogfood: model wrote incorrect DELETE and UPDATE triggers for a `content='articles'` external-content FTS5 table. The DELETE trigger used `DELETE FROM articles_fts WHERE rowid = old.id` (wrong — causes "missing row N from content table" on next search). The UPDATE trigger used `UPDATE articles_fts SET ...` (wrong — stale terms leak). The correct patterns are undocumented: DELETE uses the pseudo-row delete syntax (`INSERT INTO fts(fts, rowid, title, body) VALUES('delete', old.id, old.title, old.body)`); UPDATE requires a pseudo-row delete + reinsert. Add these correct trigger templates to the SKILL.md FTS5 section.
+
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met. Needs a human call and won't resurface on its own.
