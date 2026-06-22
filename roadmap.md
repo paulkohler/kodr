@@ -246,6 +246,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 244 Reasoning-Runaway Proximity Guard
 - [x] 245 Staged Plan in Heal Repair Context
 - [x] 246 lang:node skill: SQLite test state reset pitfall
+- [x] 247 System prompt hardening: package.json rule, read-before-write, staged awareness, prefer tool calls
 
 ## Phase Contract
 

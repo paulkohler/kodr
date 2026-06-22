@@ -19,6 +19,15 @@ threaded into heal repair context for design intent (245).
 
 ## Candidates
 
+### Task-gate the SQLite/HTTP skill recipes
+The lang:node skill body (~11k chars) is injected into every Node.js prompt regardless
+of whether the task touches SQLite or HTTP. For a string-utils task this is pure
+noise that buries the behavioural rules. The `detectNodeEsm` signal fires on any
+`.mjs` file — too coarse. Consider task-gating the SQLite section behind a
+`node:sqlite` import or schema keyword detect, and the HTTP section behind an
+express/fetch import detect. Would halve typical prompt size and lift behavioural
+guidance into visible position. (Opus review 2026-06-22, priority 5.)
+
 ### Staged pipeline: remind model to write package.json for third-party deps
 Phase-246 staged dogfood: model wrote server.mjs importing express but never
 wrote package.json. Without it, npm install never triggers and all tests fail

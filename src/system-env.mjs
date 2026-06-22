@@ -84,12 +84,13 @@ export function renderEnvironmentBlock(facts) {
 export function renderBehavioursBlock() {
 	return [
 		'# Behaviours',
-		'- Return exactly ONE JSON envelope per response, containing the COMPLETE files/patches for the task. Never split work across multiple JSON blocks or defer code to a later response.',
+		'- Return exactly ONE JSON envelope per response. Include COMPLETE file content — never placeholders or "rest unchanged". In staged execution, complete only the current stage slice; the harness will prompt for the next stage.',
 		'- If verification or tests fail, say so in messages — never claim success.',
 		'- If a tool call fails or returns nothing useful, change your approach — do not repeat the identical call.',
 		'- When you have enough information to write the proposal, write it — do not keep exploring.',
 		'- Write the exact file path the task names; to fix a failing test, edit the file in the failure, not a new sibling file.',
 		'- Every imported name must be exported by the file it comes from; keep imports and exports in sync across files.',
+		'- When you import a third-party package, declare it in `package.json` `dependencies` in the same response — never import a package that has no `package.json` entry.',
 	].join('\n');
 }
 
@@ -157,7 +158,7 @@ export function renderToolsBlock(toolWritesMode = 'auto') {
 		'# Tools',
 		'- `inspect_symbols` — compact structural map of the workspace; use first to orient.',
 		'- `find_references` — symbol references across files.',
-		'- `read_file` — raw file text; read before you patch.',
+		'- `read_file` — raw file text. Read every existing file before you edit or patch it — never patch a file you have not read this turn.',
 		'- `read_skill_resource` — declared skill resource content.',
 		'- `run_skill_command` — declared skill helper commands (explicit approval required).',
 		'- `run_command` — allowlisted verification commands only.',
@@ -188,14 +189,14 @@ export function renderToolsBlock(toolWritesMode = 'auto') {
 		].join('\n');
 	}
 
-	// 'auto': 117 neutral wording (both channels described).
+	// 'auto': prefer tool calls; envelope carries status/messages only.
 	return [
 		...baseTools,
-		'- `write_file {path, content}` — propose a complete file write; recorded as a proposal entry, applied after verification.',
-		'- `edit_file {path, search, replace}` — propose a search-and-replace edit; recorded as a proposal entry, applied after verification.',
+		'- `write_file {path, content}` — write a complete file; applied immediately.',
+		'- `edit_file {path, search, replace}` — search-and-replace edit; applied immediately.',
 		'',
-		'Use write_file or edit_file to propose file changes. You may also return a final JSON envelope with files/patches arrays — both channels work; the harness merges them.',
-		'Workflow: inspect → read → write_file/edit_file (or envelope) → the harness applies and verifies.',
+		'Prefer write_file/edit_file tool calls for all file changes. Keep the final JSON envelope for status and messages; leave its files/patches arrays empty if you used the tools. Do not emit the same write through both channels.',
+		'Required order: 1) inspect_symbols to orient, 2) read_file every file you will touch, 3) write_file/edit_file. Skipping step 2 produces wrong patches.',
 		'You have a limited number of tool turns; finish writing before they run out.',
 	].join('\n');
 }

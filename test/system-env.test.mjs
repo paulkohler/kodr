@@ -129,14 +129,14 @@ describe('captureEnvironmentFacts', () => {
 // ---------------------------------------------------------------------------
 
 describe('renderBehavioursBlock', () => {
-	it('starts with # Behaviours and has six lines', () => {
+	it('starts with # Behaviours and has seven lines', () => {
 		const block = renderBehavioursBlock();
 		assert.match(block, /^# Behaviours/u);
 		const lines = block.split('\n').filter((l) => l.startsWith('-'));
-		assert.equal(lines.length, 6, 'expected 6 behaviour lines');
+		assert.equal(lines.length, 7, 'expected 7 behaviour lines');
 	});
 
-	it('contains the six expected directive keywords', () => {
+	it('contains the seven expected directive keywords', () => {
 		const block = renderBehavioursBlock();
 		assert.match(block, /ONE JSON envelope/u);
 		assert.match(block, /claim success/u);
@@ -146,6 +146,8 @@ describe('renderBehavioursBlock', () => {
 		assert.match(block, /exact file path/u);
 		// Phase 207: cross-file import/export drift (phase 146-trial/155/204).
 		assert.match(block, /imported name must be exported/u);
+		// Phase 247: missing package.json for third-party imports.
+		assert.match(block, /package\.json.*dependencies/u);
 	});
 });
 
@@ -167,7 +169,8 @@ describe('renderToolsBlock', () => {
 	it('contains positive capture-tool contract and budget reminder (auto mode)', () => {
 		const block = renderToolsBlock();
 		// Phase 117 (W5): positive contract replaces the "no write tool" prohibition.
-		assert.match(block, /write_file or edit_file/u);
+		// Phase 247: prefer tool calls; explicit workflow order.
+		assert.match(block, /Prefer write_file\/edit_file/u);
 		assert.match(block, /limited number of tool turns/u);
 	});
 
@@ -195,10 +198,11 @@ describe('renderToolsBlock', () => {
 		assert.match(block, /JSON envelope/u);
 	});
 
-	it('auto mode (default): neutral 117 wording with both channels', () => {
+	it('auto mode (default): prefers tool calls with explicit workflow order', () => {
 		const block = renderToolsBlock('auto');
 		assert.match(block, /write_file/u);
-		assert.match(block, /both channels work/u);
+		assert.match(block, /Prefer write_file\/edit_file/u);
+		assert.match(block, /Required order/u);
 		assert.match(block, /limited number of tool turns/u);
 	});
 
@@ -351,7 +355,7 @@ describe('prompt budget guard', () => {
 	// runaway growth, not a 4096-token wire limit — context windows are 32K+
 	// since phase 146 auto-discovery.
 	// Phase 207: two new behaviour lines (exact-path, import/export sync) add
-	// ~210 chars to every prompt; the non-Node budget is raised to 3500.
+	// ~210 chars to every prompt; the non-Node budget is raised to 4000 (phase 247 behaviours+tools grew ~200 chars).
 	it('standard Node/ESM greenfield system message stays under 6000 chars (auto mode)', async () => {
 		const cwd = await mkWorkspace({
 			'app.mjs': 'export function add(a, b) { return a + b; }',
@@ -387,7 +391,7 @@ describe('prompt budget guard', () => {
 		);
 	});
 
-	it('non-Node workspace stays under 3500 chars (no ESM block)', async () => {
+	it('non-Node workspace stays under 4000 chars (no ESM block)', async () => {
 		const cwd = await mkWorkspace({
 			'main.py': 'def add(a, b): return a + b\n',
 		});
@@ -408,8 +412,8 @@ describe('prompt budget guard', () => {
 		});
 		const promptLen = context.systemPrompt.length;
 		assert.ok(
-			promptLen < 3500,
-			`Non-Node system message must stay under 3500 chars; got ${promptLen} chars`,
+			promptLen < 4000,
+			`Non-Node system message must stay under 4000 chars; got ${promptLen} chars`,
 		);
 	});
 
