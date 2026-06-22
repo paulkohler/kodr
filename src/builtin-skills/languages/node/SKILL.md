@@ -35,18 +35,41 @@ function truncateVisible(str, width, ellipsis = '') {
 
 ## node:sqlite pitfalls (Node.js 24)
 
-**Import name** — the `node:sqlite` export is `DatabaseSync`, not `Database`.
-`import { Database } from 'node:sqlite'` fails (`Database` is undefined; `new
-Database(...)` throws `TypeError: Database is not a constructor`). Import the real
-name:
+**Import name** — the only `node:sqlite` export is `DatabaseSync`. Three wrong
+import forms produce runtime errors:
 
 ```js
-// Wrong — there is no `Database` export
+// Wrong A — there is no `Database` export
 import { Database } from 'node:sqlite';
+// TypeError: Database is not a constructor
+
+// Wrong B — there is no `open` export
+import { open } from 'node:sqlite';
+// TypeError: open is not a function
+
+// Wrong C — no default export; sqlite.Database does not exist
+import sqlite from 'node:sqlite';
+new sqlite.Database(':memory:');
+// TypeError: sqlite.Database is not a constructor
 
 // Correct
 import { DatabaseSync } from 'node:sqlite';
 const db = new DatabaseSync(':memory:');
+```
+
+**node:sqlite is synchronous** — every `DatabaseSync` method is blocking and
+synchronous. `prepare()`, `exec()`, and the `StatementSync` methods (`all()`,
+`get()`, `run()`) have no async form. `await`-ing them does nothing — it wraps
+the already-resolved value in a Promise and silently returns it:
+
+```js
+// Wrong — await does nothing; node:sqlite has no async API
+const rows = await db.prepare('SELECT * FROM notes').all();
+await db.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)');
+
+// Correct — synchronous, use the return value directly
+const rows = db.prepare('SELECT * FROM notes').all();
+db.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)');
 ```
 
 **BigInt bind** — `stmt.run().lastInsertRowid` is a `BigInt`; passing it as a SQL parameter throws `TypeError: Provided value cannot be bound`. Cast with `Number()` before any bind:

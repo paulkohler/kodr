@@ -101,4 +101,4 @@ Add a dated `// Phase 253` comment on each guard line.
 - [x] Blog post `blog/253-lang-node-fts5-query-form-gap.md` added.
 - [x] NEXT.md `lang:node FTS5 query form gap` entry deleted; frontier updated to 253.
 - [x] Roadmap line checked.
-- [ ] Commit captures the phase.
+- [x] Commit captures the phase.

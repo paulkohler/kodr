@@ -254,6 +254,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 252 lang:node FTS5 Trigger vs Manual Delete Conflict
 - [x] 253 lang:node FTS5 Query Form Gap
 - [x] 254 lang:node External-Content FTS5 Trigger Patterns
+- [x] 255 lang:node node:sqlite Import Wrong-Form Expansion
 
 ## Phase Contract
 

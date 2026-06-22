@@ -6,11 +6,11 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 254)
+## Current frontier (phase 255)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–254: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+phases 213–255: reasoning-runaway fast-fail and heal cap (231/234/236), staged
 implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
 terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
 StatementSync row-access pitfall (243), reasoning-runaway proximity guard (244),
@@ -20,7 +20,8 @@ db-injection createApp(db) pitfall (249), --prompt-file context-signal threading
 SQLite gate keyword refinement (FTS5/:memory:) and staged planning max_tokens cap (251),
 FTS5 trigger vs manual delete conflict pitfall (252),
 FROM-base/WHERE-fts FTS5 MATCH failure form pitfall (253),
-external-content FTS5 trigger pseudo-row delete syntax (254).
+external-content FTS5 trigger pseudo-row delete syntax (254),
+node:sqlite import wrong-form expansion and synchronous pitfall (255).
 
 ## Candidates
 
@@ -42,15 +43,6 @@ the effective ceiling needs to be `max_thinking_tokens + output_budget` to
 guarantee output tokens are available. Investigation: probe whether LM Studio
 honors `max_thinking_tokens` on the retry call; if not, try setting `max_tokens`
 to a much lower cap (e.g. `2048`) to force output before exhaustion.
-
-### lang:node node:sqlite import wrong-form expansion
-Phase-253 dogfood: model cycled through three wrong import forms before max_turns:
-`import { open } from 'node:sqlite'` (no such export), `import sqlite from
-'node:sqlite'; new sqlite.Database(...)` (sqlite.Database not a constructor), and
-`import { Database } from 'node:sqlite'` (already in the skill). Also used
-`await db.exec()` / `await db.run()` throughout — node:sqlite has no async API.
-Expand the existing Import Name pitfall to also show the `open` and default-export
-wrong forms, and add a note that all node:sqlite methods are synchronous (no await).
 
 ### lang:node IncomingMessage has no .text() or .json() — use event streaming
 Phase-252 dogfood: model wrote `const body = await req.text()` inside an

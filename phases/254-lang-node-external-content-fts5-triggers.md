@@ -112,4 +112,4 @@ value. Add a dated `// Phase 254` comment on each guard line.
 - [x] Blog post `blog/254-lang-node-external-content-fts5-triggers.md` added.
 - [x] NEXT.md entry deleted; frontier updated to 254.
 - [x] Roadmap line checked.
-- [ ] Commit captures the phase.
+- [x] Commit captures the phase.

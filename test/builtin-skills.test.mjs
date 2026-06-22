@@ -92,8 +92,19 @@ describe('builtin skills bundle', () => {
 	it('lang:node names the node:sqlite import as DatabaseSync, not Database', () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(body, /import \{ Database \} from 'node:sqlite'/);
+		assert.match(body, /import \{ open \} from 'node:sqlite'/);
+		assert.match(body, /import sqlite from 'node:sqlite'/);
+		assert.match(body, /sqlite\.Database is not a constructor/);
 		assert.match(body, /DatabaseSync/);
-		assert.match(body, /not `Database`/);
+	});
+
+	it('lang:node warns that node:sqlite is synchronous — no await', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /node:sqlite is synchronous/);
+		assert.match(body, /await db\.prepare/);
+		assert.match(body, /await.*does nothing/i);
+		assert.match(body, /db\.prepare\('SELECT/);
+		assert.match(body, /db\.exec\(/);
 	});
 
 	it('lang:node warns to check response status before JSON.parse', () => {
