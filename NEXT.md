@@ -19,6 +19,14 @@ threaded into heal repair context for design intent (245).
 
 ## Candidates
 
+### Staged pipeline: remind model to write package.json for third-party deps
+Phase-246 staged dogfood: model wrote server.mjs importing express but never
+wrote package.json. Without it, npm install never triggers and all tests fail
+with ERR_MODULE_NOT_FOUND. The stage prompt says "write files" but doesn't
+specifically prompt the model to write package.json when it uses packages not
+in Node.js core. Consider adding a system-prompt reminder or a sensor that
+detects a bare import with no matching package.json entry.
+
 ### Capped-retry zero-output on thinking models
 Phase-245 dogfood: after a staged-runaway is detected and a capped retry is
 issued (`max_thinking_tokens: 4096`, `max_tokens: 8192`), the model still burns

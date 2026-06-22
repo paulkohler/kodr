@@ -96,31 +96,39 @@ const db = createDatabase(':memory:');
 
 **SQLite test state reset** — a shared `:memory:` DB accumulates rows across
 `test()` blocks. A test that asserts "returns empty array initially" will fail
-if any earlier test inserted rows. Reset table state in `beforeEach`, or
-reassign a fresh DB per test:
+if any earlier test inserted rows. Reset table state in `beforeEach`. Both
+the DB reference and any server reference must be declared at **module scope**
+so `beforeEach` can capture them:
 
 ```js
 import { test, before, after, beforeEach } from 'node:test';
-let db;
+import { app } from '../src/server.mjs'; // module-scope — visible to beforeEach
+let db, server, port;
 
 before(async () => {
     db = createDatabase(':memory:');
-    // For servers that accept the DB via injection (e.g. app.locals.db),
-    // assign it here too: app.locals.db = db;
-    server = app.listen(0, ...);
+    app.locals.db = db; // inject into server
+    await new Promise(r => { server = app.listen(0, () => { port = server.address().port; r(); }); });
 });
 
-// Wrong — state from test A leaks into test B:
-// test A creates a row; test B asserts length === 0; fails.
+after(async () => {
+    server.closeAllConnections?.();
+    await new Promise(r => server.close(r));
+});
 
-// Correct — reset before every test:
+// Correct — reset before every test so each block starts clean:
 beforeEach(() => {
     db.exec('DELETE FROM notes');
-    db.exec('DELETE FROM notes_fts'); // drop FTS rows too if present
-    // For server-injected DBs, reassign a fresh instance instead:
-    // app.locals.db = createDatabase(':memory:');
+    db.exec('DELETE FROM notes_fts'); // reset FTS rows too when present
+    // Alternative: reassign a fresh DB (server reads app.locals.db per request):
+    // db = createDatabase(':memory:');
+    // app.locals.db = db;
 });
 ```
+
+If `app` is only declared inside `before()`, `beforeEach` cannot see it —
+`ReferenceError: app is not defined`. Always import or declare server/DB
+references at module scope.
 
 **StatementSync row access** — `stmt.all()` and `stmt.get()` return
 **named-column objects**, not arrays. `row[0]` is always `undefined`.
