@@ -134,6 +134,14 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /UNIQUE constraint failed/);
 	});
 
+	it('lang:node warns that mixing FTS5 triggers and manual deletes corrupts the index', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /FTS5 trigger vs manual sync/);
+		assert.match(body, /database disk image is malformed/);
+		assert.match(body, /double-delete|duplicate/i);
+		assert.match(body, /pick one/i);
+	});
+
 	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(

@@ -78,6 +78,40 @@ SELECT f.rowid, f.title FROM articles_fts f WHERE f MATCH ?
 SELECT rowid, title FROM articles_fts WHERE articles_fts MATCH ?
 ```
 
+**FTS5 trigger vs manual sync — pick one** — if you use `AFTER INSERT`,
+`AFTER UPDATE`, and `AFTER DELETE` triggers to keep an FTS5 virtual table in
+sync with its base table, do **not** also issue manual FTS5 content-table
+commands from application code. The trigger fires automatically on every DML
+statement; a manual delete in the same function removes the same row a second
+time. The double-delete corrupts the FTS5 shadow tables and eventually produces
+`ERR_SQLITE_ERROR: database disk image is malformed`.
+
+```js
+// Wrong — trigger fires on DELETE FROM notes, then app code deletes again
+// CREATE TRIGGER notes_ad AFTER DELETE ON notes BEGIN
+//   DELETE FROM notes_fts WHERE rowid = old.id; END;
+function deleteNote(db, id) {
+  db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+  db.prepare('DELETE FROM notes_fts WHERE rowid = ?').run(id); // duplicate!
+}
+
+// Correct option A — triggers only; no manual FTS commands
+// CREATE TRIGGER notes_ad AFTER DELETE ON notes BEGIN
+//   DELETE FROM notes_fts WHERE rowid = old.id; END;
+function deleteNote(db, id) {
+  db.prepare('DELETE FROM notes WHERE id = ?').run(id); // trigger handles FTS
+}
+
+// Correct option B — manual sync only; no triggers
+function deleteNote(db, id) {
+  db.prepare('DELETE FROM notes_fts WHERE rowid = ?').run(id); // manual first
+  db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+}
+```
+
+Choose **one** approach for the entire application. Mixing triggers and manual
+commands for the same table always double-applies the operation.
+
 **createDatabase factory** — never open a database with a fixed file path at module scope. When multiple test files import the same module, they share the same file-based DB, causing "database is locked" and dirty initial state. Use a factory that accepts a `path` argument defaulting to `':memory:'`:
 
 ```js

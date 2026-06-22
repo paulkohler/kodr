@@ -6,18 +6,19 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 251)
+## Current frontier (phase 252)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–251: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+phases 213–252: reasoning-runaway fast-fail and heal cap (231/234/236), staged
 implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
 terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
 StatementSync row-access pitfall (243), reasoning-runaway proximity guard (244),
 staged plan text in heal repair context (245), SQLite test state reset pitfall (246),
 system prompt hardening (247), task-gating SQLite/HTTP skill sections (248),
 db-injection createApp(db) pitfall (249), --prompt-file context-signal threading (250),
-SQLite gate keyword refinement (FTS5/:memory:) and staged planning max_tokens cap (251).
+SQLite gate keyword refinement (FTS5/:memory:) and staged planning max_tokens cap (251),
+FTS5 trigger vs manual delete conflict pitfall (252).
 
 ## Candidates
 
@@ -39,14 +40,6 @@ the effective ceiling needs to be `max_thinking_tokens + output_budget` to
 guarantee output tokens are available. Investigation: probe whether LM Studio
 honors `max_thinking_tokens` on the retry call; if not, try setting `max_tokens`
 to a much lower cap (e.g. `2048`) to force output before exhaustion.
-
-### lang:node FTS5 trigger vs manual delete conflict
-Phase-245 dogfood: model set up an `AFTER DELETE` trigger on the notes table
-that automatically removed rows from the FTS5 table, AND also issued a manual
-FTS5 delete in the `deleteNote()` function. The double-delete corrupted the FTS5
-index (`ERR_SQLITE_ERROR: database disk image is malformed`). Add a pitfall to
-the lang:node FTS5 section: if using triggers for FTS5 sync, do not also issue
-manual FTS content table commands — pick one or the other.
 
 ### lang:node FTS5 query form gap (FROM base_table WHERE fts_table MATCH)
 Phase-251 ambitious dogfood: model wrote `SELECT ... FROM articles WHERE articles_fts MATCH ?` — using the base table in FROM but the FTS virtual table name in WHERE. SQLite error: "no such column: articles_fts". The existing SKILL.md pitfall covers the alias form (`WHERE f MATCH ?` — alias not accepted) but not this FROM-base/WHERE-fts variant. Add a new Wrong example to the FTS5 MATCH syntax pitfall showing this third failure form, with the correct fix: query the FTS table directly (`FROM articles_fts WHERE articles_fts MATCH ?`) or use a JOIN.
