@@ -19,6 +19,32 @@ system prompt hardening (247), task-gating SQLite/HTTP skill sections (248).
 
 ## Candidates
 
+### lang:node pitfall: db injection anti-pattern
+Phase-248 ambitious dogfood: model wrote `const db = createDatabase()` at module
+scope in `server.mjs`, then the test created a separate `:memory:` db. `beforeEach`
+resets the test's db but the server's routes close over the module-scope one.
+Categories created in test 1 persisted across resets, causing UNIQUE constraint
+failures in 12/22 tests. Fix pattern: export `createApp(db)` factory; test passes
+its own db at construction time. The `import.meta.url` listen-guard pitfall covers
+the `app.listen()` placement problem; this is the missing companion pitfall for db
+placement.
+
+### SQLite skill gate: add FTS5 and :memory: as gate keywords
+Phase-248 dogfood: the task used schema notation (`categories(id INTEGER PRIMARY KEY
+...)`) with an FTS5 virtual table but never wrote `sqlite`, `DatabaseSync`, or
+`CREATE TABLE`. Gate correctly didn't fire — but the model needed the SQLite
+pitfalls. Add `FTS5` and `:memory:` to `/sqlite|DatabaseSync|CREATE TABLE/i` so
+schema-focused tasks without the literal word "sqlite" still pull in the section.
+
+### Staged planning request needs max_tokens for thinking models
+Phase-248 dogfood: `--staged --prompt-file` timed out 3× on the planning stage.
+The staged planning API call does not set `max_tokens`. For qwen3.6-35b-a3b,
+LM Studio ignores `max_thinking_tokens` and only honors `max_tokens`. Without a
+`max_tokens` bound, the model reasons indefinitely past 600s. Auto-staged (keyword
+detection) works because it uses the full-system-prompt path. Fix: set `max_tokens`
+on staged planning requests using the profile's `completionReserve` or a dedicated
+planning cap.
+
 ### Staged pipeline: remind model to write package.json for third-party deps
 Phase-246 staged dogfood: model wrote server.mjs importing express but never
 wrote package.json. Without it, npm install never triggers and all tests fail
