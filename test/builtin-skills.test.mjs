@@ -92,7 +92,9 @@ describe('builtin skills bundle', () => {
 	it('lang:node names the node:sqlite import as DatabaseSync, not Database', () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(body, /import \{ Database \} from 'node:sqlite'/);
+		assert.match(body, /Database is not a constructor/);
 		assert.match(body, /import \{ open \} from 'node:sqlite'/);
+		assert.match(body, /open is not a function/);
 		assert.match(body, /import sqlite from 'node:sqlite'/);
 		assert.match(body, /sqlite\.Database is not a constructor/);
 		assert.match(body, /DatabaseSync/);

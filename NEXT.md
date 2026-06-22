@@ -44,6 +44,15 @@ guarantee output tokens are available. Investigation: probe whether LM Studio
 honors `max_thinking_tokens` on the retry call; if not, try setting `max_tokens`
 to a much lower cap (e.g. `2048`) to force output before exhaustion.
 
+### lang:node node:test hooks must return a Promise or be async — no done callback
+Phase-255 dogfood: model wrote `before((done) => { ... })` — the `done` callback
+pattern is not supported by `node:test`. The hook fires synchronously, `done` is
+not a function, and calling it would throw. The correct forms are
+`before(async () => { ... })` or `before(() => new Promise(...))`. Add a pitfall
+to the lang:node Tests section noting that `node:test` lifecycle hooks (`before`,
+`after`, `beforeEach`, `afterEach`) must be async or return a Promise; the callback
+pattern from Mocha/Jest does not exist here.
+
 ### lang:node IncomingMessage has no .text() or .json() — use event streaming
 Phase-252 dogfood: model wrote `const body = await req.text()` inside an
 `http.createServer` handler. `IncomingMessage` is a Node.js stream with no
