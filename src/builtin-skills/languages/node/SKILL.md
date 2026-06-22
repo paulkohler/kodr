@@ -127,6 +127,37 @@ function deleteNote(db, id) {
 Choose **one** approach for the entire application. Mixing triggers and manual
 commands for the same table always double-applies the operation.
 
+**External-content FTS5 triggers** — an external-content FTS5 table
+(`content='articles'`) stores the FTS index but reads document text from the
+base table. Its triggers must use the **pseudo-row delete syntax** — a plain
+`DELETE FROM articles_fts WHERE rowid = old.id` causes "missing row N from
+content table" on the next search. An `UPDATE articles_fts SET ...` leaves
+stale terms in the index. Use the three correct trigger forms:
+
+```sql
+-- AFTER INSERT: standard rowid insert into FTS table
+CREATE TRIGGER articles_ai AFTER INSERT ON articles BEGIN
+  INSERT INTO articles_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+END;
+
+-- AFTER DELETE: pseudo-row delete syntax (INSERT with 'delete' command)
+-- Wrong: DELETE FROM articles_fts WHERE rowid = old.id
+--   → causes "missing row N from content table" on next FTS search
+CREATE TRIGGER articles_ad AFTER DELETE ON articles BEGIN
+  INSERT INTO articles_fts(articles_fts, rowid, title, body)
+    VALUES ('delete', old.id, old.title, old.body);
+END;
+
+-- AFTER UPDATE: pseudo-row delete + reinsert (UPDATE is not valid for external-content)
+-- Wrong: UPDATE articles_fts SET title=new.title, body=new.body WHERE rowid=old.id
+--   → stale terms from old.title/old.body remain indexed after the update
+CREATE TRIGGER articles_au AFTER UPDATE ON articles BEGIN
+  INSERT INTO articles_fts(articles_fts, rowid, title, body)
+    VALUES ('delete', old.id, old.title, old.body);
+  INSERT INTO articles_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+END;
+```
+
 **createDatabase factory** — never open a database with a fixed file path at module scope. When multiple test files import the same module, they share the same file-based DB, causing "database is locked" and dirty initial state. Use a factory that accepts a `path` argument defaulting to `':memory:'`:
 
 ```js

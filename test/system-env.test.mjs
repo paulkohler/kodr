@@ -389,9 +389,10 @@ describe('prompt budget guard', () => {
 		// Phase 249 added createApp(db) injection pitfall; ~17009 chars. Limit raised to 17500.
 		// Phase 252 added FTS5 trigger vs manual sync pitfall; ~18528 chars. Limit raised to 19000. // Phase 252
 		// Phase 253 added FROM-base/WHERE-fts FTS5 MATCH failure form; ~19097 chars. Limit raised to 19500. // Phase 253
+		// Phase 254 added external-content FTS5 trigger patterns; ~20725 chars. Limit raised to 21000. // Phase 254
 		assert.ok(
-			promptLen < 19500,
-			`Node/ESM system message must stay under 19500 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 21000,
+			`Node/ESM system message must stay under 21000 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
@@ -454,9 +455,10 @@ describe('prompt budget guard', () => {
 		// Phase 249 added createApp(db) injection pitfall; ~15687 chars. Limit raised to 16000.
 		// Phase 252 added FTS5 trigger vs manual sync pitfall; ~17435 chars. Limit raised to 18000. // Phase 252
 		// Phase 253 added FROM-base/WHERE-fts FTS5 MATCH failure form; ~18004 chars. Limit raised to 18500. // Phase 253
+		// Phase 254 added external-content FTS5 trigger patterns; ~19632 chars. Limit raised to 20000. // Phase 254
 		assert.ok(
-			promptLen < 18500,
-			`Native mode system message must stay under 18500 chars; got ${promptLen} chars`,
+			promptLen < 20000,
+			`Native mode system message must stay under 20000 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -1087,9 +1089,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 		// Phase 249 added createApp(db) injection pitfall; ~17009 chars. Limit raised to 17500.
 		// Phase 252 added FTS5 trigger vs manual sync pitfall; ~18526 chars. Limit raised to 19000. // Phase 252
 		// Phase 253 added FROM-base/WHERE-fts FTS5 MATCH failure form; ~19095 chars. Limit raised to 19500. // Phase 253
+		// Phase 254 added external-content FTS5 trigger patterns; ~20723 chars. Limit raised to 21000. // Phase 254
 		assert.ok(
-			context.systemPrompt.length < 19500,
-			`System message must stay under 19500 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 21000,
+			`System message must stay under 21000 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });

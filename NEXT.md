@@ -6,11 +6,11 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 253)
+## Current frontier (phase 254)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–253: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+phases 213–254: reasoning-runaway fast-fail and heal cap (231/234/236), staged
 implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
 terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
 StatementSync row-access pitfall (243), reasoning-runaway proximity guard (244),
@@ -19,7 +19,8 @@ system prompt hardening (247), task-gating SQLite/HTTP skill sections (248),
 db-injection createApp(db) pitfall (249), --prompt-file context-signal threading (250),
 SQLite gate keyword refinement (FTS5/:memory:) and staged planning max_tokens cap (251),
 FTS5 trigger vs manual delete conflict pitfall (252),
-FROM-base/WHERE-fts FTS5 MATCH failure form pitfall (253).
+FROM-base/WHERE-fts FTS5 MATCH failure form pitfall (253),
+external-content FTS5 trigger pseudo-row delete syntax (254).
 
 ## Candidates
 
@@ -41,9 +42,6 @@ the effective ceiling needs to be `max_thinking_tokens + output_budget` to
 guarantee output tokens are available. Investigation: probe whether LM Studio
 honors `max_thinking_tokens` on the retry call; if not, try setting `max_tokens`
 to a much lower cap (e.g. `2048`) to force output before exhaustion.
-
-### lang:node external-content FTS5 trigger patterns
-Phase-251 ambitious dogfood: model wrote incorrect DELETE and UPDATE triggers for a `content='articles'` external-content FTS5 table. The DELETE trigger used `DELETE FROM articles_fts WHERE rowid = old.id` (wrong — causes "missing row N from content table" on next search). The UPDATE trigger used `UPDATE articles_fts SET ...` (wrong — stale terms leak). The correct patterns are undocumented: DELETE uses the pseudo-row delete syntax (`INSERT INTO fts(fts, rowid, title, body) VALUES('delete', old.id, old.title, old.body)`); UPDATE requires a pseudo-row delete + reinsert. Add these correct trigger templates to the SKILL.md FTS5 section.
 
 ### lang:node node:sqlite import wrong-form expansion
 Phase-253 dogfood: model cycled through three wrong import forms before max_turns:

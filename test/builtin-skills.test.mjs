@@ -150,6 +150,16 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /JOIN articles.*ON.*rowid/s);
 	});
 
+	it('lang:node documents correct external-content FTS5 trigger patterns', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /External-content FTS5 triggers/);
+		assert.match(body, /pseudo-row delete/);
+		assert.match(body, /missing row.*content table/);
+		assert.match(body, /stale terms/);
+		assert.match(body, /VALUES \('delete', old\.id/);
+		assert.match(body, /articles_au.*AFTER UPDATE/s);
+	});
+
 	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(
