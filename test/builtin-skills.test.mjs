@@ -236,6 +236,14 @@ describe('builtin skills bundle', () => {
 		);
 	});
 
+	it('lang:node warns that IncomingMessage has no .text() or .json()', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		assert.match(body, /IncomingMessage/);
+		assert.match(body, /req\.text is not a function/);
+		assert.match(body, /req\.on\('data'/);
+		assert.match(body, /Buffer\.concat/);
+	});
+
 	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(

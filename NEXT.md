@@ -39,15 +39,6 @@ specifically prompt the model to write package.json when it uses packages not
 in Node.js core. Consider adding a system-prompt reminder or a sensor that
 detects a bare import with no matching package.json entry.
 
-### lang:node IncomingMessage has no .text() or .json() — use event streaming
-Phase-252 dogfood: model wrote `const body = await req.text()` inside an
-`http.createServer` handler. `IncomingMessage` is a Node.js stream with no
-`.text()` or `.json()` methods (those exist on the Web Fetch `Request` API).
-The correct pattern for reading a JSON body in node:http is to collect `data`
-chunks and call `JSON.parse` on the concatenated string. Add a pitfall to the
-lang:node HTTP section showing the wrong form and the correct stream-collector
-pattern.
-
 ### Re-decide the @kodr/repomap publish hold
 Parked by decision (2026-06-12: no publish until more dogfooding); the
 precondition is now met. Needs a human call and won't resurface on its own.

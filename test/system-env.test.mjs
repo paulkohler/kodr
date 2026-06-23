@@ -395,9 +395,10 @@ describe('prompt budget guard', () => {
 		// Phase 256 added node:test hook async pitfall; ~22257 chars. Limit raised to 22500. // Phase 256
 		// Phase 257: SQLite content extracted to lang:sqlite; lang:node prompt shrank to ~13117 chars. Limit lowered to 13500. // Phase 257
 		// Phase 262: added dynamic await import() preamble bullet; ~13552 chars. Limit raised to 13700. // Phase 262
+		// Phase 263: added IncomingMessage streaming pitfall; ~14166 chars. Limit raised to 14200. // Phase 263
 		assert.ok(
-			promptLen < 13700,
-			`Node/ESM system message must stay under 13700 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 14200,
+			`Node/ESM system message must stay under 14200 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
@@ -464,9 +465,10 @@ describe('prompt budget guard', () => {
 		// Phase 255 added import wrong-form expansion + synchronous pitfall; ~20526 chars. Limit raised to 21000. // Phase 255
 		// Phase 256 added node:test hook async pitfall; ~21164 chars. Limit raised to 21500. // Phase 256
 		// Phase 257: SQLite content extracted to lang:sqlite; lang:node prompt shrank to ~12036 chars. Limit lowered to 12500. // Phase 257
+		// Phase 263: added IncomingMessage streaming pitfall; ~13085 chars. Limit raised to 13200. // Phase 263
 		assert.ok(
-			promptLen < 12500,
-			`Native mode system message must stay under 12500 chars; got ${promptLen} chars`,
+			promptLen < 13200,
+			`Native mode system message must stay under 13200 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -1106,9 +1108,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 		// Phase 256 added node:test hook async pitfall; ~22255 chars. Limit raised to 22500. // Phase 256
 		// Phase 257: SQLite content extracted to lang:sqlite; lang:node prompt shrank to ~13117 chars. Limit lowered to 13500. // Phase 257
 		// Phase 262: added dynamic await import() preamble bullet; ~13550 chars. Limit raised to 13700. // Phase 262
+		// Phase 263: added IncomingMessage streaming pitfall; ~14166 chars. Limit raised to 14200. // Phase 263
 		assert.ok(
-			context.systemPrompt.length < 13700,
-			`System message must stay under 13700 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 14200,
+			`System message must stay under 14200 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });

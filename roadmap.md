@@ -262,6 +262,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 260 Heal-Loop Reasoning-Runaway Fix
 - [x] 261 lang:node DatabaseSync Preamble Anchor
 - [x] 262 lang:node Dynamic Import in describe() Pitfall
+- [x] 263 lang:node IncomingMessage Streaming Pitfall
 
 ## Phase Contract
 

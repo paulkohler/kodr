@@ -186,6 +186,25 @@ assert.match(found.headers.get('content-type') ?? '', /application\/json/);
 const item = await found.json();
 ```
 
+**IncomingMessage has no `.text()` or `.json()`** — those methods exist on the
+Web Fetch `Request` API, not on Node's `http.IncomingMessage`. Reading a request
+body requires collecting stream events:
+
+```js
+// Wrong — TypeError: req.text is not a function
+const body = await req.text();
+const data = await req.json();
+
+// Correct — collect chunks then parse
+const body = await new Promise((resolve, reject) => {
+  const chunks = [];
+  req.on('data', chunk => chunks.push(chunk));
+  req.on('end', () => resolve(Buffer.concat(chunks).toString()));
+  req.on('error', reject);
+});
+const data = JSON.parse(body);
+```
+
 ## Test isolation — prefer factories over ESM cache busting
 
 Node caches ESM modules by URL. Different query strings load distinct module
