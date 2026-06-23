@@ -89,8 +89,14 @@ describe('builtin skills bundle', () => {
 		assert.doesNotMatch(body, /write_file|edit_file/);
 	});
 
-	it('lang:node names the node:sqlite import as DatabaseSync, not Database', () => {
-		const { body } = getBuiltinSkill('lang:node');
+	it('getBuiltinSkill resolves lang:sqlite with a non-empty body', () => {
+		const skill = getBuiltinSkill('lang:sqlite');
+		assert.equal(skill.name, 'lang:sqlite');
+		assert.ok(skill.body.length > 0);
+	});
+
+	it('lang:sqlite names the node:sqlite import as DatabaseSync, not Database', () => {
+		const { body } = getBuiltinSkill('lang:sqlite');
 		assert.match(body, /import \{ Database \} from 'node:sqlite'/);
 		assert.match(body, /Database is not a constructor/);
 		assert.match(body, /import \{ open \} from 'node:sqlite'/);
@@ -100,8 +106,8 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /DatabaseSync/);
 	});
 
-	it('lang:node warns that node:sqlite is synchronous — no await', () => {
-		const { body } = getBuiltinSkill('lang:node');
+	it('lang:sqlite warns that node:sqlite is synchronous — no await', () => {
+		const { body } = getBuiltinSkill('lang:sqlite');
 		assert.match(body, /node:sqlite is synchronous/);
 		assert.match(body, /await db\.prepare/);
 		assert.match(body, /await.*does nothing/i);
@@ -123,8 +129,8 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /import\.meta\.url/);
 	});
 
-	it('lang:node warns that shared SQLite test DB accumulates state and recommends beforeEach reset', () => {
-		const { body } = getBuiltinSkill('lang:node');
+	it('lang:sqlite warns that shared SQLite test DB accumulates state and recommends beforeEach reset', () => {
+		const { body } = getBuiltinSkill('lang:sqlite');
 		assert.match(body, /SQLite test state reset/);
 		assert.match(body, /beforeEach/);
 		assert.match(body, /DELETE FROM/);
@@ -140,8 +146,8 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /new Promise\(res => server\.listen\(0, res\)\)/);
 	});
 
-	it('lang:node warns that StatementSync rows are named-column objects, not arrays', () => {
-		const { body } = getBuiltinSkill('lang:node');
+	it('lang:sqlite warns that StatementSync rows are named-column objects, not arrays', () => {
+		const { body } = getBuiltinSkill('lang:sqlite');
 		assert.match(body, /StatementSync row access/);
 		assert.match(body, /named-column objects/);
 		assert.match(body, /row\.columnName/);
@@ -156,24 +162,24 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /UNIQUE constraint failed/);
 	});
 
-	it('lang:node warns that mixing FTS5 triggers and manual deletes corrupts the index', () => {
-		const { body } = getBuiltinSkill('lang:node');
+	it('lang:sqlite warns that mixing FTS5 triggers and manual deletes corrupts the index', () => {
+		const { body } = getBuiltinSkill('lang:sqlite');
 		assert.match(body, /FTS5 trigger vs manual sync/);
 		assert.match(body, /database disk image is malformed/);
 		assert.match(body, /Mixing triggers and manual/);
 		assert.match(body, /pick one/i);
 	});
 
-	it('lang:node covers the FROM-base/WHERE-fts FTS5 MATCH failure form', () => {
-		const { body } = getBuiltinSkill('lang:node');
+	it('lang:sqlite covers the FROM-base/WHERE-fts FTS5 MATCH failure form', () => {
+		const { body } = getBuiltinSkill('lang:sqlite');
 		assert.match(body, /FROM articles WHERE articles_fts MATCH/);
 		assert.match(body, /no such column: articles_fts/);
 		assert.match(body, /FROM articles_fts WHERE articles_fts MATCH/);
 		assert.match(body, /JOIN articles.*ON.*rowid/s);
 	});
 
-	it('lang:node documents correct external-content FTS5 trigger patterns', () => {
-		const { body } = getBuiltinSkill('lang:node');
+	it('lang:sqlite documents correct external-content FTS5 trigger patterns', () => {
+		const { body } = getBuiltinSkill('lang:sqlite');
 		assert.match(body, /External-content FTS5 triggers/);
 		assert.match(body, /pseudo-row delete/);
 		assert.match(body, /missing row.*content table/);

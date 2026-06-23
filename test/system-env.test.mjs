@@ -392,9 +392,10 @@ describe('prompt budget guard', () => {
 		// Phase 254 added external-content FTS5 trigger patterns; ~20725 chars. Limit raised to 21000. // Phase 254
 		// Phase 255 added import wrong-form expansion + synchronous pitfall; ~21619 chars. Limit raised to 22000. // Phase 255
 		// Phase 256 added node:test hook async pitfall; ~22257 chars. Limit raised to 22500. // Phase 256
+		// Phase 257: SQLite content extracted to lang:sqlite; lang:node prompt shrank to ~13117 chars. Limit lowered to 13500. // Phase 257
 		assert.ok(
-			promptLen < 22500,
-			`Node/ESM system message must stay under 22500 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 13500,
+			`Node/ESM system message must stay under 13500 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
@@ -460,9 +461,10 @@ describe('prompt budget guard', () => {
 		// Phase 254 added external-content FTS5 trigger patterns; ~19632 chars. Limit raised to 20000. // Phase 254
 		// Phase 255 added import wrong-form expansion + synchronous pitfall; ~20526 chars. Limit raised to 21000. // Phase 255
 		// Phase 256 added node:test hook async pitfall; ~21164 chars. Limit raised to 21500. // Phase 256
+		// Phase 257: SQLite content extracted to lang:sqlite; lang:node prompt shrank to ~12036 chars. Limit lowered to 12500. // Phase 257
 		assert.ok(
-			promptLen < 21500,
-			`Native mode system message must stay under 21500 chars; got ${promptLen} chars`,
+			promptLen < 12500,
+			`Native mode system message must stay under 12500 chars; got ${promptLen} chars`,
 		);
 	});
 
@@ -746,11 +748,12 @@ describe('renderLanguageGuidanceBlock', () => {
 	// Phase 122 shipped a 4-line block; phases 204/207 added node:sqlite, HTTP
 	// integration, and busboy pitfall sections with code patterns. Assert the
 	// pitfall coverage rather than a brittle exact line count.
+	// Phase 257: SQLite content extracted to lang:sqlite; lang:node now has a
+	// 2-line cross-ref stub, so lastInsertRowid and CURRENT_TIMESTAMP are no
+	// longer in lang:node. HTTP/busboy pitfalls remain.
 	it('includes the phase-204/207 example pitfalls', () => {
 		const block = renderLanguageGuidanceBlock({ isNodeEsm: true });
 		assert.match(block, /node:sqlite/u);
-		assert.match(block, /lastInsertRowid/u);
-		assert.match(block, /CURRENT_TIMESTAMP/u);
 		assert.match(block, /closeAllConnections/u);
 		assert.match(block, /server\.address\(\)\.port/u);
 		assert.match(block, /Busboy is not a constructor/u);
@@ -810,12 +813,15 @@ describe('renderLanguageGuidanceBlock', () => {
 		assert.match(block, /# Node\.js \/ ESM Contract/u);
 	});
 
+	// Phase 257: lang:node sqlite section is now a 2-line cross-ref stub.
+	// The gate header "## node:sqlite / SQLite" still triggers on the sqlite
+	// keyword, so the stub is included for sqlite tasks.
 	it('applies gating — includes sqlite section when task mentions node:sqlite', () => {
 		const block = renderLanguageGuidanceBlock({
 			isNodeEsm: true,
 			taskContext: 'add a route that queries node:sqlite',
 		});
-		assert.match(block, /node:sqlite pitfalls/u);
+		assert.match(block, /node:sqlite \/ SQLite/u);
 	});
 
 	it('no gating when taskContext is absent (full body returned)', () => {
@@ -1096,9 +1102,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 		// Phase 254 added external-content FTS5 trigger patterns; ~20723 chars. Limit raised to 21000. // Phase 254
 		// Phase 255 added import wrong-form expansion + synchronous pitfall; ~21617 chars. Limit raised to 22000. // Phase 255
 		// Phase 256 added node:test hook async pitfall; ~22255 chars. Limit raised to 22500. // Phase 256
+		// Phase 257: SQLite content extracted to lang:sqlite; lang:node prompt shrank to ~13117 chars. Limit lowered to 13500. // Phase 257
 		assert.ok(
-			context.systemPrompt.length < 22500,
-			`System message must stay under 22500 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 13500,
+			`System message must stay under 13500 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });
