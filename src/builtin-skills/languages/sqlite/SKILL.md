@@ -85,6 +85,26 @@ SELECT id, title FROM articles_fts WHERE articles_fts MATCH ?
 SELECT a.id, a.title FROM articles_fts f JOIN articles a ON a.id = f.rowid WHERE f MATCH ?
 ```
 
+## FTS5 virtual-table column projection
+
+FTS5 virtual tables expose only the columns declared in their `CREATE VIRTUAL
+TABLE` statement plus `rowid`. They do **not** expose the base table's primary
+key column under its original name.
+
+```sql
+-- Schema: CREATE VIRTUAL TABLE notes_fts USING fts5(title, body, content='notes', content_rowid='id')
+-- Wrong: 'id' is not a declared column on notes_fts
+SELECT id, title, body FROM notes_fts WHERE notes_fts MATCH ?
+-- ERR_SQLITE_ERROR: no such column: id
+
+-- Correct: use rowid to retrieve the base-table primary key
+SELECT rowid AS id, title, body FROM notes_fts WHERE notes_fts MATCH ?
+```
+
+Rule: for every column you need from an FTS5 query result, either declare it in
+the FTS5 schema or use `rowid` (aliased if needed). Do not assume base-table
+column names are available on the FTS virtual table.
+
 **FTS5 trigger vs manual sync — pick one** — if you use `AFTER INSERT`,
 `AFTER UPDATE`, and `AFTER DELETE` triggers to keep an FTS5 virtual table in
 sync with its base table, do **not** also issue manual FTS5 content-table

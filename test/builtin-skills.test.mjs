@@ -162,6 +162,14 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /UNIQUE constraint failed/);
 	});
 
+	it('lang:sqlite covers FTS5 virtual-table column projection pitfall', () => {
+		const { body } = getBuiltinSkill('lang:sqlite');
+		assert.match(body, /FTS5 virtual-table column projection/);
+		assert.match(body, /no such column: id/);
+		assert.match(body, /rowid AS id/i);
+		assert.match(body, /only the columns declared/);
+	});
+
 	it('lang:sqlite warns that mixing FTS5 triggers and manual deletes corrupts the index', () => {
 		const { body } = getBuiltinSkill('lang:sqlite');
 		assert.match(body, /FTS5 trigger vs manual sync/);
