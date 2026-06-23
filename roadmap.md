@@ -257,6 +257,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 255 lang:node node:sqlite Import Wrong-Form Expansion
 - [x] 256 lang:node node:test Hook Async Pattern
 - [x] 257 Extract lang:sqlite skill from lang:node
+- [x] 258 Multi-skill auto-injection (lang:node + lang:sqlite)
 
 ## Phase Contract
 

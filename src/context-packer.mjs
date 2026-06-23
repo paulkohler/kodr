@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { renderEditFormatContract } from './edit-formats.mjs';
 import {
+	SQLITE_TASK_PATTERN,
 	renderBehavioursBlock,
 	renderEnvironmentBlock,
 	renderLanguageGuidanceBlock,
@@ -69,10 +70,19 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 	// C3 (phase 122): resolve language guidance once per session. A discovered
 	// `lang:<language>` skill (any tier) shadows the builtin; otherwise the builtin body
 	// is used downstream. Result is deterministic per workspace → stable prefix.
-	const detectedLanguage = isNodeEsm ? 'node' : isRust ? 'rust' : null;
+	// Phase 258: primary language is still mutually exclusive (node | rust | null).
+	// lang:sqlite is appended as a secondary when a primary is detected and the task
+	// prompt mentions SQLite. suppressLanguageGuidance already zeros isNodeEsm/isRust,
+	// so primaryLanguage is null and the sqlite branch is skipped automatically.
+	const primaryLanguage = isNodeEsm ? 'node' : isRust ? 'rust' : null;
+	const detectedLanguages = [];
+	if (primaryLanguage) detectedLanguages.push(primaryLanguage);
+	if (primaryLanguage && SQLITE_TASK_PATTERN.test(options.taskPrompt || '')) {
+		detectedLanguages.push('sqlite');
+	}
 	const languageGuidance = await resolveLanguageGuidance(
 		cwd,
-		detectedLanguage,
+		detectedLanguages,
 		options,
 	);
 	// Phase 143: model-family guidance — fires when model matches a known family.
@@ -311,31 +321,42 @@ export async function detectNodeEsm(cwd, files, taskPrompt = '') {
 }
 
 /**
- * Resolve the effective Node/ESM guidance for a session (C3, phase 122).
+ * Resolve language guidance for a session (C3, phase 122; Phase 258: list form).
  *
- * Returns `null` when the workspace is not Node/ESM (no block fires). Otherwise
- * returns `{ language: 'node', source, guidance }` where `source` is 'override'
- * when a discovered `lang:node` skill (any tier) shadows the builtin, else
- * 'builtin' with `guidance` left undefined so the renderer applies the builtin
- * body. Discovery is dynamically imported to avoid a static import cycle
- * (skills.mjs already imports from this module).
+ * Accepts a scalar language string (back-compat) or an ordered array of language
+ * names. Returns `null` when the list is empty (no block fires). Otherwise returns
+ * an array of `{ language, source, guidance }` objects — one per language — where
+ * `source` is 'override' when a discovered `lang:<language>` skill shadows the
+ * builtin, else 'builtin' with `guidance` left undefined so the renderer applies
+ * the builtin body. Discovery is dynamically imported to avoid a static import
+ * cycle (skills.mjs already imports from this module).
+ *
+ * Discovery runs once; all languages are resolved against the same discovered set.
  */
-async function resolveLanguageGuidance(cwd, language, options = {}) {
-	if (!language) return null;
-	const skillName = `lang:${language}`;
+async function resolveLanguageGuidance(cwd, languages, options = {}) {
+	// Normalise to array; accept scalar (back-compat) or array.
+	const list = Array.isArray(languages)
+		? languages.filter(Boolean)
+		: languages
+			? [languages]
+			: [];
+	if (list.length === 0) return null;
+	let discovered = [];
 	try {
 		const { discoverSkills } = await import('./skills.mjs');
-		const skills = await discoverSkills(cwd, {
+		discovered = await discoverSkills(cwd, {
 			skillsDirs: options.skillsDirs || [],
 		});
-		const override = skills.find((skill) => skill.name === skillName);
-		if (override?.body?.trim()) {
-			return { guidance: override.body, language, source: 'override' };
-		}
 	} catch {
-		// Discovery failure must not break prompt assembly — fall back to builtin.
+		// Discovery failure must not break prompt assembly — every entry falls back to builtin.
 	}
-	return { guidance: undefined, language, source: 'builtin' };
+	const resolved = list.map((language) => {
+		const override = discovered.find((s) => s.name === `lang:${language}`);
+		return override?.body?.trim()
+			? { guidance: override.body, language, source: 'override' }
+			: { guidance: undefined, language, source: 'builtin' };
+	});
+	return resolved;
 }
 
 // Phase 210: detect Rust workspace. Cargo.toml presence is the primary signal;
@@ -493,14 +514,14 @@ export function renderPromptSections(context = {}) {
 		// stable: identity + envelope + behaviours + tools (tools only when toolsMode)
 		// + language guidance for Node/ESM or Rust workspaces (C2, phase 121; phase 210)
 		// + model guidance for known model families (phase 143).
+		// Phase 258: pass the full languageGuidance array; renderStableSection maps it.
 		stable: renderStableSection(
 			context?.editFormat,
 			context?.toolsMode,
 			context?.toolWritesMode,
 			context?.isNodeEsm ?? false,
-			context?.languageGuidance?.guidance,
+			context?.languageGuidance,
 			context?.modelGuidance?.guidance,
-			context?.languageGuidance?.language,
 			context?.taskContext ?? '',
 		),
 		// environment: session-stable facts (cwd, git, node, model, date)
@@ -684,7 +705,10 @@ export function renderKodrCorePrompt(context = {}, options = {}) {
 // wording (phase 119 D1) and the tools block wording (phase 118).
 // isNodeEsm (C2, phase 121): adds the ESM contract block when true. Non-Node
 // workspaces receive an identical prompt to phase 120 (byte-stable regression).
-// language (phase 210): explicit language tag ('node'|'rust'); shadows isNodeEsm.
+// languageGuidance (Phase 258): now an array of { language, guidance, source } entries
+// resolved by resolveLanguageGuidance; each entry is rendered by renderLanguageGuidanceBlock
+// and joined with \n\n. Back-compat: if a caller passes a non-array it is treated as
+// a single entry (should not happen in normal operation but guards transitional callers).
 // taskContext (phase 248): task prompt text; enables per-section gating of the
 // lang:node skill so SQLite/HTTP sections only appear when the task references them.
 function renderStableSection(
@@ -694,7 +718,6 @@ function renderStableSection(
 	isNodeEsm = false,
 	languageGuidance = undefined,
 	modelGuidanceBody = undefined,
-	language = undefined,
 	taskContext = '',
 ) {
 	const parts = [
@@ -704,13 +727,32 @@ function renderStableSection(
 	if (toolsMode) {
 		parts.push(renderToolsBlock(toolWritesMode));
 	}
-	const langBlock = renderLanguageGuidanceBlock({
-		guidance: languageGuidance,
-		language: language ?? (isNodeEsm ? 'node' : null),
-		taskContext,
-	});
-	if (langBlock) {
-		parts.push(langBlock);
+	// Phase 258: languageGuidance is now an array; map each entry through the
+	// single-body renderer and join. Back-compat: wrap a non-array (legacy callers).
+	// If no entries are resolved but isNodeEsm is still true (e.g. direct test
+	// callers that pass isNodeEsm without going through buildWorkspaceContext),
+	// synthesise a minimal node entry so the ESM block still fires.
+	let langEntries = Array.isArray(languageGuidance)
+		? languageGuidance
+		: languageGuidance
+			? [languageGuidance]
+			: [];
+	if (langEntries.length === 0 && isNodeEsm) {
+		langEntries = [
+			{ language: 'node', guidance: undefined, source: 'builtin' },
+		];
+	}
+	const langBlocks = langEntries
+		.map((entry) =>
+			renderLanguageGuidanceBlock({
+				guidance: entry.guidance,
+				language: entry.language,
+				taskContext,
+			}),
+		)
+		.filter(Boolean);
+	if (langBlocks.length) {
+		parts.push(langBlocks.join('\n\n'));
 	}
 	if (modelGuidanceBody?.trim()) {
 		parts.push(modelGuidanceBody.trim());

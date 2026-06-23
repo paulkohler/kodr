@@ -303,4 +303,4 @@ matches the highest phase; the bump is mandatory.
       checked; NEXT.md frontier updated to phase 257 and a Phase-258
       auto-injection candidate noted.
 - [x] `package.json` version bumped to `0.0.257`.
-- [ ] Commit captures the phase.
+- [x] Commit captures the phase.

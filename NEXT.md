@@ -6,7 +6,7 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 257)
+## Current frontier (phase 258)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
 (`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
@@ -25,16 +25,12 @@ node:sqlite import wrong-form expansion and synchronous pitfall (255),
 node:test hook async pitfall — no done callback (256).
 Phase 257 extracts the SQLite/FTS5 pitfalls into a standalone lang:sqlite skill
 so they can be injected independently of lang:node.
+Phase 258 wires multi-skill auto-injection: context-packer's scalar
+`detectedLanguage` becomes an ordered `detectedLanguages` array; `lang:sqlite` is
+appended automatically when a primary language (node or rust) is detected and the
+task prompt matches `SQLITE_TASK_PATTERN`.
 
 ## Candidates
-
-### Auto-inject a secondary language skill (lang:sqlite alongside lang:node)
-Context-packer's scalar `detectedLanguage` (`node` | `rust` | `null`) needs to
-become a list so a SQLite-flavored task pulls `lang:sqlite` in addition to the
-primary language skill. Phase 257 created the separable artifact; this phase
-wires the auto-injection so a task that mentions sqlite/FTS5 in an
-otherwise-Node workspace gets both `lang:node` and `lang:sqlite` injected
-without the user specifying `--skill lang:sqlite` explicitly.
 
 ### Staged pipeline: remind model to write package.json for third-party deps
 Phase-246 staged dogfood: model wrote server.mjs importing express but never

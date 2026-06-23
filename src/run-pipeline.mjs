@@ -1766,13 +1766,14 @@ export async function runPrompt(options, io) {
 				summary.proposalSensors = proposalSensorsResult;
 			}
 		}
-		// C4 (phase 122): record which Node/ESM guidance applied (builtin vs a
-		// project/user `lang:node` override). Omitted when no block fired.
+		// C4 (phase 122): record which language guidance applied (builtin vs override).
+		// Phase 258: languageGuidance is now an array; save the array form so forensics
+		// can surface each language separately. Back-compat: wrap scalar (transitional).
 		if (context?.languageGuidance) {
-			summary.languageGuidance = {
-				language: context.languageGuidance.language,
-				source: context.languageGuidance.source,
-			};
+			const lg = context.languageGuidance;
+			summary.languageGuidance = Array.isArray(lg)
+				? lg.map(({ language, source }) => ({ language, source }))
+				: [{ language: lg.language, source: lg.source }];
 		}
 		// Phase 143: record model-family guidance when it fired.
 		if (context?.modelGuidance) {

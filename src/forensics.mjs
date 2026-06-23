@@ -101,9 +101,23 @@ export function buildCausalStory(analysis) {
 		});
 	}
 
-	// C4 (phase 122): which language-guidance source applied (builtin vs override).
+	// C4 (phase 122): which language-guidance source(s) applied (builtin vs override).
+	// Phase 258: languageGuidance in summary.json is now an array of { language, source }.
+	// Back-compat: also accept the old scalar form { language, source }.
 	const languageGuidance = summary?.languageGuidance;
-	if (languageGuidance?.language) {
+	if (Array.isArray(languageGuidance)) {
+		for (const entry of languageGuidance) {
+			if (entry?.language) {
+				steps.push({
+					artifactPath: join(runDir, 'summary.json'),
+					detail: `${entry.language} guidance: ${entry.source}`,
+					phase: 'Context Assembly',
+					status: 'ok',
+				});
+			}
+		}
+	} else if (languageGuidance?.language) {
+		// Legacy scalar form (pre-258 summary.json files).
 		steps.push({
 			artifactPath: join(runDir, 'summary.json'),
 			detail: `${languageGuidance.language} guidance: ${languageGuidance.source}`,

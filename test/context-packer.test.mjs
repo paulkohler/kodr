@@ -525,8 +525,9 @@ describe('language guidance (phase 122)', () => {
 		const cwd = await mkWorkspace({ 'index.mjs': 'export {};' });
 		const context = await buildWorkspaceContext(cwd, { toolsMode: true });
 		assert.match(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
-		assert.equal(context.languageGuidance.language, 'node');
-		assert.equal(context.languageGuidance.source, 'builtin');
+		// Phase 258: languageGuidance is now an array; check the first (primary) entry.
+		assert.equal(context.languageGuidance[0].language, 'node');
+		assert.equal(context.languageGuidance[0].source, 'builtin');
 	});
 
 	it('lets a workspace lang:node skill override the builtin guidance', async () => {
@@ -544,7 +545,8 @@ describe('language guidance (phase 122)', () => {
 		});
 		const context = await buildWorkspaceContext(cwd, { toolsMode: true });
 		assert.match(context.systemPrompt, /HOUSE RULE/u);
-		assert.equal(context.languageGuidance.source, 'override');
+		// Phase 258: languageGuidance is now an array; check the first (primary) entry.
+		assert.equal(context.languageGuidance[0].source, 'override');
 	});
 
 	it('emits no language guidance for a non-Node workspace', async () => {

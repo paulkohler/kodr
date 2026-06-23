@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import {
+	SQLITE_TASK_PATTERN,
 	captureEnvironmentFacts,
 	gateLanguageGuidance,
 	renderBehavioursBlock,
@@ -1107,6 +1108,159 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 			context.systemPrompt.length < 13500,
 			`System message must stay under 13500 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Phase 258: multi-skill auto-injection (lang:node + lang:sqlite)
+// ---------------------------------------------------------------------------
+
+describe('Phase 258 — SQLITE_TASK_PATTERN export', () => {
+	it('matches sqlite keyword', () => {
+		assert.ok(SQLITE_TASK_PATTERN.test('use sqlite to store notes'));
+	});
+	it('matches DatabaseSync keyword', () => {
+		assert.ok(SQLITE_TASK_PATTERN.test('fix the DatabaseSync import'));
+	});
+	it('matches FTS5 keyword', () => {
+		assert.ok(SQLITE_TASK_PATTERN.test('add an FTS5 virtual table'));
+	});
+	it('matches :memory: keyword', () => {
+		assert.ok(SQLITE_TASK_PATTERN.test('open a :memory: database for tests'));
+	});
+	it('matches node:sqlite keyword', () => {
+		assert.ok(SQLITE_TASK_PATTERN.test('import DatabaseSync from node:sqlite'));
+	});
+	it('matches CREATE TABLE keyword', () => {
+		assert.ok(SQLITE_TASK_PATTERN.test('CREATE TABLE notes (id INTEGER)'));
+	});
+	it('does not match a plain HTTP task', () => {
+		assert.ok(!SQLITE_TASK_PATTERN.test('build an express REST API'));
+	});
+	it('does not match a plain utility task', () => {
+		assert.ok(!SQLITE_TASK_PATTERN.test('add a slugify function to utils.mjs'));
+	});
+	it('is the same regex used in gateLanguageGuidance for the sqlite section', () => {
+		// gateLanguageGuidance must gate the sqlite section consistently with the
+		// selection-time gate. Test that a FTS5 task passes both gates.
+		const task = 'add an FTS5 virtual table for search';
+		assert.ok(SQLITE_TASK_PATTERN.test(task));
+		// The gate uses the same exported constant — verify gateLanguageGuidance
+		// includes the sqlite section for this task.
+		const body = [
+			'# Node.js / ESM Contract\n- ESM only\n',
+			'## node:sqlite / SQLite\n- DatabaseSync pitfall\n',
+		].join('');
+		const gated = gateLanguageGuidance(body, task);
+		assert.match(gated, /DatabaseSync pitfall/u);
+	});
+});
+
+describe('Phase 258 — Node+SQLite auto-injection', () => {
+	// Unique marker string from lang:sqlite body that is NOT in lang:node.
+	// Using "BigInt bind" — appears in lang:sqlite as "**BigInt bind** —"
+	const SQLITE_SKILL_MARKER = 'BigInt bind';
+
+	it('Node+SQLite task auto-includes lang:sqlite body in system prompt', async () => {
+		const cwd = await mkWorkspace({
+			'app.mjs': 'export {};',
+		});
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			taskPrompt: 'add FTS5 full-text search to the notes table',
+		});
+		assert.match(
+			context.systemPrompt,
+			new RegExp(SQLITE_SKILL_MARKER),
+			'lang:sqlite body (BigInt bind marker) must be in system prompt for Node+FTS5 task',
+		);
+		// Primary lang:node should also still be present.
+		assert.match(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
+		// languageGuidance array has two entries: node and sqlite.
+		assert.ok(Array.isArray(context.languageGuidance));
+		assert.equal(context.languageGuidance.length, 2);
+		assert.equal(context.languageGuidance[0].language, 'node');
+		assert.equal(context.languageGuidance[1].language, 'sqlite');
+	});
+
+	it('Node+DatabaseSync task auto-includes lang:sqlite body', async () => {
+		const cwd = await mkWorkspace({ 'app.mjs': 'export {};' });
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			taskPrompt: 'fix the DatabaseSync import — use the correct form',
+		});
+		assert.match(context.systemPrompt, new RegExp(SQLITE_SKILL_MARKER));
+	});
+
+	it('Node-only task (plain HTTP) does NOT auto-include lang:sqlite body', async () => {
+		const cwd = await mkWorkspace({ 'app.mjs': 'export {};' });
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			taskPrompt: 'build an express REST API with GET /items',
+		});
+		assert.doesNotMatch(
+			context.systemPrompt,
+			new RegExp(SQLITE_SKILL_MARKER),
+			'lang:sqlite body must not appear for a plain HTTP task',
+		);
+		// Should only have one language entry.
+		assert.ok(Array.isArray(context.languageGuidance));
+		assert.equal(context.languageGuidance.length, 1);
+		assert.equal(context.languageGuidance[0].language, 'node');
+	});
+
+	it('Node-only task (utility, no SQLite) does NOT auto-include lang:sqlite body', async () => {
+		const cwd = await mkWorkspace({ 'app.mjs': 'export {};' });
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			taskPrompt: 'add a slugify function to utils.mjs',
+		});
+		assert.doesNotMatch(context.systemPrompt, new RegExp(SQLITE_SKILL_MARKER));
+	});
+
+	it('Rust+SQLite task auto-includes lang:sqlite alongside lang:rust', async () => {
+		const cwd = await mkWorkspace({
+			'Cargo.toml': '[package]\nname = "test"\n',
+			'src/main.rs': 'fn main() {}\n',
+		});
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			taskPrompt: 'add an FTS5 search table using sqlite',
+		});
+		// lang:sqlite should be injected for a Rust workspace with SQLite task.
+		assert.match(
+			context.systemPrompt,
+			new RegExp(SQLITE_SKILL_MARKER),
+			'lang:sqlite body must appear for Rust+SQLite task',
+		);
+		assert.ok(Array.isArray(context.languageGuidance));
+		assert.equal(context.languageGuidance.length, 2);
+		assert.equal(context.languageGuidance[0].language, 'rust');
+		assert.equal(context.languageGuidance[1].language, 'sqlite');
+	});
+
+	it('--no-language-guidance suppresses both primary and secondary skills', async () => {
+		const cwd = await mkWorkspace({ 'app.mjs': 'export {};' });
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			taskPrompt: 'add FTS5 search with DatabaseSync',
+			suppressLanguageGuidance: true,
+		});
+		assert.doesNotMatch(context.systemPrompt, /# Node\.js \/ ESM Contract/u);
+		assert.doesNotMatch(context.systemPrompt, new RegExp(SQLITE_SKILL_MARKER));
+		assert.equal(context.languageGuidance, null);
+	});
+
+	it('non-Node, non-Rust workspace with SQLite task does NOT inject lang:sqlite', async () => {
+		// lang:sqlite requires a primary language skill — standalone SQLite detection
+		// without a primary language is out of scope for Phase 258.
+		const cwd = await mkWorkspace({ 'main.py': 'print(1)\n' });
+		const context = await buildWorkspaceContext(cwd, {
+			toolsMode: true,
+			taskPrompt: 'add FTS5 search with sqlite',
+		});
+		assert.doesNotMatch(context.systemPrompt, new RegExp(SQLITE_SKILL_MARKER));
+		assert.equal(context.languageGuidance, null);
 	});
 });
 

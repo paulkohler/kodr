@@ -95,14 +95,23 @@ export function renderBehavioursBlock() {
 }
 
 /**
+ * Single source of truth for the SQLite task-gate keyword pattern.
+ * Used by both gateLanguageGuidance (section gating inside lang:node) and
+ * context-packer.mjs (selection-time auto-injection of lang:sqlite). The
+ * `g` flag is intentionally absent so the pattern is safe to share across
+ * repeated .test() calls without lastIndex side-effects (Phase 258).
+ */
+export const SQLITE_TASK_PATTERN =
+	/sqlite|DatabaseSync|CREATE TABLE|FTS5|:memory:|node:sqlite/iu;
+
+/**
  * Filters lang:node skill sections by task relevance. The preamble (content
  * before the first ## header) is always included. Each ## section is included
  * when no gate rule matches the header, or when the task context satisfies the
  * gate's keyword pattern.
  *
  * Gate rules (matched against lowercased header):
- *   "sqlite" → include if taskContext matches
- *              /sqlite|DatabaseSync|CREATE TABLE|FTS5|:memory:|node:sqlite/i
+ *   "sqlite" → include if taskContext matches SQLITE_TASK_PATTERN
  *   "http"   → include if taskContext matches /express|node:http|http\.create|server\.listen|app\.listen/i
  *   "busboy" → include if taskContext matches /busboy|multipart|upload/i
  *   other    → always include (test-isolation section, etc.)
@@ -125,7 +134,7 @@ export function gateLanguageGuidance(body, taskContext) {
 		const header = (section.match(/^## (.+)/u)?.[1] ?? '').toLowerCase();
 		let gate;
 		if (header.includes('sqlite')) {
-			gate = /sqlite|DatabaseSync|CREATE TABLE|FTS5|:memory:|node:sqlite/iu;
+			gate = SQLITE_TASK_PATTERN;
 		} else if (header.includes('http')) {
 			gate = /express|node:http|http\.create|server\.listen|app\.listen/iu;
 		} else if (header.includes('busboy')) {
