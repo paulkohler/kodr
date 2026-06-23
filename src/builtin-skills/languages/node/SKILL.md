@@ -29,6 +29,9 @@ before(() => new Promise(res => server.listen(0, res)));
 ```
 - CLI argv: `process.argv` entries are separate tokens (`--top` and `3` are two entries); parse flags with a token loop, not a single-string regex.
 - node:sqlite — `import { DatabaseSync } from 'node:sqlite'` is the only correct form. `Database`, `open`, and the default export do not exist. All methods are synchronous — never use `await` on db calls.
+- Static imports only at module top level — `const http = await import('node:http')` inside a
+  `describe()` or function body is a SyntaxError (`await` outside async). Write
+  `import http from 'node:http'` at the top of the file.
 - ANSI truncation: truncate terminal strings by visible width, not raw `.length`. Raw length over-counts when ANSI colour codes are present, clipping mid-sequence and producing garbage output. Use the pattern below.
 
 ```js

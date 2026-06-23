@@ -394,9 +394,10 @@ describe('prompt budget guard', () => {
 		// Phase 255 added import wrong-form expansion + synchronous pitfall; ~21619 chars. Limit raised to 22000. // Phase 255
 		// Phase 256 added node:test hook async pitfall; ~22257 chars. Limit raised to 22500. // Phase 256
 		// Phase 257: SQLite content extracted to lang:sqlite; lang:node prompt shrank to ~13117 chars. Limit lowered to 13500. // Phase 257
+		// Phase 262: added dynamic await import() preamble bullet; ~13552 chars. Limit raised to 13700. // Phase 262
 		assert.ok(
-			promptLen < 13500,
-			`Node/ESM system message must stay under 13500 chars for a greenfield task; got ${promptLen} chars`,
+			promptLen < 13700,
+			`Node/ESM system message must stay under 13700 chars for a greenfield task; got ${promptLen} chars`,
 		);
 	});
 
@@ -1104,9 +1105,10 @@ describe('buildWorkspaceContext — isNodeEsm auto-detection', () => {
 		// Phase 255 added import wrong-form expansion + synchronous pitfall; ~21617 chars. Limit raised to 22000. // Phase 255
 		// Phase 256 added node:test hook async pitfall; ~22255 chars. Limit raised to 22500. // Phase 256
 		// Phase 257: SQLite content extracted to lang:sqlite; lang:node prompt shrank to ~13117 chars. Limit lowered to 13500. // Phase 257
+		// Phase 262: added dynamic await import() preamble bullet; ~13550 chars. Limit raised to 13700. // Phase 262
 		assert.ok(
-			context.systemPrompt.length < 13500,
-			`System message must stay under 13500 chars with ESM block; got ${context.systemPrompt.length} chars`,
+			context.systemPrompt.length < 13700,
+			`System message must stay under 13700 chars with ESM block; got ${context.systemPrompt.length} chars`,
 		);
 	});
 });

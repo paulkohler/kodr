@@ -217,6 +217,25 @@ describe('builtin skills bundle', () => {
 		);
 	});
 
+	it('lang:node warns against dynamic await import inside describe()', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		// Must mention the bad pattern
+		assert.match(body, /await import\(/);
+		// Must flag it as a SyntaxError or explain await outside async
+		assert.ok(
+			/SyntaxError/i.test(body) || /await.*outside async/i.test(body),
+			'body should mention SyntaxError or await outside async',
+		);
+		// The warning must appear in the preamble (before the first ## section)
+		const firstSectionIdx = body.indexOf('\n## ');
+		const awaitImportIdx = body.indexOf('await import(');
+		assert.ok(awaitImportIdx !== -1, 'body should contain "await import("');
+		assert.ok(
+			awaitImportIdx < firstSectionIdx,
+			`"await import(" (at ${awaitImportIdx}) should appear before the first ## section (at ${firstSectionIdx})`,
+		);
+	});
+
 	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(
