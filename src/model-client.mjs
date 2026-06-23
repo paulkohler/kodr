@@ -154,8 +154,43 @@ export async function createChatCompletion(options, body) {
 export function buildChatRequestBody(options, body) {
 	return applyPromptCacheControl(
 		options,
-		applyCompletionCap(options, applyRequestParameters(options, body)),
+		applyReasoningSuppression(
+			options,
+			applyCompletionCap(options, applyRequestParameters(options, body)),
+		),
 	);
+}
+
+// Phase 260: suppress reasoning on heal turns that have already run away once.
+// Scoped strictly: ONLY fires when completionCapMode==='heal' AND
+// suppressReasoning===true. Main-loop and staged turns are never touched.
+//
+// Two suppression mechanisms are applied together for maximum compatibility:
+// 1. chat_template_kwargs: { enable_thinking: false } — the qwen3 Jinja template
+//    switch; LM Studio passes chat_template_kwargs through to the template.
+//    Probe pending: if the server does not honor it the /no_think prefix is the
+//    effective suppressor.
+// 2. /no_think prefix on the last user message — a qwen3 soft switch that works
+//    at the prompt level, always available regardless of server support.
+//    Implemented in healing.mjs (prepended to the retry prompt), not here, so
+//    the wire body just carries the template kwarg and the caller handles the prompt.
+function applyReasoningSuppression(options, body) {
+	// Strict heal-only gate — must not touch main-loop or staged turns.
+	if (
+		options.completionCapMode !== 'heal' ||
+		options.suppressReasoning !== true
+	) {
+		return body;
+	}
+	// Caller override wins: if the body already has chat_template_kwargs, leave
+	// it untouched (same pattern as the max_tokens override guard).
+	if (Object.hasOwn(body, 'chat_template_kwargs')) {
+		return body;
+	}
+	return {
+		...body,
+		chat_template_kwargs: { enable_thinking: false },
+	};
 }
 
 // Phase 234/236: inject a HONORED wire-level completion cap, scoped to HEAL turns.

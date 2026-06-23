@@ -331,6 +331,60 @@ describe('completion cap request shaping', () => {
 	// 'Phase 251 — runStagedPrompt planning request max_tokens cap' describe
 	// block in test/staged-pipeline.test.mjs, which drives a real staged run
 	// against the fake server and asserts max_tokens appears on the plan request.
+
+	// Phase 260: applyReasoningSuppression — heal-scoped reasoning suppression.
+
+	it('260: heal turn + suppressReasoning=true → chat_template_kwargs injected', () => {
+		// The suppression mechanism: heal-only AND suppressReasoning required.
+		const request = buildChatRequestBody(
+			{ completionCapMode: 'heal', suppressReasoning: true },
+			{ messages, model },
+		);
+
+		assert.deepEqual(request.chat_template_kwargs, { enable_thinking: false });
+	});
+
+	it('260: heal turn WITHOUT suppressReasoning → no chat_template_kwargs', () => {
+		// Normal heal turn (no runaway) must NOT get suppression injected.
+		const request = buildChatRequestBody(
+			{ completionCapMode: 'heal' },
+			{ messages, model },
+		);
+
+		assert.equal(Object.hasOwn(request, 'chat_template_kwargs'), false);
+	});
+
+	it('260: main-loop options + suppressReasoning=true → NO suppression (heal-scope guard)', () => {
+		// Regression guard: main-loop bags (no completionCapMode) must never get
+		// chat_template_kwargs injected even when suppressReasoning happens to be set.
+		const request = buildChatRequestBody(
+			{ suppressReasoning: true },
+			{ messages, model },
+		);
+
+		assert.equal(Object.hasOwn(request, 'chat_template_kwargs'), false);
+	});
+
+	it('260: staged-retry + suppressReasoning=true → NO suppression (only heal suppresses)', () => {
+		// staged-retry mode must not trigger suppression even with suppressReasoning.
+		const request = buildChatRequestBody(
+			{ completionCapMode: 'staged-retry', suppressReasoning: true },
+			{ messages, model },
+		);
+
+		assert.equal(Object.hasOwn(request, 'chat_template_kwargs'), false);
+	});
+
+	it('260: heal + suppressReasoning + caller-set chat_template_kwargs → caller override wins', () => {
+		// If the body already carries chat_template_kwargs, leave it untouched.
+		const callerKwargs = { enable_thinking: true, custom: 'yes' };
+		const request = buildChatRequestBody(
+			{ completionCapMode: 'heal', suppressReasoning: true },
+			{ messages, model, chat_template_kwargs: callerKwargs },
+		);
+
+		assert.deepEqual(request.chat_template_kwargs, callerKwargs);
+	});
 });
 
 describe('prompt cache request shaping', () => {

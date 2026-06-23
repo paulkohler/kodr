@@ -2706,7 +2706,7 @@ async function runHealingIfNeeded({
 		// Phase 245: pass the staged plan so buildRepairContext can include it.
 		stagedPlan,
 		maxTurns: Math.max(1, Math.min(options.maxTurns, 3)),
-		repairTurn: async ({ prompt }) => {
+		repairTurn: async ({ prompt, suppressReasoning }) => {
 			// Phase 235: the shared registry.proposalDraft is reused from the main run
 			// (and across heal turns). The main pipeline never clears it after apply (only
 			// the staged path does, via clearFiles + clearPatches ~2195), so without this
@@ -2721,19 +2721,46 @@ async function runHealingIfNeeded({
 				registry.proposalDraft?.clear();
 			}
 
+			// Phase 260: merge suppressReasoning into the options bag for this specific
+			// call so applyReasoningSuppression (model-client.mjs) injects
+			// chat_template_kwargs: { enable_thinking: false } on the wire request.
+			// Also halve completionReserve for the suppressed retry: probe 2026-06-23
+			// shows neither chat_template_kwargs:{enable_thinking:false} nor /no_think
+			// eliminate reasoning tokens for qwen3.6. The combined approach uses a
+			// LOWER total cap (2048) to force the model to reason more compactly and
+			// leave tokens for an answer — if reasoning still consumes all 2048 tokens,
+			// isReasoningRunaway triggers reasoning_runaway_after_retry, which is
+			// preferable to an invisible loop.
+			// Scoped strictly: only the suppressed retry passes suppressReasoning:true;
+			// normal turns pass undefined, which applyReasoningSuppression ignores.
+			const turnRepairOptions =
+				suppressReasoning === true
+					? {
+							...repairOptions,
+							suppressReasoning: true,
+							// Cap suppressed-retry at half the heal reserve (floor 2048)
+							// so there is room for an answer even if reasoning is not fully
+							// suppressed.
+							completionReserve: Math.max(
+								Math.floor((repairOptions.completionReserve ?? 4096) / 2),
+								2048,
+							),
+						}
+					: repairOptions;
+
 			// Phase 241: one retry on context-overflow HTTP-400 (LM Studio KV-cache bleed).
 			// The 200ms pause gives the server a window to flush its session state.
 			const callCompletion = () =>
 				options.tools && registry
 					? completeWithToolCalls(
-							repairOptions,
+							turnRepairOptions,
 							model,
 							prompt,
 							systemPrompt,
 							registry,
 						)
 					: completeWithContinuations(
-							repairOptions,
+							turnRepairOptions,
 							model,
 							prompt,
 							systemPrompt,
@@ -2778,6 +2805,14 @@ async function runHealingIfNeeded({
 		// profiles still get the D2 240s default. options.wireNoStream is set by
 		// applyProfile (model-profiles.mjs) for profiles that declare wireNoStream.
 		wireNoStream: options.wireNoStream,
+		// Phase 244: forward completionReserve so isReasoningRunaway can apply the
+		// proximity guard (requires near-cap token usage to classify as runaway).
+		completionReserve: options.completionReserve,
+		// Phase 260: forward suppressThinkingOnRunaway from the model profile so
+		// healing.mjs retries with thinking suppressed on first-pass runaways.
+		suppressThinkingOnRunaway: options.suppressThinkingOnRunaway,
+		// Phase 260: also forward contextWindow for the runaway evidence record.
+		contextWindow: options.contextWindow,
 		// D2: explicit --repair-timeout-ms still wins; otherwise healing.mjs applies the
 		// profile-aware cap (min(timeoutMs, 600_000) for wireNoStream, else 240_000).
 		...(options.repairTimeoutMs !== ''

@@ -364,9 +364,11 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 		// prefer it when it carries at least one file or patch. Otherwise fall
 		// back to the text/envelope extractor (unchanged behaviour for models
 		// that express repairs as JSON in their text response).
+		// Phase 260: declared let so the runaway-retry path can re-derive them after
+		// swapping completion to the suppressed-retry result.
 		let proposal;
-		const turnProposal = completion.proposal ?? null;
-		const turnProposalNonEmpty =
+		let turnProposal = completion.proposal ?? null;
+		let turnProposalNonEmpty =
 			turnProposal !== null &&
 			((Array.isArray(turnProposal.files) && turnProposal.files.length > 0) ||
 				(Array.isArray(turnProposal.patches) &&
@@ -378,6 +380,10 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 		// turn (verified: a 3402-char escalation prompt also ran away to empty).
 		// Phase 244: pass completionReserve as the proximity cap so near-cap
 		// token usage is required before classifying as runaway.
+		// Phase 260: on first runaway, retry once with thinking suppressed (instead of
+		// aborting immediately). The suppressed retry passes suppressReasoning:true to
+		// the repairTurn callback (which injects chat_template_kwargs via model-client)
+		// AND prepends /no_think to the prompt (qwen3 soft switch, always available).
 		const healCap =
 			typeof options.completionReserve === 'number' &&
 			options.completionReserve > 0
@@ -402,19 +408,132 @@ export async function runSelfHealingLoop(cwd, failedTest, options = {}) {
 					: {}),
 			};
 			await writeJson(join(turnDir, 'runaway.json'), runawayEvidence);
-			stopReason = 'reasoning_runaway';
-			repairs.push({
-				completionChars,
-				durationMs,
-				index,
-				ok: false,
-				promptChars,
-				runaway: runawayEvidence,
-				stopReason,
-				timeoutMs: turnTimeoutMs,
-				usage,
-			});
-			break;
+
+			// Phase 260: attempt one suppressed-reasoning retry before aborting.
+			// suppressThinkingOnRunaway must be set on options (from profile flag) to
+			// enable this path; models that do not set the flag keep the prior abort
+			// behaviour. The retry is a single shot — if it also runs away, abort.
+			if (options.suppressThinkingOnRunaway === true) {
+				// Prepend /no_think to the prompt: qwen3 soft switch, always works via
+				// chat template regardless of whether chat_template_kwargs is honored.
+				const suppressedPrompt = `/no_think\n\n${prompt}`;
+				const retryStart = Date.now();
+				let retryCompletion;
+				try {
+					retryCompletion = await withTimeout(
+						options.repairTurn({
+							index,
+							prompt: suppressedPrompt,
+							repairContext,
+							scratchpad,
+							suppressReasoning: true,
+						}),
+						turnTimeoutMs,
+						`Repair turn ${index} (suppressed retry) exceeded ${turnTimeoutMs}ms`,
+					);
+				} catch (retryError) {
+					// Retry itself threw (timeout or error) — treat as terminal runaway
+					const retryElapsed = Date.now() - retryStart;
+					await writeJson(join(turnDir, 'runaway-retry.json'), {
+						error: retryError.message,
+						elapsedMs: retryElapsed,
+					});
+					stopReason = 'reasoning_runaway_after_retry';
+					repairs.push({
+						completionChars,
+						durationMs,
+						index,
+						ok: false,
+						promptChars,
+						runaway: runawayEvidence,
+						stopReason,
+						timeoutMs: turnTimeoutMs,
+						usage,
+					});
+					break;
+				}
+				const retryDurationMs = Date.now() - retryStart;
+				const retryText = retryCompletion.text || '';
+				// Persist retry response for forensics
+				const retryEvidence = {
+					completionChars: retryText.length,
+					durationMs: retryDurationMs,
+					finishReason: retryCompletion.raw?.finishReasons?.at(-1) ?? null,
+					promptChars: suppressedPrompt.length,
+					...(retryCompletion.raw?.loopBudget
+						? { loopBudget: retryCompletion.raw.loopBudget }
+						: {}),
+				};
+				await writeJson(join(turnDir, 'runaway-retry.json'), retryEvidence);
+				if (retryCompletion.raw) {
+					await writeJson(
+						join(turnDir, 'runaway-retry-raw.json'),
+						retryCompletion.raw,
+					);
+				}
+
+				const retryProposalNonEmpty =
+					retryCompletion.proposal !== null &&
+					retryCompletion.proposal !== undefined &&
+					((Array.isArray(retryCompletion.proposal?.files) &&
+						retryCompletion.proposal.files.length > 0) ||
+						(Array.isArray(retryCompletion.proposal?.patches) &&
+							retryCompletion.proposal.patches.length > 0));
+				const retryHealCap = healCap;
+				if (
+					isReasoningRunaway(
+						retryText,
+						retryCompletion.raw,
+						retryProposalNonEmpty,
+						retryHealCap,
+					)
+				) {
+					// Suppressed retry ALSO ran away — terminal.
+					stopReason = 'reasoning_runaway_after_retry';
+					repairs.push({
+						completionChars,
+						durationMs,
+						index,
+						ok: false,
+						promptChars,
+						runaway: runawayEvidence,
+						stopReason,
+						timeoutMs: turnTimeoutMs,
+						usage,
+					});
+					break;
+				}
+
+				// Suppressed retry produced output — swap it in as the completion
+				// and fall through to the normal proposal-parse path below.
+				// Write the retry response text so the same artifact dir has the full picture.
+				await writeText(join(turnDir, 'runaway-retry-response.md'), retryText);
+				completion = retryCompletion;
+				// Re-derive proposal variables from the new completion so the
+				// downstream parse path sees the retry's tool-call proposal if present.
+				turnProposal = completion.proposal ?? null;
+				turnProposalNonEmpty =
+					turnProposal !== null &&
+					((Array.isArray(turnProposal.files) &&
+						turnProposal.files.length > 0) ||
+						(Array.isArray(turnProposal.patches) &&
+							turnProposal.patches.length > 0));
+			} else {
+				// No suppression support — original fast-abort behavior.
+				stopReason = 'reasoning_runaway';
+				repairs.push({
+					completionChars,
+					durationMs,
+					index,
+					ok: false,
+					promptChars,
+					runaway: runawayEvidence,
+					stopReason,
+					timeoutMs: turnTimeoutMs,
+					usage,
+				});
+				break;
+			}
 		}
 
 		try {

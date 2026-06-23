@@ -259,6 +259,7 @@ The roadmap is the compact progress view. Phase files hold details and done crit
 - [x] 257 Extract lang:sqlite skill from lang:node
 - [x] 258 Multi-skill auto-injection (lang:node + lang:sqlite)
 - [x] 259 lang:sqlite FTS5 Column Projection Pitfall
+- [x] 260 Heal-Loop Reasoning-Runaway Fix
 
 ## Phase Contract
 

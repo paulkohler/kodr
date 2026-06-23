@@ -74,3 +74,82 @@ describe('renderRunSummary Phase 242', () => {
 		}
 	});
 });
+
+describe('renderRunSummary Phase 260 — reasoning_runaway_after_retry', () => {
+	function baseResult(overrides = {}) {
+		return {
+			ok: false,
+			model: 'test-model',
+			usage: null,
+			runDir: '/tmp/run',
+			responsePath: '/tmp/run/response.txt',
+			...overrides,
+		};
+	}
+
+	// Test A: reasoning_runaway_after_retry renders its own targeted message
+	it('renders targeted message for reasoning_runaway_after_retry stop reason', () => {
+		const result = baseResult({
+			healingResult: {
+				healed: false,
+				stopReason: 'reasoning_runaway_after_retry',
+				repairs: [
+					{
+						stopReason: 'reasoning_runaway_after_retry',
+						runaway: {
+							finishReason: 'length',
+							completionTokens: 4094,
+							totalTokens: 12094,
+							contextWindow: 262144,
+						},
+					},
+				],
+			},
+		});
+		const output = renderRunSummary(result);
+		assert.match(output, /reasoning_runaway_after_retry/u);
+		assert.match(output, /suppressed-reasoning retry/u);
+		assert.match(output, /4094/u);
+	});
+
+	// Test B: reasoning_runaway_after_retry message does NOT mention the plain
+	//         reasoning_runaway message (they are mutually exclusive branches).
+	it('reasoning_runaway_after_retry message is distinct from reasoning_runaway message', () => {
+		const result = baseResult({
+			healingResult: {
+				healed: false,
+				stopReason: 'reasoning_runaway_after_retry',
+				repairs: [],
+			},
+		});
+		const output = renderRunSummary(result);
+		// The after-retry path says "suppressed-reasoning retry"; the plain path does not.
+		assert.match(output, /suppressed-reasoning retry/u);
+		// The plain-runaway message uses "Its thinking budget is not being honored"
+		assert.doesNotMatch(output, /thinking budget is not being honored/u);
+	});
+
+	// Test C: reasoning_runaway (plain) still renders the original message unchanged
+	it('reasoning_runaway (plain) renders original message (regression guard)', () => {
+		const result = baseResult({
+			healingResult: {
+				healed: false,
+				stopReason: 'reasoning_runaway',
+				repairs: [
+					{
+						stopReason: 'reasoning_runaway',
+						runaway: {
+							finishReason: 'length',
+							completionTokens: 21693,
+							totalTokens: 32768,
+						},
+					},
+				],
+			},
+		});
+		const output = renderRunSummary(result);
+		assert.match(output, /reasoning_runaway\b/u);
+		assert.match(output, /thinking budget is not being honored/u);
+		assert.doesNotMatch(output, /reasoning_runaway_after_retry/u);
+	});
+});

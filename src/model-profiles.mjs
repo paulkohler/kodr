@@ -51,6 +51,11 @@ const DEFAULT_PROFILES = [
 		provider: 'local',
 		responseEnvelope: 'json',
 		structuredOutput: 'none',
+		// Phase 260: on a heal-turn reasoning_runaway, retry with thinking suppressed.
+		// LM Studio honors chat_template_kwargs for qwen3 (probe pending — using
+		// /no_think prompt prefix as the primary suppression mechanism; it is always
+		// available via the Qwen3 chat template regardless of server support).
+		suppressThinkingOnRunaway: true,
 		timeoutMs: 600000,
 		wireNoStream: true,
 	},
@@ -65,6 +70,8 @@ const DEFAULT_PROFILES = [
 		provider: 'lmstudio',
 		responseEnvelope: 'json',
 		structuredOutput: 'none',
+		// Phase 260: on a heal-turn reasoning_runaway, retry with thinking suppressed.
+		suppressThinkingOnRunaway: true,
 		timeoutMs: 600000,
 		wireNoStream: true,
 	},

@@ -40,17 +40,6 @@ specifically prompt the model to write package.json when it uses packages not
 in Node.js core. Consider adding a system-prompt reminder or a sensor that
 detects a bare import with no matching package.json entry.
 
-### Capped-retry zero-output on thinking models
-Phase-245 dogfood: after a staged-runaway is detected and a capped retry is
-issued (`max_thinking_tokens: 4096`, `max_tokens: 8192`), the model still burns
-all 8,192 tokens on reasoning and emits 0 content chars (`finish=length`). The
-proximity guard (phase 244) correctly skips the false-positive, but the retry is
-wasted. Root cause: `max_thinking_tokens` may not be honored by LM Studio, or
-the effective ceiling needs to be `max_thinking_tokens + output_budget` to
-guarantee output tokens are available. Investigation: probe whether LM Studio
-honors `max_thinking_tokens` on the retry call; if not, try setting `max_tokens`
-to a much lower cap (e.g. `2048`) to force output before exhaustion.
-
 ### lang:node DatabaseSync in preamble — training-prior override
 Phases 255/256 ambitious dogfoods: despite a complete Import Name pitfall in the
 SQLite section, the model continues using `import { Database } from 'node:sqlite'`

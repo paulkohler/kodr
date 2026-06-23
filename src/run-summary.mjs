@@ -146,6 +146,28 @@ export function renderRunSummary(result) {
 			lines.push(
 				`Repairs: not healed (reasoning_runaway) — the model exhausted its context window on reasoning without emitting a repair (finish_reason: length, ${reasoningTokens} reasoning tokens / ${contextSize} context). Its thinking budget is not being honored; try a smaller task or a model with an effective thinking cap.`,
 			);
+		} else if (hr.stopReason === 'reasoning_runaway_after_retry') {
+			// Phase 260: the first heal turn ran away, thinking was suppressed on the
+			// retry (/no_think prefix + chat_template_kwargs), but the model still
+			// emitted zero content. This suggests the model ignores the suppression
+			// mechanism — try swapping the model rather than adjusting harness levers.
+			const runaway = hr.repairs?.find(
+				(r) =>
+					r.stopReason === 'reasoning_runaway_after_retry' ||
+					r.stopReason === 'reasoning_runaway',
+			);
+			const rw = runaway?.runaway || {};
+			const reasoningTokens =
+				rw.completionTokens != null ? rw.completionTokens : '?';
+			const contextSize =
+				rw.contextWindow != null
+					? rw.contextWindow
+					: rw.totalTokens != null
+						? rw.totalTokens
+						: '?';
+			lines.push(
+				`Repairs: not healed (reasoning_runaway_after_retry) — the model ran away on the first heal turn (finish_reason: length, ${reasoningTokens} tokens / ${contextSize} context) and also ran away after a suppressed-reasoning retry (/no_think + chat_template_kwargs). The suppression mechanism is not being honored; try a different model.`,
+			);
 		} else if (hr.stopReason === 'repair_context_overflow') {
 			// Phase 242: LM Studio KV-cache from the main loop bled into the repair
 			// request and the server returned HTTP 400 on both the first attempt and

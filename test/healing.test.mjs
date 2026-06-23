@@ -1597,6 +1597,173 @@ describe('reasoning-token runaway (phase 231)', () => {
 		// contextWindow omitted when options.contextWindow is not finite
 		assert.ok(!('contextWindow' in ev));
 	});
+
+	// Phase 260: suppressed-reasoning retry tests.
+
+	// (h) First runaway + suppressThinkingOnRunaway=true → retry fires once with
+	//     suppressReasoning:true; successful retry yields healed=true.
+	it('260h: runaway retried with thinking suppressed → healed when retry produces repair', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-260h-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		const calls = [];
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			completionReserve: 4096,
+			contextWindow: 262144,
+			maxTurns: 3,
+			suppressThinkingOnRunaway: true,
+			repairTurn: async ({ suppressReasoning }) => {
+				calls.push({ suppressReasoning: suppressReasoning ?? false });
+				if (calls.length === 1) {
+					// First call: runaway (reasoning fills cap, zero content)
+					// Provenance: phase-260 runaway; based on phase-231 artifact shape.
+					return {
+						text: '',
+						raw: {
+							finishReasons: ['length'],
+							loopBudget: {
+								completionTokens: 4094,
+								promptTokens: 8000,
+								tokens: 12094,
+								stopReason: 'finish_length',
+							},
+						},
+					};
+				}
+				// Second call (suppressed retry): model produces a valid repair.
+				return {
+					text: JSON.stringify({
+						files: [{ path: 'bad.mjs', content: 'export const value = 1;\n' }],
+					}),
+					raw: {
+						finishReasons: ['stop'],
+						loopBudget: { completionTokens: 128, stopReason: 'finish_stop' },
+					},
+				};
+			},
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 8000,
+		});
+
+		assert.equal(result.healed, true, 'must heal after suppressed retry');
+		assert.equal(result.stopReason, 'healed');
+		assert.equal(calls.length, 2, 'repairTurn called twice');
+		assert.equal(
+			calls[0].suppressReasoning,
+			false,
+			'first call: no suppression',
+		);
+		assert.equal(
+			calls[1].suppressReasoning,
+			true,
+			'second call: suppressReasoning=true',
+		);
+	});
+
+	// (i) Both calls run away → stopReason reasoning_runaway_after_retry, healed=false.
+	it('260i: runaway on both first and suppressed retry → reasoning_runaway_after_retry', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-260i-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		let callCount = 0;
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			completionReserve: 4096,
+			maxTurns: 3,
+			suppressThinkingOnRunaway: true,
+			repairTurn: async () => {
+				callCount += 1;
+				// Both calls return a runaway (near-cap, zero content).
+				return {
+					text: '',
+					raw: {
+						finishReasons: ['length'],
+						loopBudget: {
+							completionTokens: 4094,
+							promptTokens: 8000,
+							tokens: 12094,
+							stopReason: 'finish_length',
+						},
+					},
+				};
+			},
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.healed, false);
+		assert.equal(
+			result.stopReason,
+			'reasoning_runaway_after_retry',
+			'must emit reasoning_runaway_after_retry when suppressed retry also runs away',
+		);
+		assert.equal(
+			callCount,
+			2,
+			'repairTurn called twice (first + suppressed retry)',
+		);
+		// runaway.json written for first-pass evidence
+		const runawayJson = JSON.parse(
+			await readFile(
+				join(cwd, '.kodr-repairs', 'turn-1', 'runaway.json'),
+				'utf8',
+			),
+		);
+		assert.equal(runawayJson.finishReason, 'length');
+		// runaway-retry.json written for suppressed-retry evidence
+		const retryJson = JSON.parse(
+			await readFile(
+				join(cwd, '.kodr-repairs', 'turn-1', 'runaway-retry.json'),
+				'utf8',
+			),
+		);
+		assert.equal(retryJson.finishReason, 'length');
+	});
+
+	// (j) suppressThinkingOnRunaway absent → original fast-abort behavior (no retry).
+	it('260j: without suppressThinkingOnRunaway flag, runaway still fast-aborts as reasoning_runaway', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-heal-260j-'));
+		await writeFile(join(cwd, 'bad.mjs'), 'export const = ;\n', 'utf8');
+		const failed = await runVerification(cwd, 'node --check bad.mjs', {
+			timeoutMs: 5000,
+		});
+
+		let callCount = 0;
+		const result = await runSelfHealingLoop(cwd, failed, {
+			apply: true,
+			artifactDir: join(cwd, '.kodr-repairs'),
+			completionReserve: 4096,
+			maxTurns: 3,
+			// suppressThinkingOnRunaway intentionally omitted
+			repairTurn: async () => {
+				callCount += 1;
+				return {
+					text: '',
+					raw: {
+						finishReasons: ['length'],
+						loopBudget: {
+							completionTokens: 4094,
+							stopReason: 'finish_length',
+						},
+					},
+				};
+			},
+			testCommand: 'node --check bad.mjs',
+			timeoutMs: 5000,
+		});
+
+		assert.equal(result.stopReason, 'reasoning_runaway');
+		assert.equal(callCount, 1, 'no retry — fast-abort after one call');
+	});
 });
 
 // ---------------------------------------------------------------------------

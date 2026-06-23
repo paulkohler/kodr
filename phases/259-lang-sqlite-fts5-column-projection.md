@@ -32,7 +32,7 @@ section in `lang:sqlite` and belongs immediately after it.
 - [x] Blog post `blog/259-lang-sqlite-fts5-column-projection.md`.
 - [x] Roadmap entry `- [x] 259 lang:sqlite FTS5 Column Projection Pitfall`.
 - [x] Bump version to `0.0.259`.
-- [ ] Commit.
+- [x] Commit.
 
 ## Done criteria
 
