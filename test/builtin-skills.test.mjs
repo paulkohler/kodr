@@ -197,6 +197,26 @@ describe('builtin skills bundle', () => {
 		assert.match(body, /INSERT INTO articles_fts\(rowid.*new\.id/s);
 	});
 
+	it('lang:node preamble anchors the DatabaseSync import name', () => {
+		const { body } = getBuiltinSkill('lang:node');
+		// The anchor must appear before the first ## section header
+		const firstSectionIdx = body.indexOf('\n## ');
+		const databaseSyncIdx = body.indexOf('DatabaseSync');
+		assert.ok(
+			databaseSyncIdx !== -1,
+			'lang:node body should mention DatabaseSync',
+		);
+		assert.ok(
+			databaseSyncIdx < firstSectionIdx,
+			`DatabaseSync (at ${databaseSyncIdx}) should appear before the first ## section (at ${firstSectionIdx})`,
+		);
+		assert.match(
+			body,
+			/import \{ DatabaseSync \} from 'node:sqlite'/,
+			'preamble should contain the correct import form',
+		);
+	});
+
 	it('lang:node accurately explains ESM URL caching and recommends factories', async () => {
 		const { body } = getBuiltinSkill('lang:node');
 		assert.match(

@@ -6,11 +6,11 @@ it is actually next. **Delete an item the moment it ships** — history lives in
 the roadmap, phase files, and blog, not here. If a cut idea was really needed it
 will resurface on its own.
 
-## Current frontier (phase 258)
+## Current frontier (phase 260)
 
 `kodr check` is a complete standalone diagnostic. The staged execution pipeline
-(`runStagedPrompt`) and `lang:node` builtin skill have been hardened through
-phases 213–256: reasoning-runaway fast-fail and heal cap (231/234/236), staged
+(`runStagedPrompt`) and `lang:node`/`lang:sqlite` builtin skills have been hardened through
+phases 213–260: reasoning-runaway fast-fail and heal cap (231/234/236), staged
 implement-turn runaway detect-and-retry (240), heal context-overflow retry (241),
 terminal surfacing of staged-runaway and heal-overflow events (242), lang:node
 StatementSync row-access pitfall (243), reasoning-runaway proximity guard (244),
@@ -22,13 +22,12 @@ FTS5 trigger vs manual delete conflict pitfall (252),
 FROM-base/WHERE-fts FTS5 MATCH failure form pitfall (253),
 external-content FTS5 trigger pseudo-row delete syntax (254),
 node:sqlite import wrong-form expansion and synchronous pitfall (255),
-node:test hook async pitfall — no done callback (256).
-Phase 257 extracts the SQLite/FTS5 pitfalls into a standalone lang:sqlite skill
-so they can be injected independently of lang:node.
-Phase 258 wires multi-skill auto-injection: context-packer's scalar
-`detectedLanguage` becomes an ordered `detectedLanguages` array; `lang:sqlite` is
-appended automatically when a primary language (node or rust) is detected and the
-task prompt matches `SQLITE_TASK_PATTERN`.
+node:test hook async pitfall — no done callback (256),
+lang:sqlite extracted as standalone builtin skill (257),
+multi-skill auto-injection: SQLITE_TASK_PATTERN gates lang:sqlite alongside primary language (258),
+lang:sqlite FTS5 virtual-table column projection pitfall (259),
+heal-turn reasoning-runaway suppressed retry: chat_template_kwargs + /no_think prefix,
+new stop reason reasoning_runaway_after_retry (260).
 
 ## Candidates
 
@@ -39,16 +38,6 @@ with ERR_MODULE_NOT_FOUND. The stage prompt says "write files" but doesn't
 specifically prompt the model to write package.json when it uses packages not
 in Node.js core. Consider adding a system-prompt reminder or a sensor that
 detects a bare import with no matching package.json entry.
-
-### lang:node DatabaseSync in preamble — training-prior override
-Phases 255/256 ambitious dogfoods: despite a complete Import Name pitfall in the
-SQLite section, the model continues using `import { Database } from 'node:sqlite'`
-because the SQLite section is long (~22K chars) and the import pitfall is buried
-inside it. The preamble (lines 1–30) is always visible regardless of gating.
-Adding a one-liner to the preamble (`import { DatabaseSync } from 'node:sqlite'
-— the only export; no Database, no open, no default`) would anchor the correct
-form at the top of every Node/ESM prompt, matching how Phase 256 put the hook-async
-pitfall in the preamble to successfully prevent done-callback usage.
 
 ### lang:node dynamic import inside describe() causes parse failure
 Phase-256 ambitious dogfood: model wrote `const http = await import('node:http')`
