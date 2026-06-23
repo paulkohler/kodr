@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import {
 	buildWorkspaceContext,
 	detectModelFamily,
+	detectNodeEsm,
 	listContextFiles,
 	planContextBudget,
 	renderContextMarkdown,
@@ -643,6 +644,76 @@ describe('model-family guidance (phase 143)', () => {
 		});
 		assert.match(context.systemPrompt, /HOUSE RULE/u);
 		assert.equal(context.modelGuidance?.source, 'override');
+	});
+
+	// Phase 264: detectNodeEsm fires on node: module references in task prompt
+	it('phase 264: detectNodeEsm returns true when task prompt contains node: module reference', async () => {
+		// Greenfield workspace — no files, no package.json, no .mjs
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ctx-node-prefix-'));
+		assert.equal(
+			await detectNodeEsm(cwd, [], 'build a tasks API using node:sqlite'),
+			true,
+		);
+	});
+
+	it('phase 264: detectNodeEsm fires for node:http in task prompt', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ctx-node-http-'));
+		assert.equal(
+			await detectNodeEsm(cwd, [], 'create a server.js with node:http'),
+			true,
+		);
+	});
+
+	it('phase 264: detectNodeEsm fires for node:test in task prompt', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ctx-node-test-'));
+		assert.equal(
+			await detectNodeEsm(cwd, [], 'write tests using node:test'),
+			true,
+		);
+	});
+
+	it('phase 264: detectNodeEsm does not fire for plain .js with no node: prefix', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ctx-plain-js-'));
+		// Plain .js prompt without node: prefix should return false on an empty workspace
+		assert.equal(
+			await detectNodeEsm(cwd, [], 'build a tasks API with server.js'),
+			false,
+		);
+	});
+
+	// Phase 264: SQLITE_TASK_PATTERN greenfield node detection
+	it('phase 264: lang:node detected when task prompt matches SQLITE_TASK_PATTERN on greenfield workspace', async () => {
+		// Greenfield: no .mjs, no package.json. The task mentions DatabaseSync.
+		// buildWorkspaceContext should detect node + sqlite and inject both skills.
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ctx-sqlite-greenfield-'));
+		const context = await buildWorkspaceContext(cwd, {
+			taskPrompt: 'build a notes API using DatabaseSync',
+		});
+		// lang:node and lang:sqlite guidance should both appear in the system prompt.
+		// lang:node preamble contains "DatabaseSync" (the import anchor pitfall).
+		// lang:sqlite contains SQLite-specific guidance.
+		assert.match(context.systemPrompt, /DatabaseSync/u);
+		// languageGuidance array should include both node and sqlite
+		assert.ok(
+			context.languageGuidance?.some((g) => g.language === 'node'),
+			'expected lang:node in languageGuidance',
+		);
+		assert.ok(
+			context.languageGuidance?.some((g) => g.language === 'sqlite'),
+			'expected lang:sqlite in languageGuidance',
+		);
+	});
+
+	it('phase 264: plain sqlite keyword on greenfield triggers node + sqlite detection', async () => {
+		const cwd = await mkdtemp(join(tmpdir(), 'kodr-ctx-sqlite-plain-'));
+		const context = await buildWorkspaceContext(cwd, {
+			taskPrompt: 'build a REST API that stores data in sqlite',
+		});
+		assert.match(context.systemPrompt, /DatabaseSync/u);
+		assert.ok(
+			context.languageGuidance?.some((g) => g.language === 'node'),
+			'expected lang:node in languageGuidance',
+		);
 	});
 });
 

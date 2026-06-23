@@ -208,6 +208,9 @@ export function applyModelProfileDefaults(
 			next.inspectContext = false;
 		}
 	}
+	if (profile.suppressThinkingOnRunaway) {
+		next.suppressThinkingOnRunaway = true;
+	}
 	if (!options._editFormatSet) {
 		next.editFormat = profile.editFormat;
 	}
@@ -369,6 +372,9 @@ function normalizeProfile(profile, source) {
 		timeoutMs: positiveInteger(profile.timeoutMs, DEFAULT_TIMEOUT_MS),
 		toolWrites,
 		wireNoStream: profile.wireNoStream === true,
+		...(profile.suppressThinkingOnRunaway === true
+			? { suppressThinkingOnRunaway: true }
+			: {}),
 		...(toolAliases !== null ? { toolAliases } : {}),
 	};
 }

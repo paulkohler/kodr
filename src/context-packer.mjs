@@ -74,7 +74,25 @@ export async function buildWorkspaceContext(cwd, options = {}) {
 	// lang:sqlite is appended as a secondary when a primary is detected and the task
 	// prompt mentions SQLite. suppressLanguageGuidance already zeros isNodeEsm/isRust,
 	// so primaryLanguage is null and the sqlite branch is skipped automatically.
-	const primaryLanguage = isNodeEsm ? 'node' : isRust ? 'rust' : null;
+	// Phase 264: SQLITE_TASK_PATTERN match on a truly greenfield workspace (no files)
+	// with no Node/Rust signal defaults to 'node' — node:sqlite is Node-only, so sqlite
+	// keywords on an empty workspace are a strong Node indicator. Restricted to empty
+	// workspaces so an existing Python/Ruby/etc. workspace is not mis-labelled 'node'
+	// just because the task mentions sqlite. suppressLanguageGuidance already zeroes
+	// isNodeEsm/isRust so the sqlite path is safely bypassed there.
+	const sqliteMatch =
+		!isNodeEsm &&
+		!isRust &&
+		!options.suppressLanguageGuidance &&
+		files.length === 0 &&
+		SQLITE_TASK_PATTERN.test(options.taskPrompt || '');
+	const primaryLanguage = isNodeEsm
+		? 'node'
+		: isRust
+			? 'rust'
+			: sqliteMatch
+				? 'node'
+				: null;
 	const detectedLanguages = [];
 	if (primaryLanguage) detectedLanguages.push(primaryLanguage);
 	if (primaryLanguage && SQLITE_TASK_PATTERN.test(options.taskPrompt || '')) {
@@ -303,6 +321,13 @@ export async function detectNodeEsm(cwd, files, taskPrompt = '') {
 	// meant to coach (phase 121 validation found this gap). Precise on purpose:
 	// ".mjs"/".cjs" is an unambiguous ESM cue; ".js" and "node" are too broad.
 	if (typeof taskPrompt === 'string' && /\.(mjs|cjs)\b/u.test(taskPrompt)) {
+		return true;
+	}
+	// Phase 264: greenfield Node signal — task explicitly names a Node built-in
+	// module (e.g. node:sqlite, node:http, node:test, node:fs). Plain .js tasks
+	// on empty workspaces have no .mjs file or extension cue, but "node:" is an
+	// unambiguous Node.js-only reference that should always load Node guidance.
+	if (typeof taskPrompt === 'string' && /\bnode:[a-z]/u.test(taskPrompt)) {
 		return true;
 	}
 	// Check package.json "type":"module"

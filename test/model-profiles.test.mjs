@@ -439,4 +439,23 @@ describe('model profiles', () => {
 		});
 		assert.equal(options.inspectContext, 'auto');
 	});
+
+	// Phase 264: suppressThinkingOnRunaway forwarded to options
+	it('phase 264: suppressThinkingOnRunaway is forwarded when profile has it set', () => {
+		// qwen3.6-35b-a3b has suppressThinkingOnRunaway: true in its built-in profile.
+		const options = applyModelProfileDefaults({
+			model: 'qwen/qwen3.6-35b-a3b',
+			provider: 'local',
+		});
+		assert.equal(options.suppressThinkingOnRunaway, true);
+	});
+
+	it('phase 264: suppressThinkingOnRunaway is not set for profiles without it', () => {
+		// devstral does not have suppressThinkingOnRunaway in its profile.
+		const options = applyModelProfileDefaults({
+			model: 'mistralai/devstral-small-2-2512',
+			provider: 'local',
+		});
+		assert.equal(options.suppressThinkingOnRunaway, undefined);
+	});
 });
