@@ -1,6 +1,8 @@
 # kodr
 
-> **This repo is retired.** It grew complex enough that development restarted from scratch as [**kodr2**](https://github.com/paulkohler/kodr2). This repo is kept as-is for history — the blog posts below still link to specific commits here. Active development continues in kodr2.
+> **This repo is retired.** After 264 phases, the numbered-phase workflow made the codebase hard to reason about — every change had to account for everything that came before it, and the "why" behind early decisions had scattered across two hundred-odd phase docs. Development restarted from scratch as [**kodr2**](https://github.com/paulkohler/kodr2): same idea (a zero-dependency coding harness for local models), rebuilt spec-first instead of phase-first, and dogfooded against real Terminal-Bench runs from day one.
+>
+> This repo is kept as-is and won't change further — the blog posts linked below still resolve to the exact commits they always pointed to. See [the switchover post](https://paulkohler.me/blog/2026-07-07-kodr2-starting-over/) for the full story. Active development continues in kodr2.
 
 `kodr` is a zero-runtime-dependency coding harness for local OpenAI-compatible models, initially LM Studio at `http://localhost:1234/v1`.
 
