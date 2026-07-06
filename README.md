@@ -1,5 +1,7 @@
 # kodr
 
+> **This repo is retired.** It grew complex enough that development restarted from scratch as [**kodr2**](https://github.com/paulkohler/kodr2). This repo is kept as-is for history — the blog posts below still link to specific commits here. Active development continues in kodr2.
+
 `kodr` is a zero-runtime-dependency coding harness for local OpenAI-compatible models, initially LM Studio at `http://localhost:1234/v1`.
 
 The repo is also a learning artifact. The implementation, tests, fixes, and rollbacks across each phase were driven with a harness such as Codex or Claude; the code, tests, decisions, failures, and blog posts evolve together so the build process stays readable, not just the finished code.
